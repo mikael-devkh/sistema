@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 function buildBaseUrl(cloudId?: string, site?: string): string {
-  const useEx = true;
+  const useEx = false;
   
   if (useEx && cloudId) {
     return `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3`;

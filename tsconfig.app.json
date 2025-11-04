@@ -10,18 +10,21 @@
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
-    "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
 
     /* Linting */
-    "strict": false,
+    "strict": false, // Você tinha isso como 'false' no seu .app, então mantive
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noImplicitAny": false,
-    "noFallthroughCasesInSwitch": false,
-
-    "baseUrl": "."
+    "noFallthroughCasesInSwitch": false
   },
-  "include": ["src"]
+  "references": [
+    { "path": "./tsconfig.node.json" },
+    { "path": "./tsconfig.app.json" }
+  ],
+  // ESTA É A NOVA SEÇÃO QUE CORRIGE O BUILD:
+  "exclude": [
+    "api" 
+  ]
 }

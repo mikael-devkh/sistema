@@ -23,16 +23,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
-import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
+import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search, DownloadCloud } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { toast } from "sonner";
 import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
-import { searchFsasByStore } from "../lib/fsa";
-import { storesData } from "../data/storesData";
+import { searchMyQueueFsas } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
 import type { JiraIssue } from "../lib/jira";
 import {
   cloneRatFormData,
@@ -185,10 +183,12 @@ const RatForm = () => {
   const [issueKeyToAttach, setIssueKeyToAttach] = useState("");
   const [creatingJiraIssue, setCreatingJiraIssue] = useState(false);
   const [createdIssueKey, setCreatedIssueKey] = useState<string | null>(null);
-  const [selectedStore, setSelectedStore] = useState<string>('');
-  const [storeFsaList, setStoreFsaList] = useState<JiraIssue[]>([]);
-  const [isStoreSearchLoading, setIsStoreSearchLoading] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Estados para a nova busca "Minha Fila"
+  const [myQueueFsas, setMyQueueFsas] = useState<JiraIssue[]>([]);
+  const [myQueueStores, setMyQueueStores] = useState<string[]>([]);
+  const [selectedQueueStore, setSelectedQueueStore] = useState<string>('');
+  const [filteredFsas, setFilteredFsas] = useState<JiraIssue[]>([]);
+  const [isQueueLoading, setIsQueueLoading] = useState(false);
   const fsaLookupTimeoutRef = useRef<number | null>(null);
   const lastFsaQueriedRef = useRef<string>("");
   const lastStoreQueriedRef = useRef<string>("");
@@ -666,30 +666,58 @@ const RatForm = () => {
     }
   };
 
-  const handleSearchByStore = async () => {
-    if (!selectedStore) {
-      toast.error('Selecione uma loja primeiro');
-      return;
-    }
-    setIsStoreSearchLoading(true);
-    setStoreFsaList([]);
+  const handleLoadMyQueue = async () => {
+    setIsQueueLoading(true);
+    setMyQueueFsas([]);
+    setMyQueueStores([]);
+    setSelectedQueueStore('');
+    setFilteredFsas([]);
+
     try {
-      const results = await searchFsasByStore(selectedStore);
-      if (results.length === 0) {
-        toast.info('Nenhuma FSA em aberto encontrada para esta loja.');
-      } else {
-        setStoreFsaList(results);
-        setIsModalOpen(true); // Abre o modal com os resultados
+      const issues = await searchMyQueueFsas();
+
+      if (issues.length === 0) {
+        toast.info('Nenhuma FSA encontrada na sua fila.');
+        return;
       }
+
+      // Lógica para extrair lojas únicas (como o 'agrupar_chamados' do bot)
+      const storeNames = issues.map(
+        (issue) => issue.fields.customfield_14954?.value
+      ).filter(Boolean) as string[];
+      const uniqueStores = [...new Set(storeNames)].sort();
+
+      setMyQueueFsas(issues); // Salva todas as issues
+      setMyQueueStores(uniqueStores); // Salva apenas as lojas únicas
+      toast.success(`${issues.length} FSA(s) carregadas da sua fila.`);
+
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || 'Erro ao buscar FSAs');
+      toast.error(error.message || 'Erro ao carregar sua fila');
     } finally {
-      setIsStoreSearchLoading(false);
+      setIsQueueLoading(false);
     }
   };
 
-  const handleSelectFsa = (issue: JiraIssue) => {
+  useEffect(() => {
+    if (!selectedQueueStore) {
+      setFilteredFsas([]);
+      return;
+    }
+    const filtered = myQueueFsas.filter(
+      (issue) => issue.fields.customfield_14954?.value === selectedQueueStore
+    );
+    setFilteredFsas(filtered);
+  }, [selectedQueueStore, myQueueFsas]);
+
+  const handleSelectFsa = (issueKey: string) => {
+    // Encontra a issue completa na lista 'myQueueFsas'
+    const issue = myQueueFsas.find(fsa => fsa.key === issueKey);
+    if (!issue) {
+      toast.error("Issue não encontrada");
+      return;
+    }
+
     // Preenche o formulário com os dados da FSA selecionada
     setFormData(prev => ({
       ...prev,
@@ -698,8 +726,6 @@ const RatForm = () => {
       defeitoProblema: issue.fields?.summary || prev.defeitoProblema,
       diagnosticoTestes: typeof issue.fields?.description === 'string' ? issue.fields.description : prev.diagnosticoTestes,
     }));
-    setIsModalOpen(false); // Fecha o modal
-    setStoreFsaList([]); // Limpa a lista
     toast.success(`FSA ${issue.key} carregada!`);
   };
 
@@ -820,41 +846,69 @@ const RatForm = () => {
                 </div>
               ) : (
               <>
-                {/* BUSCA POR LOJA */}
+                {/* BUSCA DA MINHA FILA (NOVO) */}
                 <Card>
                   <CardHeader>
-                    <CardTitle>Buscar por Loja</CardTitle>
+                    <CardTitle>Buscar da Minha Fila</CardTitle>
                     <CardDescription>
-                      Selecione uma loja para ver as FSAs em aberto e pré-preencher a RAT.
+                      Carregue as FSAs atribuídas a você e filtre por loja.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="flex flex-col sm:flex-row gap-2">
-                    <Select value={selectedStore} onValueChange={setSelectedStore}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Selecione uma loja..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <ScrollArea className="h-72">
-                          {storesData.map((store) => (
-                            <SelectItem key={store.numeroLoja} value={store.nomeLoja}>
-                              {store.nomeLoja}
-                            </SelectItem>
-                          ))}
-                        </ScrollArea>
-                      </SelectContent>
-                    </Select>
+                  <CardContent className="flex flex-col gap-3">
                     <Button
-                      onClick={handleSearchByStore}
-                      disabled={isStoreSearchLoading || !selectedStore}
-                      className="w-full sm:w-auto"
+                      onClick={handleLoadMyQueue}
+                      disabled={isQueueLoading}
                     >
-                      {isStoreSearchLoading ? (
+                      {isQueueLoading ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (
-                        <Search className="mr-2 h-4 w-4" />
+                        <DownloadCloud className="mr-2 h-4 w-4" />
                       )}
-                      Buscar FSAs da Loja
+                      Carregar FSAs da Minha Fila
                     </Button>
+
+                    {/* Dropdowns que aparecem após carregar */}
+                    {myQueueStores.length > 0 && (
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        {/* Dropdown 1: Lojas */}
+                        <Select
+                          value={selectedQueueStore}
+                          onValueChange={setSelectedQueueStore}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione a Loja..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <ScrollArea className="h-72">
+                              {myQueueStores.map((storeName) => (
+                                <SelectItem key={storeName} value={storeName}>
+                                  {storeName}
+                                </SelectItem>
+                              ))}
+                            </ScrollArea>
+                          </SelectContent>
+                        </Select>
+
+                        {/* Dropdown 2: FSAs (filtradas) */}
+                        <Select
+                          onValueChange={handleSelectFsa}
+                          disabled={!selectedQueueStore}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Selecione a FSA..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <ScrollArea className="h-72">
+                              {filteredFsas.map((issue) => (
+                                <SelectItem key={issue.key} value={issue.key}>
+                                  {issue.key}: {issue.fields.summary}
+                                </SelectItem>
+                              ))}
+                            </ScrollArea>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1395,33 +1449,6 @@ const RatForm = () => {
                   </AccordionItem>
                 </Accordion>
 
-                {/* DIALOG (MODAL) DE RESULTADOS DA BUSCA POR LOJA */}
-                <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-                  <DialogContent className="sm:max-w-[625px]">
-                    <DialogHeader>
-                      <DialogTitle>Selecione a FSA para {selectedStore}</DialogTitle>
-                    </DialogHeader>
-                    <ScrollArea className="max-h-[60vh] pr-4">
-                      <div className="flex flex-col gap-2">
-                        {storeFsaList.map((issue) => (
-                          <Button
-                            key={issue.key}
-                            variant="outline"
-                            className="h-auto text-left justify-start"
-                            onClick={() => handleSelectFsa(issue)}
-                          >
-                            <div>
-                              <div className="font-bold">{issue.key}</div>
-                              <div className="text-muted-foreground text-sm whitespace-normal">
-                                {issue.fields.summary}
-                              </div>
-                            </div>
-                          </Button>
-                        ))}
-                      </div>
-                    </ScrollArea>
-                  </DialogContent>
-                </Dialog>
                 </>
               )}
 

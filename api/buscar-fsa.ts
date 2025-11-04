@@ -53,13 +53,69 @@ export default async function handler(
     // Criar autenticação Basic
     const auth = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
     
-    // Ler parâmetros do body (POST) ou query string (para compatibilidade)
-    const jql = (req.body?.jql as string | undefined) || (req.query.jql as string | undefined);
-    const fields = (req.body?.fields as string | undefined) || (req.query.fields as string | undefined) || 'summary,assignee,status,created';
-    const maxResults = (req.body?.maxResults as string | undefined) || (req.query.maxResults as string | undefined) || '50';
+    // Parse do body se for POST e tiver Content-Type application/json
+    let parsedBody: any = null;
+    if (req.method === 'POST') {
+      if (req.headers['content-type']?.includes('application/json')) {
+        try {
+          parsedBody = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+        } catch (e) {
+          console.error('Failed to parse JSON body:', e);
+        }
+      } else if (req.body) {
+        // Pode ser que o body já esteja parseado pela Vercel
+        parsedBody = req.body;
+      }
+    }
     
-    if (!jql) {
-      return res.status(400).json({ error: 'Missing required parameter: jql' });
+    // Ler parâmetros: prioriza body (POST), depois query string (GET/POST)
+    // A Vercel já decodifica a query string automaticamente
+    let jqlRaw: string | undefined = (parsedBody?.jql as string | undefined) || (req.query?.jql as string | undefined);
+    const fieldsParam = (parsedBody?.fields as string | undefined) || (req.query?.fields as string | undefined) || 'summary,assignee,status,created';
+    const maxResultsParam = (parsedBody?.maxResults as string | number | undefined) || (req.query?.maxResults as string | undefined) || '50';
+    
+    // Decodificar JQL se necessário (a Vercel já faz isso na maioria dos casos, mas garantimos)
+    let jql: string | undefined;
+    if (jqlRaw) {
+      try {
+        // Tenta decodificar, mas se já estiver decodificado, não vai dar erro
+        jql = decodeURIComponent(String(jqlRaw));
+      } catch {
+        // Se falhar (já está decodificado), usa o valor original
+        jql = String(jqlRaw);
+      }
+    }
+    
+    if (!jql || typeof jql !== 'string' || jql.trim() === '') {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: jql',
+        received: { jql: jql || null, method: req.method, hasBody: !!parsedBody, hasQuery: !!req.query.jql }
+      });
+    }
+    
+    // Processar fields: pode vir como string (separada por vírgula) ou array
+    let fieldsArray: string[];
+    if (Array.isArray(fieldsParam)) {
+      fieldsArray = fieldsParam.map(f => String(f).trim()).filter(Boolean);
+    } else {
+      fieldsArray = String(fieldsParam).split(',').map(f => f.trim()).filter(Boolean);
+    }
+    
+    // Garantir que fields não está vazio
+    if (fieldsArray.length === 0) {
+      fieldsArray = ['summary', 'assignee', 'status', 'created'];
+    }
+    
+    // Processar maxResults
+    const maxResults = typeof maxResultsParam === 'number' 
+      ? maxResultsParam 
+      : parseInt(String(maxResultsParam), 10);
+    
+    if (isNaN(maxResults) || maxResults < 1) {
+      return res.status(400).json({ 
+        error: 'Invalid maxResults parameter. Must be a positive number.',
+        received: maxResultsParam
+      });
     }
     
     // Construir URL da API do Jira (agora usando o endpoint POST /search/jql)
@@ -67,9 +123,9 @@ export default async function handler(
     
     // Preparar o corpo (body) da requisição
     const body = {
-      jql: jql,
-      fields: fields.split(',').map(f => f.trim()).filter(Boolean),
-      maxResults: parseInt(maxResults, 10)
+      jql: jql.trim(),
+      fields: fieldsArray,
+      maxResults: Math.min(maxResults, 100) // Limitar a 100 para segurança
     };
     
     // Chamar API do Jira para buscar issues

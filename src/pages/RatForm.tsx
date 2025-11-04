@@ -23,13 +23,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
-import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3 } from "lucide-react";
+import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { toast } from "sonner";
 import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
-import { searchActiveFsasForRat } from "../lib/fsa";
+import { searchFsaByKey } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
 import type { JiraIssue } from "../types/rat";
 import {
@@ -183,12 +183,9 @@ const RatForm = () => {
   const [issueKeyToAttach, setIssueKeyToAttach] = useState("");
   const [creatingJiraIssue, setCreatingJiraIssue] = useState(false);
   const [createdIssueKey, setCreatedIssueKey] = useState<string | null>(null);
-  // Estados para a nova busca "FSAs Ativas"
-  const [activeFsas, setActiveFsas] = useState<JiraIssue[]>([]);
-  const [activeStores, setActiveStores] = useState<string[]>([]);
-  const [selectedStore, setSelectedStore] = useState<string>('');
-  const [filteredFsas, setFilteredFsas] = useState<JiraIssue[]>([]);
-  const [isQueueLoading, setIsQueueLoading] = useState(true); // Default true para mostrar loading inicial
+  // Estados para busca por número
+  const [fsaNumberInput, setFsaNumberInput] = useState('');
+  const [isFsaSearchLoading, setIsFsaSearchLoading] = useState(false);
   const fsaLookupTimeoutRef = useRef<number | null>(null);
   const lastFsaQueriedRef = useRef<string>("");
   const lastStoreQueriedRef = useRef<string>("");
@@ -666,76 +663,46 @@ const RatForm = () => {
     }
   };
 
-  // Efeito para carregar a fila de FSAs automaticamente na montagem
-  useEffect(() => {
-    async function loadActiveFsas() {
-      setIsQueueLoading(true);
-      try {
-        const issues = await searchActiveFsasForRat();
-
-        if (issues.length === 0) {
-          toast.info('Nenhuma FSA encontrada na fila ativa.');
-          return;
-        }
-
-        // Lógica para extrair lojas únicas
-        const storeNames = issues.map(
-          (issue) => issue.fields.customfield_14954?.value
-        ).filter(Boolean) as string[];
-        const uniqueStores = [...new Set(storeNames)].sort();
-
-        setActiveFsas(issues); // Salva todas as issues
-        setActiveStores(uniqueStores); // Salva apenas as lojas únicas
-
-      } catch (error: any) {
-        console.error(error);
-        toast.error(error.message || 'Erro ao carregar fila ativa');
-      } finally {
-        setIsQueueLoading(false);
-      }
-    }
-
-    loadActiveFsas();
-  }, []); // O array vazio [] faz isso rodar uma vez na montagem
-
-  // Efeito para filtrar FSAs quando a loja é selecionada
-  useEffect(() => {
-    if (!selectedStore) {
-      setFilteredFsas([]);
-      return;
-    }
-    const filtered = activeFsas.filter(
-      (issue) => issue.fields.customfield_14954?.value === selectedStore
-    );
-    setFilteredFsas(filtered);
-  }, [selectedStore, activeFsas]);
-
-  const handleSelectFsa = (issueKey: string) => {
-    const issue = activeFsas.find(fsa => fsa.key === issueKey);
-    if (!issue) {
-      toast.error("Issue não encontrada");
+  const handleFsaSearch = async () => {
+    if (!fsaNumberInput) {
+      toast.error('Digite o número da FSA');
       return;
     }
 
-    const fields = issue.fields;
-    console.log("Preenchendo RAT com dados da FSA:", fields);
+    setIsFsaSearchLoading(true);
+    try {
+      const issue = await searchFsaByKey(fsaNumberInput);
+      const fields = issue.fields;
+      
+      // ---- DEBUG ----
+      console.log('FORMULÁRIO: Preenchendo RAT com dados da FSA:', issue);
+      // ---------------
 
-    clearAutofillData(); // Limpa dados de autofill antigos
+      clearAutofillData();
 
-    // Preenche todos os campos da RAT com os dados da FSA
-    setFormData(prev => ({
-      ...prev,
-      fsa: issue.key || prev.fsa,
-      codigoLoja: fields.customfield_14954?.value || prev.codigoLoja,
-      pdv: fields.customfield_14829 || prev.pdv,
-      endereco: fields.customfield_12271 || prev.endereco,
-      cidade: fields.customfield_11994 || prev.cidade,
-      uf: fields.customfield_11948?.value || prev.uf,
-      defeitoProblema: fields.summary || prev.defeitoProblema,
-      diagnosticoTestes: fields.description || '(Sem descrição)',
-    }));
+      // Preenche o formulário
+      setFormData(prev => ({
+        ...prev,
+        fsa: issue.key || prev.fsa,
+        codigoLoja: fields.customfield_14954?.value || prev.codigoLoja,
+        pdv: fields.customfield_14829 || prev.pdv,
+        endereco: fields.customfield_12271 || prev.endereco,
+        cidade: fields.customfield_11994 || prev.cidade,
+        uf: fields.customfield_11948?.value || prev.uf,
+        defeitoProblema: fields.summary || prev.defeitoProblema,
+        diagnosticoTestes: fields.description || '(Sem descrição)',
+      }));
 
-    toast.success(`FSA ${issue.key} carregada e formulário preenchido!`);
+      // Preenche o contexto (se ainda usado)
+      clearAutofillData();
+      
+      toast.success(`FSA ${issue.key} carregada e formulário preenchido!`);
+    } catch (error: any) {
+      console.error("Erro na busca:", error);
+      toast.error(error.message || 'Erro ao buscar FSA');
+    } finally {
+      setIsFsaSearchLoading(false);
+    }
   };
 
   return (
@@ -853,69 +820,45 @@ const RatForm = () => {
                     <Skeleton className="h-11 w-56 rounded-md" />
                   </div>
                 </div>
-              ) : (
-              <>
-                {/* BUSCA DA MINHA FILA (NOVO) */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Buscar da Minha Fila</CardTitle>
-                    <CardDescription>
-                      Carregue as FSAs ativas e filtre por loja.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-3">
-                    {isQueueLoading ? (
-                      // Estado de Carregamento
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <Skeleton className="h-10 w-full" />
-                        <Skeleton className="h-10 w-full" />
+                            ) : (
+                <>
+                  {/* BUSCA POR NÚMERO (CORRIGIDO) */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Buscar FSA por Número</CardTitle>
+                      <CardDescription>
+                        Digite o número da FSA (Ex: 101139) para preencher os dados.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex w-full items-center space-x-2">
+                        <Input
+                          type="text"
+                          placeholder="Ex: 101139 ou FSA-101139"
+                          value={fsaNumberInput}
+                          onChange={(e) => setFsaNumberInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault(); // Impede o submit do formulário
+                              handleFsaSearch();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button" // Impede o submit do formulário
+                          onClick={handleFsaSearch}
+                          disabled={isFsaSearchLoading}
+                        >
+                          {isFsaSearchLoading ? (
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          ) : (
+                            <Search className="mr-2 h-4 w-4" />
+                          )}
+                          Buscar
+                        </Button>
                       </div>
-                    ) : (
-                      // Estado Carregado (só mostra se houver lojas)
-                      activeStores.length > 0 && (
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          {/* Dropdown 1: Lojas */}
-                          <Select
-                            value={selectedStore}
-                            onValueChange={setSelectedStore}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione a Loja..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <ScrollArea className="h-72">
-                                {activeStores.map((storeName) => (
-                                  <SelectItem key={storeName} value={storeName}>
-                                    {storeName}
-                                  </SelectItem>
-                                ))}
-                              </ScrollArea>
-                            </SelectContent>
-                          </Select>
-
-                          {/* Dropdown 2: FSAs (filtradas) */}
-                          <Select
-                            onValueChange={handleSelectFsa}
-                            disabled={!selectedStore}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione a FSA..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <ScrollArea className="h-72">
-                                {filteredFsas.map((issue) => (
-                                  <SelectItem key={issue.key} value={issue.key}>
-                                    {issue.key}: {issue.fields.summary}
-                                  </SelectItem>
-                                ))}
-                              </ScrollArea>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      )
-                    )}
-                  </CardContent>
-                </Card>
+                    </CardContent>
+                  </Card>
 
                 <Accordion
                   type="multiple"

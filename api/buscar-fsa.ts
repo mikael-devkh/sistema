@@ -10,19 +10,18 @@ function buildBaseUrl(cloudId?: string, site?: string): string {
   if (site) {
     return `${site.replace(/\/$/, '')}/rest/api/3`;
   }
-  throw new Error('Missing Jira base config: JIRA_CLOUD_ID or JIRA_BASE_URL required');
+  throw new Error('Missing Jira base config: JIRA_BASE_URL required');
 }
 
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // CORS headers (permitindo POST)
+  // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS'); // APENAS POST E OPTIONS
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS'); // APENAS POST
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
-  // Handle preflight
   if (req.method === 'OPTIONS') {
     return res.status(204).end();
   }
@@ -33,24 +32,23 @@ export default async function handler(
   }
   
   try {
-    // Ler credenciais
+    // ---- DEBUG ----
+    console.log('API /api/buscar-fsa RECEBEU BODY:', req.body);
+    // ---------------
+    
     const email = process.env.JIRA_USER_EMAIL || process.env.JIRA_EMAIL;
     const token = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN;
-    const cloudId = process.env.JIRA_CLOUD_ID;
     const site = process.env.JIRA_BASE_URL || process.env.JIRA_URL;
     
-    if (!email || !token) {
-      console.error('Missing JIRA credentials');
-      return res.status(500).json({ error: 'Jira credentials not configured.' });
+    if (!email || !token || !site) {
+      console.error('Missing JIRA credentials or JIRA_BASE_URL');
+      return res.status(500).json({ error: 'Jira config incomplete.' });
     }
     
-    // Construir URL base
-    const baseUrl = buildBaseUrl(cloudId, site);
-    
-    // Autenticação Basic
+    const baseUrl = buildBaseUrl(undefined, site);
     const auth = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
     
-    // 2. LER PARÂMETROS DO BODY (NÃO DA QUERY)
+    // 2. LER PARÂMETROS DO BODY
     const { jql, fields, maxResults } = req.body;
     
     if (!jql) {
@@ -80,14 +78,8 @@ export default async function handler(
     
     if (!jiraResponse.ok) {
       console.error('Jira API error:', responseData);
-      let errorMessage = 'Failed to search Jira issues';
-      try {
-        const errorJson = JSON.parse(responseData);
-        errorMessage = errorJson.errorMessages?.join(', ') || errorJson.message || errorMessage;
-      } catch {}
-      
       return res.status(jiraResponse.status).json({
-        error: errorMessage,
+        error: 'Failed to search Jira issues',
         details: responseData
       });
     }

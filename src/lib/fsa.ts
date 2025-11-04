@@ -1,7 +1,7 @@
-import { jiraSearch } from "./jira";
-import type { JiraIssue, JiraSearchResult } from "../types/rat";
-import { getFsaById, createOrUpdateFsa } from "./workflow-firestore";
-import { loadPreferences } from "../utils/settings";
+import type { JiraIssue, JiraSearchResult } from '../types/rat';
+import { jiraSearch } from './jira';
+import { getFsaById, createOrUpdateFsa } from './workflow-firestore';
+import { loadPreferences } from '../utils/settings';
 
 export interface FsaDetails {
   fsaId?: string;
@@ -153,107 +153,108 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
     }
   }
 
-  // 2) Tenta Jira: busca por FSA ou por loja
+  // 2) Tenta Jira: busca por FSA usando a nova função
   try {
-    const clauses: string[] = [];
     if (fsaNorm) {
-      clauses.push(`text ~ "FSA ${fsaNorm}"`);
-      clauses.push(`text ~ "FSA-${fsaNorm}"`);
-      clauses.push(`summary ~ "${fsaNorm}"`);
-    }
-    if (storeNorm) {
-      clauses.push(`text ~ "Loja ${storeNorm}"`);
-      clauses.push(`summary ~ "${storeNorm}"`);
-    }
-    if (!clauses.length) return null;
-    const jql = clauses.join(" OR ") + " ORDER BY updated DESC";
-    const issues = await jiraSearch(jql, ["summary","description","created"]);
-    if (!issues?.length) return null;
-    // Cast para o tipo esperado (jiraSearch retorna o tipo antigo, mas os campos são compatíveis)
-    const parsed = parseAddressFromIssue(issues[0] as JiraIssue);
-    const details: FsaDetails = {
-      fsaId: fsaNorm,
-      storeCode: parsed.storeCode || storeNorm,
-      endereco: parsed.endereco,
-      cidade: parsed.cidade,
-      uf: parsed.uf,
-    };
+      const issue = await searchFsaByKey(fsaNorm);
+      const parsed = parseAddressFromIssue(issue);
+      const details: FsaDetails = {
+        fsaId: fsaNorm,
+        storeCode: parsed.storeCode || storeNorm,
+        endereco: parsed.endereco,
+        cidade: parsed.cidade,
+        uf: parsed.uf,
+      };
 
-    // 3) Persiste cache em Firestore quando tivermos FSA e loja
-    if (details.fsaId && details.storeCode) {
-      try {
-        const obsParts = [details.endereco, [details.cidade, details.uf].filter(Boolean).join("/ ")].filter(Boolean);
-        await createOrUpdateFsa({
-          id: details.fsaId,
-          loja: details.storeCode,
-          observacoes: obsParts.join(" - ") || undefined,
-          status: 'open',
-        });
-      } catch {}
-    }
+      // 3) Persiste cache em Firestore quando tivermos FSA e loja
+      if (details.fsaId && details.storeCode) {
+        try {
+          const obsParts = [details.endereco, [details.cidade, details.uf].filter(Boolean).join("/ ")].filter(Boolean);
+          await createOrUpdateFsa({
+            id: details.fsaId,
+            loja: details.storeCode,
+            observacoes: obsParts.join(" - ") || undefined,
+            status: 'open',
+          });
+        } catch {}
+      }
 
-    return details;
+      return details;
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 /**
- * Busca todas as FSAs ativas na fila da equipe (Agendamento, Agendado, Tec-Campo).
- * Baseado na JQL_COMBINADA e FIELDS do bot de agendamento.
+ * Constrói uma JQL para buscar uma FSA específica pela chave (key).
  */
-export async function searchActiveFsasForRat(): Promise<JiraIssue[]> {
-  // JQL exata do bot: project = FSA AND status in (11499, 11481, 11500)
-  const jql = `project = FSA AND status in (11499, 11481, 11500) ORDER BY created DESC`;
+function buildJqlQueryByKey(fsaNumber: string): string {
+  // Garante que o número esteja no formato "FSA-101139"
+  const sanitizedNumber = fsaNumber.replace(/\D/g, ''); // Remove não-dígitos
+  if (!sanitizedNumber) throw new Error('Número da FSA inválido');
+  
+  const fsaKey = `FSA-${sanitizedNumber}`;
+  
+  // Retorna uma JQL que busca pela chave exata
+  return `key = "${fsaKey}"`;
+}
 
-  // Lista de campos exata do bot
+/**
+ * Busca uma ÚNICA FSA no Jira usando sua chave/número.
+ * Usa o método POST para a API /api/buscar-fsa.
+ */
+export async function searchFsaByKey(fsaNumber: string): Promise<JiraIssue> {
+  if (!fsaNumber) {
+    throw new Error('Número da FSA é obrigatório');
+  }
+  
+  const jql = buildJqlQueryByKey(fsaNumber);
+  
+  // Lista de campos exata do seu bot
   const fieldsToRequest = [
-    'summary',
-    'description', // Adicionado para preencher "detalhes"
-    'created',
-    'customfield_14954', // Loja
-    'customfield_14829', // PDV
-    'customfield_14825', // Ativo
-    'customfield_12374', // Problema (pode ser usado no futuro)
-    'customfield_12271', // Endereço
-    'customfield_11948', // Estado
-    'customfield_11993', // CEP
-    'customfield_11994', // Cidade
-    'customfield_12036', // Data Agendada (pode ser usado no futuro)
+    'summary', 'description', 'created', 'customfield_14954', 
+    'customfield_14829', 'customfield_14825', 'customfield_12374', 
+    'customfield_12271', 'customfield_11948', 'customfield_11993', 
+    'customfield_11994', 'customfield_12036',
   ];
 
-  console.log('Buscando FSAs Ativas JQL:', jql);
+  // ---- DEBUG ----
+  console.log('FRONTEND: Enviando para /api/buscar-fsa (POST) com body:', { jql, fieldsToRequest });
+  // ---------------
 
   const response = await fetch(`/api/buscar-fsa`, {
-    method: 'POST',
+    method: 'POST', // Corrigido para POST
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,
-      maxResults: 150 // Limite
+      maxResults: 1 // Queremos apenas 1 resultado
     }),
   });
 
+  const data: JiraSearchResult | { error: string, details?: any } = await response.json();
+
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Falha ao buscar FSAs ativas' }));
-    console.error('Jira API error details:', errorData.details || errorData.error);
-    throw new Error(errorData.error || 'Erro ao buscar FSAs ativas');
+    const errorMsg = (data as any).error || 'Falha ao buscar FSA';
+    console.error('FRONTEND: Erro da API:', (data as any).details || data);
+    throw new Error(errorMsg);
   }
 
-  const data: JiraSearchResult = await response.json();
+  const searchResult = data as JiraSearchResult;
   
-  if (!data.issues || data.issues.length === 0) {
-    return [];
+  if (!searchResult.issues || searchResult.issues.length === 0) {
+    throw new Error(`FSA "${fsaNumber}" não encontrada.`);
   }
 
-  // Filtra localmente issues que não tenham o campo Loja (essencial para agrupar)
-  const validIssues = data.issues.filter(
-    (issue) => issue.fields.customfield_14954?.value
-  );
-  
-  return validIssues;
+  // ---- DEBUG ----
+  console.log('FRONTEND: Recebido da API:', searchResult.issues[0]);
+  // ---------------
+
+  return searchResult.issues[0]; // Retorna a primeira (e única) issue
 }
 
 

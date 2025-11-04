@@ -29,7 +29,7 @@ import { toast } from "sonner";
 import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
-import { searchFsaByKey } from "../lib/fsa";
+import { searchFsaByNumber } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
 import type { JiraIssue } from "../types/rat";
 import {
@@ -671,7 +671,7 @@ const RatForm = () => {
 
     setIsFsaSearchLoading(true);
     try {
-      const issue = await searchFsaByKey(fsaNumberInput);
+      const issue = await searchFsaByNumber(fsaNumberInput);
       const fields = issue.fields;
       
       // ---- DEBUG ----

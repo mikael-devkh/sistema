@@ -156,7 +156,7 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
   // 2) Tenta Jira: busca por FSA usando a nova função
   try {
     if (fsaNorm) {
-      const issue = await searchFsaByKey(fsaNorm);
+      const issue = await searchFsaByNumber(fsaNorm);
       const parsed = parseAddressFromIssue(issue);
       const details: FsaDetails = {
         fsaId: fsaNorm,
@@ -188,29 +188,27 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
 }
 
 /**
- * Constrói uma JQL para buscar uma FSA específica pela chave (key).
+ * Constrói uma JQL para buscar uma FSA pelo seu número em texto/resumo.
+ * Baseado na JQL original do frontend.
  */
-function buildJqlQueryByKey(fsaNumber: string): string {
-  // Garante que o número esteja no formato "FSA-101139"
-  const sanitizedNumber = fsaNumber.replace(/\D/g, ''); // Remove não-dígitos
+function buildJqlQueryByNumber(fsaNumber: string): string {
+  const sanitizedNumber = fsaNumber.replace(/\D/g, ''); // Apenas números
   if (!sanitizedNumber) throw new Error('Número da FSA inválido');
-  
-  const fsaKey = `FSA-${sanitizedNumber}`;
-  
-  // Retorna uma JQL que busca pela chave exata
-  return `key = "${fsaKey}"`;
+
+  // JQL corrigida (sem aspas duplas extras)
+  return `text ~ "FSA ${sanitizedNumber}" OR text ~ "FSA-${sanitizedNumber}" OR summary ~ "${sanitizedNumber}" ORDER BY created DESC`;
 }
 
 /**
- * Busca uma ÚNICA FSA no Jira usando sua chave/número.
+ * Busca uma FSA no Jira usando o seu número (em texto/resumo).
  * Usa o método POST para a API /api/buscar-fsa.
  */
-export async function searchFsaByKey(fsaNumber: string): Promise<JiraIssue> {
+export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   if (!fsaNumber) {
     throw new Error('Número da FSA é obrigatório');
   }
-  
-  const jql = buildJqlQueryByKey(fsaNumber);
+
+  const jql = buildJqlQueryByNumber(fsaNumber);
   
   // Lista de campos exata do seu bot
   const fieldsToRequest = [
@@ -232,7 +230,7 @@ export async function searchFsaByKey(fsaNumber: string): Promise<JiraIssue> {
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,
-      maxResults: 1 // Queremos apenas 1 resultado
+      maxResults: 1 // Queremos o resultado mais recente
     }),
   });
 
@@ -247,14 +245,14 @@ export async function searchFsaByKey(fsaNumber: string): Promise<JiraIssue> {
   const searchResult = data as JiraSearchResult;
   
   if (!searchResult.issues || searchResult.issues.length === 0) {
-    throw new Error(`FSA "${fsaNumber}" não encontrada.`);
+    throw new Error(`Nenhuma FSA encontrada para o número "${fsaNumber}".`);
   }
 
   // ---- DEBUG ----
   console.log('FRONTEND: Recebido da API:', searchResult.issues[0]);
   // ---------------
 
-  return searchResult.issues[0]; // Retorna a primeira (e única) issue
+  return searchResult.issues[0]; // Retorna a issue mais recente encontrada
 }
 
 

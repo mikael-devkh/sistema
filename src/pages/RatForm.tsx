@@ -178,6 +178,8 @@ const RatForm = () => {
   const [autoPreview, setAutoPreview] = useState(true);
   const autoPreviewTimeoutRef = useRef<number | null>(null);
   const [issueKeyToAttach, setIssueKeyToAttach] = useState("");
+  const [creatingJiraIssue, setCreatingJiraIssue] = useState(false);
+  const [createdIssueKey, setCreatedIssueKey] = useState<string | null>(null);
   const fsaLookupTimeoutRef = useRef<number | null>(null);
   const lastFsaQueriedRef = useRef<string>("");
   const lastStoreQueriedRef = useRef<string>("");
@@ -1438,26 +1440,97 @@ const RatForm = () => {
                   </AccordionItem>
 
                   <AccordionItem value="jira">
-                    <AccordionTrigger className="px-4">Anexar no Jira</AccordionTrigger>
+                    <AccordionTrigger className="px-4">Integração com Jira</AccordionTrigger>
                     <AccordionContent>
-                      <div className="p-4 space-y-3">
-                        <div className="text-xs text-muted-foreground">Informe a issue (ex.: PROJ-123) e anexaremos o PDF atual da pré-visualização.</div>
-                        <div className="flex gap-2">
-                          <Input placeholder="PROJ-123" value={issueKeyToAttach} onChange={(e)=>setIssueKeyToAttach(e.target.value)} />
-                          <Button type="button" onClick={async ()=>{
-                            try {
-                              const { blob } = await generateRatPDFBlob(formData);
-                              await jiraAttach(issueKeyToAttach.trim(), `RAT-${formData.fsa || 'sem-fsa'}.pdf`, blob);
-                              toast.success('Anexado no Jira');
-                            } catch (e) {
-                              console.error(e);
-                              toast.error('Falha ao anexar no Jira');
-                            }
-                          }} disabled={!issueKeyToAttach.trim()}>
-                            Anexar
+                      <div className="p-4 space-y-4">
+                        {/* Criar Issue no Jira */}
+                        <div className="space-y-3">
+                          <div className="text-sm font-medium">Criar Chamado no Jira</div>
+                          <div className="text-xs text-muted-foreground">
+                            Cria uma nova issue no Jira com os dados do RAT atual.
+                          </div>
+                          {createdIssueKey && (
+                            <div className="p-2 bg-green-500/10 border border-green-500/20 rounded text-xs text-green-600 dark:text-green-400">
+                              Issue criada: <strong>{createdIssueKey}</strong>
+                            </div>
+                          )}
+                          <Button 
+                            type="button" 
+                            onClick={async ()=>{
+                              setCreatingJiraIssue(true);
+                              setCreatedIssueKey(null);
+                              try {
+                                const response = await fetch('/api/gerar-rat', {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify(formData)
+                                });
+
+                                const result = await response.json();
+
+                                if (!response.ok) {
+                                  throw new Error(result.error || 'Falha ao criar issue no Jira');
+                                }
+
+                                setCreatedIssueKey(result.issueKey);
+                                toast.success(`Issue ${result.issueKey} criada no Jira com sucesso!`);
+                                triggerHaptic(80);
+                                
+                                // Atualiza o campo de anexar automaticamente
+                                if (result.issueKey) {
+                                  setIssueKeyToAttach(result.issueKey);
+                                }
+                              } catch (e: any) {
+                                console.error('Erro ao criar issue no Jira:', e);
+                                toast.error(e.message || 'Falha ao criar issue no Jira');
+                              } finally {
+                                setCreatingJiraIssue(false);
+                              }
+                            }} 
+                            disabled={creatingJiraIssue}
+                            className="w-full"
+                          >
+                            {creatingJiraIssue ? 'Criando...' : 'Criar Issue no Jira'}
                           </Button>
                         </div>
-                        <div className="text-xs text-muted-foreground">Requer VITE_JIRA_PROXY_BASE configurado e proxy publicado.</div>
+
+                        <div className="border-t pt-4 space-y-3">
+                          {/* Anexar PDF em Issue Existente */}
+                          <div className="text-sm font-medium">Anexar PDF em Issue Existente</div>
+                          <div className="text-xs text-muted-foreground">
+                            Informe a issue (ex.: PROJ-123) e anexaremos o PDF atual da pré-visualização.
+                          </div>
+                          <div className="flex gap-2">
+                            <Input 
+                              placeholder="PROJ-123" 
+                              value={issueKeyToAttach} 
+                              onChange={(e)=>setIssueKeyToAttach(e.target.value)} 
+                            />
+                            <Button 
+                              type="button" 
+                              onClick={async ()=>{
+                                try {
+                                  const { blob } = await generateRatPDFBlob(formData);
+                                  await jiraAttach(issueKeyToAttach.trim(), `RAT-${formData.fsa || 'sem-fsa'}.pdf`, blob);
+                                  toast.success('Anexado no Jira');
+                                  triggerHaptic(80);
+                                } catch (e) {
+                                  console.error(e);
+                                  toast.error('Falha ao anexar no Jira');
+                                }
+                              }} 
+                              disabled={!issueKeyToAttach.trim()}
+                            >
+                              Anexar
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="text-xs text-muted-foreground pt-2 border-t">
+                          Requer variáveis de ambiente configuradas na Vercel (JIRA_USER_EMAIL, JIRA_API_TOKEN, JIRA_CLOUD_ID).
+                        </div>
                       </div>
                     </AccordionContent>
                   </AccordionItem>

@@ -23,12 +23,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
-import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3 } from "lucide-react";
+import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { toast } from "sonner";
 import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
+import { searchFsasByStore } from "../lib/fsa";
+import { storesData } from "../data/storesData";
+import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/ui/dialog";
+import type { JiraIssue } from "../lib/jira";
 import {
   cloneRatFormData,
   createEmptyRatFormData,
@@ -180,6 +185,10 @@ const RatForm = () => {
   const [issueKeyToAttach, setIssueKeyToAttach] = useState("");
   const [creatingJiraIssue, setCreatingJiraIssue] = useState(false);
   const [createdIssueKey, setCreatedIssueKey] = useState<string | null>(null);
+  const [selectedStore, setSelectedStore] = useState<string>('');
+  const [storeFsaList, setStoreFsaList] = useState<JiraIssue[]>([]);
+  const [isStoreSearchLoading, setIsStoreSearchLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const fsaLookupTimeoutRef = useRef<number | null>(null);
   const lastFsaQueriedRef = useRef<string>("");
   const lastStoreQueriedRef = useRef<string>("");
@@ -657,6 +666,43 @@ const RatForm = () => {
     }
   };
 
+  const handleSearchByStore = async () => {
+    if (!selectedStore) {
+      toast.error('Selecione uma loja primeiro');
+      return;
+    }
+    setIsStoreSearchLoading(true);
+    setStoreFsaList([]);
+    try {
+      const results = await searchFsasByStore(selectedStore);
+      if (results.length === 0) {
+        toast.info('Nenhuma FSA em aberto encontrada para esta loja.');
+      } else {
+        setStoreFsaList(results);
+        setIsModalOpen(true); // Abre o modal com os resultados
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || 'Erro ao buscar FSAs');
+    } finally {
+      setIsStoreSearchLoading(false);
+    }
+  };
+
+  const handleSelectFsa = (issue: JiraIssue) => {
+    // Preenche o formulário com os dados da FSA selecionada
+    setFormData(prev => ({
+      ...prev,
+      fsa: issue.key || prev.fsa,
+      codigoLoja: prev.codigoLoja, // Mantém o que já estava preenchido
+      defeitoProblema: issue.fields?.summary || prev.defeitoProblema,
+      diagnosticoTestes: typeof issue.fields?.description === 'string' ? issue.fields.description : prev.diagnosticoTestes,
+    }));
+    setIsModalOpen(false); // Fecha o modal
+    setStoreFsaList([]); // Limpa a lista
+    toast.success(`FSA ${issue.key} carregada!`);
+  };
+
   return (
       <div className="min-h-screen bg-gradient-primary px-4 py-8 pt-24">
         <div className="max-w-6xl mx-auto space-y-6">
@@ -773,12 +819,51 @@ const RatForm = () => {
                   </div>
                 </div>
               ) : (
-              <Accordion
-                type="multiple"
-                defaultValue={["identificacao", "equipamento", "laudo", "contatos"]}
-                className="space-y-4"
-              >
-                <AccordionItem value="identificacao">
+              <>
+                {/* BUSCA POR LOJA */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Buscar por Loja</CardTitle>
+                    <CardDescription>
+                      Selecione uma loja para ver as FSAs em aberto e pré-preencher a RAT.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex flex-col sm:flex-row gap-2">
+                    <Select value={selectedStore} onValueChange={setSelectedStore}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Selecione uma loja..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <ScrollArea className="h-72">
+                          {storesData.map((store) => (
+                            <SelectItem key={store.numeroLoja} value={store.nomeLoja}>
+                              {store.nomeLoja}
+                            </SelectItem>
+                          ))}
+                        </ScrollArea>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      onClick={handleSearchByStore}
+                      disabled={isStoreSearchLoading || !selectedStore}
+                      className="w-full sm:w-auto"
+                    >
+                      {isStoreSearchLoading ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Search className="mr-2 h-4 w-4" />
+                      )}
+                      Buscar FSAs da Loja
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                <Accordion
+                  type="multiple"
+                  defaultValue={["identificacao", "equipamento", "laudo", "contatos"]}
+                  className="space-y-4"
+                >
+                  <AccordionItem value="identificacao">
                   <AccordionTrigger className="text-left text-lg font-semibold">
                     1. Identificação
                   </AccordionTrigger>
@@ -1309,6 +1394,35 @@ const RatForm = () => {
                     </AccordionContent>
                   </AccordionItem>
                 </Accordion>
+
+                {/* DIALOG (MODAL) DE RESULTADOS DA BUSCA POR LOJA */}
+                <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+                  <DialogContent className="sm:max-w-[625px]">
+                    <DialogHeader>
+                      <DialogTitle>Selecione a FSA para {selectedStore}</DialogTitle>
+                    </DialogHeader>
+                    <ScrollArea className="max-h-[60vh] pr-4">
+                      <div className="flex flex-col gap-2">
+                        {storeFsaList.map((issue) => (
+                          <Button
+                            key={issue.key}
+                            variant="outline"
+                            className="h-auto text-left justify-start"
+                            onClick={() => handleSelectFsa(issue)}
+                          >
+                            <div>
+                              <div className="font-bold">{issue.key}</div>
+                              <div className="text-muted-foreground text-sm whitespace-normal">
+                                {issue.fields.summary}
+                              </div>
+                            </div>
+                          </Button>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </DialogContent>
+                </Dialog>
+                </>
               )}
 
                 <div className="flex justify-center pt-2">

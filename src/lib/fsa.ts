@@ -196,4 +196,55 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
   }
 }
 
+// Tipo para a resposta da API de busca do Jira
+export interface JiraSearchResult {
+  expand?: string;
+  startAt?: number;
+  maxResults?: number;
+  total?: number;
+  issues: JiraIssue[];
+}
+
+function buildJqlQueryByStore(storeName: string): string {
+  const sanitizedName = storeName.replace(/"/g, '""');
+  // Usa o custom field ID para "Loja", filtrando FSAs que não estão concluídas ou canceladas
+  return `"customfield_14954" ~ "${sanitizedName}" AND status not in (Concluído, Cancelado, "FSA Concluída") ORDER BY created DESC`;
+}
+
+export async function searchFsasByStore(storeName: string): Promise<JiraIssue[]> {
+  if (!storeName) {
+    throw new Error('O nome da loja é obrigatório');
+  }
+
+  const jql = buildJqlQueryByStore(storeName);
+  console.log('Buscando por Loja JQL:', jql);
+
+  const response = await fetch(`/api/buscar-fsa`, {
+    method: 'POST', // Usando o método POST corrigido
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jql: jql,
+      fields: 'summary,description,created', // Os mesmos campos da busca por FSA
+      maxResults: 20 // Limite de 20 para a seleção
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ error: 'Falha ao buscar FSAs' }));
+    console.error('Jira API error details:', errorData.details || errorData.error);
+    throw new Error(errorData.error || 'Erro ao buscar FSAs da loja');
+  }
+
+  const data: JiraSearchResult = await response.json();
+
+  if (!data.issues || data.issues.length === 0) {
+    console.log('Nenhuma FSA encontrada para a loja:', storeName);
+    return []; // Retorna lista vazia
+  }
+
+  return data.issues; // Retorna a lista completa de issues
+}
+
 

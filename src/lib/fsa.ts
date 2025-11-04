@@ -202,24 +202,24 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
  * Busca todas as FSAs ativas na fila da equipe (Agendamento, Agendado, Tec-Campo).
  * Baseado na JQL_COMBINADA e FIELDS do bot de agendamento.
  */
-export async function searchActiveFsas(): Promise<JiraIssue[]> {
-  // JQL baseada na JQL_COMBINADA (IDs dos status 'AGENDAMENTO', 'Agendado', 'TEC-CAMPO')
+export async function searchActiveFsasForRat(): Promise<JiraIssue[]> {
+  // JQL exata do bot: project = FSA AND status in (11499, 11481, 11500)
   const jql = `project = FSA AND status in (11499, 11481, 11500) ORDER BY created DESC`;
 
-  // Lista de campos baseada nos scripts do bot
+  // Lista de campos exata do bot
   const fieldsToRequest = [
     'summary',
-    'description',
+    'description', // Adicionado para preencher "detalhes"
     'created',
     'customfield_14954', // Loja
     'customfield_14829', // PDV
     'customfield_14825', // Ativo
-    'customfield_12374', // Problema
+    'customfield_12374', // Problema (pode ser usado no futuro)
     'customfield_12271', // Endereço
     'customfield_11948', // Estado
     'customfield_11993', // CEP
     'customfield_11994', // Cidade
-    'customfield_12036', // Data Agendada
+    'customfield_12036', // Data Agendada (pode ser usado no futuro)
   ];
 
   console.log('Buscando FSAs Ativas JQL:', jql);
@@ -232,7 +232,7 @@ export async function searchActiveFsas(): Promise<JiraIssue[]> {
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,
-      maxResults: 150 
+      maxResults: 150 // Limite
     }),
   });
 

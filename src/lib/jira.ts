@@ -37,9 +37,19 @@ export async function jiraSearch(jql: string, fields: string[] = ['summary','ass
     const data = await res.json();
     return (data.issues || []) as JiraIssue[];
   }
-  // Usa o proxy da Vercel Function (novo)
-  const url = `/api/buscar-fsa?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields.join(','))}&maxResults=50`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  // Usa o proxy da Vercel Function (novo) - agora usa POST
+  const res = await fetch('/api/buscar-fsa', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      jql: jql,
+      fields: fields,
+      maxResults: 50,
+    }),
+  });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: `Jira search failed: ${res.status}` }));
     throw new Error(errorData.error || `Jira search failed: ${res.status}`);

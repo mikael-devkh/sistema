@@ -156,12 +156,12 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
   try {
     const clauses: string[] = [];
     if (fsaNorm) {
-      clauses.push(`text ~ "\"FSA ${fsaNorm}\""`);
-      clauses.push(`text ~ "\"FSA-${fsaNorm}\""`);
+      clauses.push(`text ~ "FSA ${fsaNorm}"`);
+      clauses.push(`text ~ "FSA-${fsaNorm}"`);
       clauses.push(`summary ~ "${fsaNorm}"`);
     }
     if (storeNorm) {
-      clauses.push(`text ~ "\"Loja ${storeNorm}\""`);
+      clauses.push(`text ~ "Loja ${storeNorm}"`);
       clauses.push(`summary ~ "${storeNorm}"`);
     }
     if (!clauses.length) return null;

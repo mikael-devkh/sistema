@@ -1,4 +1,5 @@
-import { jiraSearch, type JiraIssue } from "./jira";
+import { jiraSearch } from "./jira";
+import type { JiraIssue, JiraSearchResult } from "../types/rat";
 import { getFsaById, createOrUpdateFsa } from "./workflow-firestore";
 import { loadPreferences } from "../utils/settings";
 
@@ -168,7 +169,8 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
     const jql = clauses.join(" OR ") + " ORDER BY updated DESC";
     const issues = await jiraSearch(jql, ["summary","description","created"]);
     if (!issues?.length) return null;
-    const parsed = parseAddressFromIssue(issues[0]);
+    // Cast para o tipo esperado (jiraSearch retorna o tipo antigo, mas os campos são compatíveis)
+    const parsed = parseAddressFromIssue(issues[0] as JiraIssue);
     const details: FsaDetails = {
       fsaId: fsaNorm,
       storeCode: parsed.storeCode || storeNorm,
@@ -196,32 +198,31 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
   }
 }
 
-// Tipo para a resposta da API de busca do Jira
-export interface JiraSearchResult {
-  expand?: string;
-  startAt?: number;
-  maxResults?: number;
-  total?: number;
-  issues: JiraIssue[];
-}
-
 /**
- * Busca todas as FSAs abertas atribuídas ao usuário atual (currentUser).
- * Inspirado em 'assignee = currentUser()' do bot.
- * Também busca o customfield_14954 (Loja).
+ * Busca todas as FSAs ativas na fila da equipe (Agendamento, Agendado, Tec-Campo).
+ * Baseado na JQL_COMBINADA e FIELDS do bot de agendamento.
  */
-export async function searchMyQueueFsas(): Promise<JiraIssue[]> {
-  // JQL para buscar todas as FSAs abertas atribuídas ao usuário atual
-  const jql = `assignee = currentUser() AND status not in (Concluído, Cancelado, "FSA Concluída") ORDER BY created DESC`;
+export async function searchActiveFsas(): Promise<JiraIssue[]> {
+  // JQL baseada na JQL_COMBINADA (IDs dos status 'AGENDAMENTO', 'Agendado', 'TEC-CAMPO')
+  const jql = `project = FSA AND status in (11499, 11481, 11500) ORDER BY created DESC`;
 
+  // Lista de campos baseada nos scripts do bot
   const fieldsToRequest = [
-    'summary', 
-    'description', 
-    'created', 
-    'customfield_14954' // Campo "Loja"
+    'summary',
+    'description',
+    'created',
+    'customfield_14954', // Loja
+    'customfield_14829', // PDV
+    'customfield_14825', // Ativo
+    'customfield_12374', // Problema
+    'customfield_12271', // Endereço
+    'customfield_11948', // Estado
+    'customfield_11993', // CEP
+    'customfield_11994', // Cidade
+    'customfield_12036', // Data Agendada
   ];
 
-  console.log('Buscando "Minha Fila" JQL:', jql);
+  console.log('Buscando FSAs Ativas JQL:', jql);
 
   const response = await fetch(`/api/buscar-fsa`, {
     method: 'POST',
@@ -231,27 +232,27 @@ export async function searchMyQueueFsas(): Promise<JiraIssue[]> {
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,
-      maxResults: 100 // Aumentar o limite para pegar todas as issues da fila
+      maxResults: 150 
     }),
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ error: 'Falha ao buscar FSAs da fila' }));
+    const errorData = await response.json().catch(() => ({ error: 'Falha ao buscar FSAs ativas' }));
     console.error('Jira API error details:', errorData.details || errorData.error);
-    throw new Error(errorData.error || 'Erro ao buscar FSAs da sua fila');
+    throw new Error(errorData.error || 'Erro ao buscar FSAs ativas');
   }
 
   const data: JiraSearchResult = await response.json();
-
+  
   if (!data.issues || data.issues.length === 0) {
-    return []; // Retorna lista vazia
+    return [];
   }
 
-  // Filtra localmente issues que podem não ter o campo Loja (embora raro)
+  // Filtra localmente issues que não tenham o campo Loja (essencial para agrupar)
   const validIssues = data.issues.filter(
     (issue) => issue.fields.customfield_14954?.value
   );
-
+  
   return validIssues;
 }
 

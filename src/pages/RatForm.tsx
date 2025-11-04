@@ -29,9 +29,9 @@ import { toast } from "sonner";
 import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
-import { searchMyQueueFsas } from "../lib/fsa";
+import { searchActiveFsas } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
-import type { JiraIssue } from "../lib/jira";
+import type { JiraIssue } from "../types/rat";
 import {
   cloneRatFormData,
   createEmptyRatFormData,
@@ -183,9 +183,9 @@ const RatForm = () => {
   const [issueKeyToAttach, setIssueKeyToAttach] = useState("");
   const [creatingJiraIssue, setCreatingJiraIssue] = useState(false);
   const [createdIssueKey, setCreatedIssueKey] = useState<string | null>(null);
-  // Estados para a nova busca "Minha Fila"
-  const [myQueueFsas, setMyQueueFsas] = useState<JiraIssue[]>([]);
-  const [myQueueStores, setMyQueueStores] = useState<string[]>([]);
+  // Estados para a nova busca "FSAs Ativas"
+  const [activeFsas, setActiveFsas] = useState<JiraIssue[]>([]);
+  const [activeStores, setActiveStores] = useState<string[]>([]);
   const [selectedQueueStore, setSelectedQueueStore] = useState<string>('');
   const [filteredFsas, setFilteredFsas] = useState<JiraIssue[]>([]);
   const [isQueueLoading, setIsQueueLoading] = useState(false);
@@ -666,18 +666,18 @@ const RatForm = () => {
     }
   };
 
-  const handleLoadMyQueue = async () => {
+  const handleLoadActiveFsas = async () => {
     setIsQueueLoading(true);
-    setMyQueueFsas([]);
-    setMyQueueStores([]);
+    setActiveFsas([]);
+    setActiveStores([]);
     setSelectedQueueStore('');
     setFilteredFsas([]);
 
     try {
-      const issues = await searchMyQueueFsas();
+      const issues = await searchActiveFsas();
 
       if (issues.length === 0) {
-        toast.info('Nenhuma FSA encontrada na sua fila.');
+        toast.info('Nenhuma FSA encontrada.');
         return;
       }
 
@@ -687,13 +687,13 @@ const RatForm = () => {
       ).filter(Boolean) as string[];
       const uniqueStores = [...new Set(storeNames)].sort();
 
-      setMyQueueFsas(issues); // Salva todas as issues
-      setMyQueueStores(uniqueStores); // Salva apenas as lojas únicas
-      toast.success(`${issues.length} FSA(s) carregadas da sua fila.`);
+      setActiveFsas(issues); // Salva todas as issues
+      setActiveStores(uniqueStores); // Salva apenas as lojas únicas
+      toast.success(`${issues.length} FSA(s) carregadas.`);
 
     } catch (error: any) {
       console.error(error);
-      toast.error(error.message || 'Erro ao carregar sua fila');
+      toast.error(error.message || 'Erro ao carregar FSAs ativas');
     } finally {
       setIsQueueLoading(false);
     }
@@ -704,29 +704,40 @@ const RatForm = () => {
       setFilteredFsas([]);
       return;
     }
-    const filtered = myQueueFsas.filter(
+    const filtered = activeFsas.filter(
       (issue) => issue.fields.customfield_14954?.value === selectedQueueStore
     );
     setFilteredFsas(filtered);
-  }, [selectedQueueStore, myQueueFsas]);
+  }, [selectedQueueStore, activeFsas]);
 
   const handleSelectFsa = (issueKey: string) => {
-    // Encontra a issue completa na lista 'myQueueFsas'
-    const issue = myQueueFsas.find(fsa => fsa.key === issueKey);
+    // Encontra a issue completa na lista 'activeFsas'
+    const issue = activeFsas.find(fsa => fsa.key === issueKey);
     if (!issue) {
       toast.error("Issue não encontrada");
       return;
     }
 
-    // Preenche o formulário com os dados da FSA selecionada
+    const fields = issue.fields;
+    console.log("Preenchendo RAT com dados da FSA:", fields);
+
+    // Limpa dados de autofill antigos
+    clearAutofillData();
+
+    // Preenche todos os campos da RAT com os dados da FSA
     setFormData(prev => ({
       ...prev,
       fsa: issue.key || prev.fsa,
-      codigoLoja: prev.codigoLoja, // Mantém o que já estava preenchido
-      defeitoProblema: issue.fields?.summary || prev.defeitoProblema,
-      diagnosticoTestes: typeof issue.fields?.description === 'string' ? issue.fields.description : prev.diagnosticoTestes,
+      codigoLoja: fields.customfield_14954?.value || prev.codigoLoja,
+      pdv: fields.customfield_14829 || prev.pdv,
+      endereco: fields.customfield_12271 || prev.endereco,
+      cidade: fields.customfield_11994 || prev.cidade,
+      uf: fields.customfield_11948?.value || prev.uf,
+      defeitoProblema: fields.summary || prev.defeitoProblema,
+      diagnosticoTestes: typeof fields.description === 'string' ? fields.description : prev.diagnosticoTestes,
     }));
-    toast.success(`FSA ${issue.key} carregada!`);
+
+    toast.success(`FSA ${issue.key} carregada e formulário preenchido!`);
   };
 
   return (
@@ -851,12 +862,12 @@ const RatForm = () => {
                   <CardHeader>
                     <CardTitle>Buscar da Minha Fila</CardTitle>
                     <CardDescription>
-                      Carregue as FSAs atribuídas a você e filtre por loja.
+                      Carregue as FSAs ativas e filtre por loja.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="flex flex-col gap-3">
                     <Button
-                      onClick={handleLoadMyQueue}
+                      onClick={handleLoadActiveFsas}
                       disabled={isQueueLoading}
                     >
                       {isQueueLoading ? (
@@ -864,11 +875,11 @@ const RatForm = () => {
                       ) : (
                         <DownloadCloud className="mr-2 h-4 w-4" />
                       )}
-                      Carregar FSAs da Minha Fila
+                      Carregar FSAs Ativas
                     </Button>
 
                     {/* Dropdowns que aparecem após carregar */}
-                    {myQueueStores.length > 0 && (
+                    {activeStores.length > 0 && (
                       <div className="flex flex-col sm:flex-row gap-2">
                         {/* Dropdown 1: Lojas */}
                         <Select
@@ -880,7 +891,7 @@ const RatForm = () => {
                           </SelectTrigger>
                           <SelectContent>
                             <ScrollArea className="h-72">
-                              {myQueueStores.map((storeName) => (
+                              {activeStores.map((storeName) => (
                                 <SelectItem key={storeName} value={storeName}>
                                   {storeName}
                                 </SelectItem>

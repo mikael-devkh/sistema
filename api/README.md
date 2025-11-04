@@ -2,6 +2,63 @@
 
 Esta pasta contém as Serverless Functions da Vercel para integração com o Jira.
 
+## Função: `buscar-fsa.ts`
+
+Faz proxy para a API de busca do Jira, permitindo buscar issues por JQL (Jira Query Language).
+
+### Endpoint
+
+```
+GET /api/buscar-fsa?jql=<jql_query>&fields=<campos>&maxResults=<max>
+```
+
+### Parâmetros de Query
+
+- **jql** (obrigatório): Query JQL para buscar issues (ex: `text ~ "FSA 123"`)
+- **fields** (opcional): Campos a serem retornados, separados por vírgula (padrão: `summary,assignee,status,created`)
+- **maxResults** (opcional): Número máximo de resultados (padrão: `50`)
+
+### Exemplo de Uso
+
+```typescript
+GET /api/buscar-fsa?jql=text%20~%20%22FSA%20123%22&fields=summary,description,created
+```
+
+### Resposta (Sucesso)
+
+Retorna o mesmo formato da API do Jira:
+
+```json
+{
+  "expand": "schema,names",
+  "startAt": 0,
+  "maxResults": 50,
+  "total": 1,
+  "issues": [
+    {
+      "id": "10001",
+      "key": "PROJ-123",
+      "fields": {
+        "summary": "FSA 123 - Loja 456",
+        "description": "...",
+        "created": "2024-01-01T00:00:00.000Z"
+      }
+    }
+  ]
+}
+```
+
+### Resposta (Erro)
+
+```json
+{
+  "error": "Mensagem de erro",
+  "details": "Detalhes adicionais (apenas em desenvolvimento)"
+}
+```
+
+---
+
 ## Função: `gerar-rat.ts`
 
 Cria uma nova issue no Jira a partir dos dados de um RAT (Relatório de Atendimento Técnico).

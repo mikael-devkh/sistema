@@ -30,16 +30,20 @@ export interface JiraIssue {
 
 export async function jiraSearch(jql: string, fields: string[] = ['summary','assignee','status','created']): Promise<JiraIssue[]> {
   if (PROXY_BASE) {
+    // Usa proxy do Firebase Functions se configurado
     const url = `${PROXY_BASE.replace(/\/$/, '')}/jira/search?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields.join(','))}`;
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!res.ok) throw new Error(`Jira proxy search failed: ${res.status}`);
     const data = await res.json();
     return (data.issues || []) as JiraIssue[];
   }
-  const base = getBaseUrl();
-  const url = `${base}/search?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields.join(','))}&maxResults=50`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json', ...authHeader() } });
-  if (!res.ok) throw new Error(`Jira search failed: ${res.status}`);
+  // Usa o proxy da Vercel Function (novo)
+  const url = `/api/buscar-fsa?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields.join(','))}&maxResults=50`;
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({ error: `Jira search failed: ${res.status}` }));
+    throw new Error(errorData.error || `Jira search failed: ${res.status}`);
+  }
   const data = await res.json();
   return (data.issues || []) as JiraIssue[];
 }

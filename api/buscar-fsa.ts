@@ -63,7 +63,8 @@ export default async function handler(
     };
 
     // 4. CHAMAR A API DO JIRA COM POST
-    const jiraUrl = `${baseUrl}/search`;
+    // Migrado para /search/jql conforme mudança do Jira (CHANGE-2046)
+    const jiraUrl = `${baseUrl}/search/jql`;
     
     // ---- DEBUG ----
     console.log('API /api/buscar-fsa: Chamando Jira:', {

@@ -231,9 +231,9 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <GlobalSearch />
         <ServiceManagerProvider>
           <RatAutofillProvider>
+            <GlobalSearch />
             <Routes>
               <Route
                 path="/"

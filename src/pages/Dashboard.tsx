@@ -1,6 +1,7 @@
 import { useAuth } from "../context/AuthContext";
+import { usePermissions } from "../hooks/use-permissions";
 import { Card } from "../components/ui/card";
-import { FileText, Layers, User, PlusCircle, Settings, Network, BookText, LayoutTemplate, PhoneCall, TrendingUp, Clock } from "lucide-react";
+import { FileText, Layers, User, PlusCircle, Settings, Network, BookText, LayoutTemplate, PhoneCall, TrendingUp, Clock, Users } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
 import { db } from "../firebase";
 import { collection, getDocs, limit as fbLimit, orderBy, query, Timestamp, where } from "firebase/firestore";
@@ -16,6 +17,7 @@ function getGreeting() {
 
 export default function Dashboard() {
   const { profile, loadingAuth, loadingProfile, user } = useAuth();
+  const { permissions } = usePermissions();
   const nomeDisplay = profile?.nome?.split(" ")[0] || "Usuário";
   const avatarUrl = profile?.avatarUrl;
   const initials = (profile?.nome || "U").split(" ").map(n => n[0]?.toUpperCase()).slice(0,2).join("") || "U";
@@ -195,6 +197,11 @@ export default function Dashboard() {
             <a href="/service-manager" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
               <PhoneCall className="w-5 h-5" /> Chamados
             </a>
+            {permissions.canManageUsers && (
+              <a href="/tecnicos" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
+                <Users className="w-5 h-5" /> Técnicos
+              </a>
+            )}
           </div>
         )}
       </Card>
@@ -242,6 +249,11 @@ export default function Dashboard() {
             <a href="/base-conhecimento" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
               <BookText className="h-5 w-5 text-primary" /> Base de Conhecimento
             </a>
+            {permissions.canManageUsers && (
+              <a href="/tecnicos" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
+                <Users className="h-5 w-5 text-primary" /> Gestão de Técnicos
+              </a>
+            )}
           </div>
         </Card>
       </div>

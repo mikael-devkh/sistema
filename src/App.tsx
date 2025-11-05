@@ -19,6 +19,8 @@ const TemplatesRatPage = React.lazy(() => import("./pages/TemplatesRatPage"));
 const MyQueue = React.lazy(() => import("./pages/MyQueue"));
 const FsasKanban = React.lazy(() => import("./pages/FsasKanban"));
 const Loja360 = React.lazy(() => import("./pages/Loja360"));
+const TechnicianRegisterPage = React.lazy(() => import("./pages/TechnicianRegisterPage"));
+const TechniciansManagementPage = React.lazy(() => import("./pages/TechniciansManagementPage"));
 import { ServiceManagerProvider } from "./hooks/use-service-manager";
 import { RatAutofillProvider } from "./context/RatAutofillContext";
 import { useAuth } from "./context/AuthContext";
@@ -410,6 +412,30 @@ const App = () => (
                       <ReportsPage />
                     </AppLayout>
                   </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="/cadastrar-tecnico"
+                element={(
+                  <ProtectedAdminRoute>
+                    <AppLayout>
+                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+                        <TechnicianRegisterPage />
+                      </React.Suspense>
+                    </AppLayout>
+                  </ProtectedAdminRoute>
+                )}
+              />
+              <Route
+                path="/tecnicos"
+                element={(
+                  <ProtectedAdminRoute>
+                    <AppLayout>
+                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+                        <TechniciansManagementPage />
+                      </React.Suspense>
+                    </AppLayout>
+                  </ProtectedAdminRoute>
                 )}
               />
               <Route path="*" element={<React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}><NotFound /></React.Suspense>} />

@@ -2,6 +2,7 @@ import type { JiraIssue, JiraSearchResult } from '../types/rat';
 import { jiraSearch } from './jira';
 import { getFsaById, createOrUpdateFsa } from './workflow-firestore';
 import { loadPreferences } from '../utils/settings';
+import { getCachedFsa, setCachedFsa } from './fsa-cache';
 
 export interface FsaDetails {
   fsaId?: string;
@@ -211,6 +212,13 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
     throw new Error('Número da FSA é obrigatório');
   }
 
+  // Verificar cache primeiro
+  const cached = getCachedFsa(fsaNumber);
+  if (cached) {
+    console.log('FRONTEND: Retornando FSA do cache:', fsaNumber);
+    return cached;
+  }
+
   const jql = buildJqlQueryByNumber(fsaNumber);
   
   // Lista de campos exata do seu bot
@@ -292,7 +300,12 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   console.log('FRONTEND: Recebido da API:', searchResult.issues[0]);
   // ---------------
 
-  return searchResult.issues[0]; // Retorna a issue mais recente encontrada
+  const issue = searchResult.issues[0];
+  
+  // Salvar no cache após obter a issue
+  setCachedFsa(fsaNumber, issue);
+  
+  return issue; // Retorna a issue mais recente encontrada
 }
 
 /**

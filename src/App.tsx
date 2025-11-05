@@ -22,6 +22,7 @@ const Loja360 = React.lazy(() => import("./pages/Loja360"));
 import { ServiceManagerProvider } from "./hooks/use-service-manager";
 import { RatAutofillProvider } from "./context/RatAutofillContext";
 import { useAuth } from "./context/AuthContext";
+import { GlobalSearch } from "./components/GlobalSearch";
 import { Loader2 } from "lucide-react";
 import { AppLayout } from "./components/AppLayout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "./components/ui/tabs";
@@ -37,7 +38,16 @@ import { usePageLoading } from "./hooks/use-page-loading";
 import { loadPreferences, savePreferences, type UserPreferences } from "./utils/settings";
 import { toast } from "sonner";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 minutos
+      cacheTime: 10 * 60 * 1000, // 10 minutos
+      refetchOnWindowFocus: false,
+      retry: 1,
+    },
+  },
+});
 
 const ProtectedRoute = ({ children }: { children: ReactElement }) => {
   const { user, loadingAuth } = useAuth();
@@ -220,6 +230,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <GlobalSearch />
       <BrowserRouter>
         <ServiceManagerProvider>
           <RatAutofillProvider>

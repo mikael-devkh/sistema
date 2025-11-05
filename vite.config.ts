@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       strategies: "generateSW",
+      includeAssets: ['favicon.ico', 'icons/icon-192.svg', 'icons/icon-512.svg'],
       manifest: {
         name: "WT Serviços em Campo",
         short_name: "WT Serviços",
@@ -37,6 +38,32 @@ export default defineConfig(({ mode }) => ({
           },
         ],
       },
+      workbox: {
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/api\./,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'api-cache',
+              expiration: {
+                maxEntries: 50,
+                maxAgeSeconds: 60 * 60 // 1 hora
+              }
+            }
+          },
+          {
+            urlPattern: /\/api\/buscar-fsa/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'fsa-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 5 * 60 // 5 minutos
+              }
+            }
+          }
+        ]
+      }
     }),
   ].filter(Boolean),
   test: {

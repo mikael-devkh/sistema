@@ -247,8 +247,16 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
 
   const searchResult = data as JiraSearchResult;
   
+  // ---- DEBUG ----
+  console.log('FRONTEND: Resultado da busca:', {
+    total: searchResult.total || 0,
+    issuesFound: searchResult.issues?.length || 0,
+    jql: jql
+  });
+  // ---------------
+  
   if (!searchResult.issues || searchResult.issues.length === 0) {
-    throw new Error(`Nenhuma FSA encontrada para o número "${fsaNumber}".`);
+    throw new Error(`Nenhuma FSA encontrada para o número "${fsaNumber}". JQL usada: ${jql}`);
   }
 
   // ---- DEBUG ----
@@ -256,6 +264,66 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   // ---------------
 
   return searchResult.issues[0]; // Retorna a issue mais recente encontrada
+}
+
+/**
+ * Constrói uma JQL para buscar todas as FSAs do projeto FSA.
+ */
+function buildJqlQueryAllFsa(): string {
+  return `project = FSA ORDER BY created DESC`;
+}
+
+/**
+ * Busca todas as FSAs do projeto FSA no Jira.
+ * Usa o método POST para a API /api/buscar-fsa.
+ * @param maxResults Número máximo de resultados a retornar (padrão: 50)
+ */
+export async function searchAllFsa(maxResults: number = 50): Promise<JiraIssue[]> {
+  const jql = buildJqlQueryAllFsa();
+  
+  // Lista de campos exata do seu bot
+  const fieldsToRequest = [
+    'summary', 'description', 'created', 'customfield_14954', 
+    'customfield_14829', 'customfield_14825', 'customfield_12374', 
+    'customfield_12271', 'customfield_11948', 'customfield_11993', 
+    'customfield_11994', 'customfield_12036',
+  ];
+
+  // ---- DEBUG ----
+  console.log('FRONTEND: Buscando todas as FSAs. Enviando para /api/buscar-fsa (POST) com body:', { jql, fieldsToRequest, maxResults });
+  // ---------------
+
+  const response = await fetch(`/api/buscar-fsa`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      jql: jql,
+      fields: fieldsToRequest,
+      maxResults: maxResults
+    }),
+  });
+
+  const data: JiraSearchResult | { error: string, details?: any } = await response.json();
+
+  if (!response.ok) {
+    const errorMsg = (data as any).error || 'Falha ao buscar FSAs';
+    console.error('FRONTEND: Erro da API ao buscar todas as FSAs:', (data as any).details || data);
+    throw new Error(errorMsg);
+  }
+
+  const searchResult = data as JiraSearchResult;
+  
+  // ---- DEBUG ----
+  console.log('FRONTEND: Resultado da busca de todas as FSAs:', {
+    total: searchResult.total || 0,
+    issuesFound: searchResult.issues?.length || 0,
+    jql: jql
+  });
+  // ---------------
+  
+  return searchResult.issues || []; // Retorna todas as issues encontradas
 }
 
 

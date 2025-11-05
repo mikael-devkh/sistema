@@ -67,9 +67,12 @@ export default async function handler(
     
     // ---- DEBUG ----
     console.log('API /api/buscar-fsa: Chamando Jira:', {
+      baseUrl: baseUrl,
       url: jiraUrl,
       body: jiraBody,
-      jql: jiraBody.jql
+      jql: jiraBody.jql,
+      fields: jiraBody.fields,
+      maxResults: jiraBody.maxResults
     });
     // ---------------
     
@@ -95,16 +98,27 @@ export default async function handler(
     // ---------------
     
     if (!jiraResponse.ok) {
-      console.error('Jira API error:', responseData);
+      console.error('Jira API error:', {
+        status: jiraResponse.status,
+        statusText: jiraResponse.statusText,
+        responseData: responseData
+      });
+      
       let errorDetails;
       try {
         errorDetails = JSON.parse(responseData);
       } catch {
         errorDetails = responseData;
       }
+      
+      // Extrair mensagens de erro do Jira
+      const errorMessages = errorDetails?.errorMessages || errorDetails?.errorMessage || [];
+      const errorMessage = Array.isArray(errorMessages) ? errorMessages.join(', ') : String(errorMessages || 'Unknown error');
+      
       return res.status(jiraResponse.status).json({
-        error: 'Failed to search Jira issues',
-        details: errorDetails
+        error: `Failed to search Jira issues: ${errorMessage}`,
+        details: errorDetails,
+        jql: jiraBody.jql
       });
     }
     

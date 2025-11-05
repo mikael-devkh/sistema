@@ -249,9 +249,25 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   // ---------------
 
   if (!response.ok) {
-    const errorMsg = (data as any).error || 'Falha ao buscar FSA';
-    console.error('FRONTEND: Erro da API:', (data as any).details || data);
-    throw new Error(errorMsg);
+    const errorData = data as any;
+    const errorMsg = errorData?.error || 'Falha ao buscar FSA';
+    const errorDetails = errorData?.details || errorData;
+    
+    console.error('FRONTEND: Erro da API:', {
+      status: response.status,
+      statusText: response.statusText,
+      error: errorMsg,
+      details: errorDetails,
+      jql: jql
+    });
+    
+    // Extrair mensagens de erro do Jira se disponível
+    const jiraErrorMessages = errorDetails?.errorMessages || [];
+    const jiraError = Array.isArray(jiraErrorMessages) && jiraErrorMessages.length > 0 
+      ? jiraErrorMessages.join(', ')
+      : errorMsg;
+    
+    throw new Error(jiraError);
   }
 
   const searchResult = data as JiraSearchResult;

@@ -229,10 +229,43 @@ export default async function handler(
           });
         } else {
           const projectsError = await projectsResponse.text();
-          console.error('API /api/buscar-fsa: Teste 2 falhou:', projectsResponse.status, projectsError);
+          console.error('API /api/buscar-fsa: Teste 2 falhou:', {
+            status: projectsResponse.status,
+            statusText: projectsResponse.statusText,
+            error: projectsError
+          });
         }
       } catch (testError) {
         console.error('API /api/buscar-fsa: Erro no teste 2:', testError);
+      }
+      
+      // Teste 3: Verificar usuário atual (autenticação)
+      try {
+        const myselfResponse = await fetch(`${baseUrl}/myself`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': auth
+          }
+        });
+        
+        if (myselfResponse.ok) {
+          const myselfData = await myselfResponse.json();
+          console.log('API /api/buscar-fsa: Teste 3 - Usuário autenticado:', {
+            accountId: myselfData.accountId,
+            displayName: myselfData.displayName,
+            emailAddress: myselfData.emailAddress,
+            active: myselfData.active
+          });
+        } else {
+          const myselfError = await myselfResponse.text();
+          console.error('API /api/buscar-fsa: Teste 3 falhou (problema de autenticação):', {
+            status: myselfResponse.status,
+            error: myselfError
+          });
+        }
+      } catch (testError) {
+        console.error('API /api/buscar-fsa: Erro no teste 3:', testError);
       }
     }
     // ---------------

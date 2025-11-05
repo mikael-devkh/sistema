@@ -188,15 +188,17 @@ export async function fetchFsaDetails(input: { fsa?: string; codigoLoja?: string
 }
 
 /**
- * Constrói uma JQL para buscar uma FSA pelo seu número em texto/resumo.
- * Baseado na JQL original do frontend.
+ * Constrói uma JQL para buscar uma FSA pelo seu número em (key, texto, resumo).
+ * Esta é uma busca combinada para garantir que a issue seja encontrada.
  */
 function buildJqlQueryByNumber(fsaNumber: string): string {
   const sanitizedNumber = fsaNumber.replace(/\D/g, ''); // Apenas números
   if (!sanitizedNumber) throw new Error('Número da FSA inválido');
 
-  // JQL corrigida (sem as aspas duplas extras)
-  return `text ~ "FSA ${sanitizedNumber}" OR text ~ "FSA-${sanitizedNumber}" OR summary ~ "${sanitizedNumber}" ORDER BY created DESC`;
+  const fsaKey = `FSA-${sanitizedNumber}`;
+
+  // JQL COMBINADA: Busca na Chave, no Texto (com e sem hífen) e no Resumo
+  return `key = "${fsaKey}" OR text ~ "FSA ${sanitizedNumber}" OR text ~ "${fsaKey}" OR summary ~ "${sanitizedNumber}" ORDER BY created DESC`;
 }
 
 /**

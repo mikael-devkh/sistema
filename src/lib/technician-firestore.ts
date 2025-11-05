@@ -100,10 +100,34 @@ export async function listTechnicians(filters?: {
   
   if (!hasFilters) {
     console.log('📋 Buscando todos os técnicos sem filtros (query simples)...');
+    console.log('🔍 Collection path:', techniciansRef.path);
+    console.log('🔍 Firestore instance:', db.app.name);
     try {
       const snapshot = await getDocs(techniciansRef);
+      console.log('📊 Snapshot obtido:', {
+        size: snapshot.size,
+        empty: snapshot.empty,
+        docs: snapshot.docs.length
+      });
+      
+      if (snapshot.empty) {
+        console.warn('⚠️ Collection "technicians" está vazia!');
+        console.warn('💡 Verifique no Firebase Console:');
+        console.warn('   1. Vá em Firestore Database');
+        console.warn('   2. Procure pela collection "technicians"');
+        console.warn('   3. Verifique se há documentos lá');
+        console.warn('   4. Se não houver, cadastre um técnico primeiro');
+        return [];
+      }
+      
       const technicians = snapshot.docs.map(doc => {
         const data = doc.data();
+        console.log('📄 Processando documento:', doc.id, {
+          nome: data.nome,
+          codigo: data.codigoTecnico,
+          email: data.email,
+          status: data.status
+        });
         return {
           uid: doc.id,
           ...data,
@@ -115,6 +139,7 @@ export async function listTechnicians(filters?: {
       
       console.log(`✅ listTechnicians (sem filtros): ${technicians.length} técnico(s) encontrado(s)`);
       console.log('📝 IDs encontrados:', technicians.map(t => t.uid));
+      console.log('📝 Nomes encontrados:', technicians.map(t => t.nome));
       return technicians;
     } catch (error: any) {
       console.error('❌ Erro ao buscar técnicos (sem filtros):', error);

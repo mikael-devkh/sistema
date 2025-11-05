@@ -142,49 +142,80 @@ export default function TechniciansManagementPage() {
   // Listener em tempo real para atualizar quando técnicos são adicionados
   useEffect(() => {
     console.log('🔧 Configurando listener real-time...');
-    const techniciansRef = collection(db, 'technicians');
+    console.log('🔍 Verificando conexão com Firestore...');
     
-    // Usar query simples sem orderBy para evitar erro de índice
-    const q = query(techniciansRef);
-    
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        console.log('📡 Snapshot recebido:', snapshot.size, 'documento(s)');
-        const technicians = snapshot.docs.map(doc => {
-          const data = doc.data();
-          console.log('📄 Documento:', doc.id, {
-            uid: doc.id,
-            nome: data.nome,
-            codigo: data.codigoTecnico,
-            status: data.status
+    try {
+      const techniciansRef = collection(db, 'technicians');
+      console.log('✅ Referência da collection criada:', techniciansRef.path);
+      
+      // Usar query simples sem orderBy para evitar erro de índice
+      const q = query(techniciansRef);
+      console.log('✅ Query criada');
+      
+      console.log('⏳ Aguardando snapshot inicial...');
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          console.log('📡 Snapshot recebido:', snapshot.size, 'documento(s)');
+          console.log('📡 Snapshot metadata:', {
+            hasPendingWrites: snapshot.metadata.hasPendingWrites,
+            fromCache: snapshot.metadata.fromCache
           });
-          return {
-            uid: doc.id,
-            ...data,
-          };
-        }) as TechnicianProfile[];
-        
-        // Ordenar no cliente
-        technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
-        
-        console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
-        console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
-        console.log('📝 Nomes:', technicians.map(t => t.nome));
-        setTechnicians(technicians);
-        setLoading(false);
-      },
-      (error) => {
-        console.error('❌ Erro no listener real-time:', error);
-        // Se falhar, recarrega manualmente
-        loadTechnicians();
-      }
-    );
-    
-    return () => {
-      console.log('🔌 Removendo listener real-time...');
-      unsubscribe();
-    };
+          
+          if (snapshot.empty) {
+            console.warn('⚠️ Collection está vazia! Nenhum técnico encontrado.');
+            console.warn('💡 Possíveis causas:');
+            console.warn('   1. Nenhum técnico foi cadastrado ainda');
+            console.warn('   2. Técnicos foram salvos em outra collection');
+            console.warn('   3. Problema de permissões no Firestore');
+          }
+          
+          const technicians = snapshot.docs.map(doc => {
+            const data = doc.data();
+            console.log('📄 Documento encontrado:', doc.id, {
+              uid: doc.id,
+              nome: data.nome,
+              codigo: data.codigoTecnico,
+              status: data.status,
+              email: data.email
+            });
+            return {
+              uid: doc.id,
+              ...data,
+            };
+          }) as TechnicianProfile[];
+          
+          // Ordenar no cliente
+          technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
+          
+          console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
+          if (technicians.length > 0) {
+            console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
+            console.log('📝 Nomes:', technicians.map(t => t.nome));
+          }
+          setTechnicians(technicians);
+          setLoading(false);
+        },
+        (error) => {
+          console.error('❌ Erro no listener real-time:', error);
+          console.error('Detalhes do erro:', {
+            code: error.code,
+            message: error.message,
+            stack: error.stack
+          });
+          // Se falhar, recarrega manualmente
+          loadTechnicians();
+        }
+      );
+      
+      return () => {
+        console.log('🔌 Removendo listener real-time...');
+        unsubscribe();
+      };
+    } catch (error) {
+      console.error('❌ Erro ao configurar listener:', error);
+      loadTechnicians();
+    }
   }, []);
   
   // Carregar manualmente quando o filtro mudar (fallback)
@@ -192,6 +223,12 @@ export default function TechniciansManagementPage() {
     console.log('🔄 Filtro mudou, recarregando técnicos...', filter);
     loadTechnicians();
   }, [filter]);
+  
+  // Carregar na montagem inicial também
+  useEffect(() => {
+    console.log('🚀 Carregando técnicos na montagem inicial...');
+    loadTechnicians();
+  }, []);
 
   const filteredTechnicians = technicians.filter(tech => {
     // Busca por texto
@@ -582,17 +619,29 @@ export default function TechniciansManagementPage() {
             <h3 className="text-xl font-semibold text-foreground mb-2">
               Nenhum técnico encontrado
             </h3>
-            <p className="text-muted-foreground mb-6">
+            <p className="text-muted-foreground mb-4">
               {technicians.length === 0 
-                ? 'Comece cadastrando seu primeiro técnico usando o botão acima.'
+                ? 'A collection "technicians" está vazia. Cadastre seu primeiro técnico usando o botão acima.'
                 : 'Tente ajustar os filtros para encontrar técnicos.'
               }
             </p>
             {technicians.length === 0 && (
-              <Button onClick={() => navigate('/cadastrar-tecnico')} size="lg">
-                <Plus className="mr-2 h-5 w-5" />
-                Cadastrar Primeiro Técnico
-              </Button>
+              <>
+                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4 text-left">
+                  <p className="text-sm text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
+                    ℹ️ Informações de Debug:
+                  </p>
+                  <ul className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1 list-disc list-inside">
+                    <li>Abra o console do navegador (F12) para ver logs detalhados</li>
+                    <li>Verifique se a collection "technicians" existe no Firebase Console</li>
+                    <li>Após cadastrar, aguarde alguns segundos e recarregue a página</li>
+                  </ul>
+                </div>
+                <Button onClick={() => navigate('/cadastrar-tecnico')} size="lg">
+                  <Plus className="mr-2 h-5 w-5" />
+                  Cadastrar Primeiro Técnico
+                </Button>
+              </>
             )}
           </div>
         </div>

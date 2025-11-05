@@ -195,7 +195,7 @@ function buildJqlQueryByNumber(fsaNumber: string): string {
   const sanitizedNumber = fsaNumber.replace(/\D/g, ''); // Apenas números
   if (!sanitizedNumber) throw new Error('Número da FSA inválido');
 
-  // JQL corrigida (sem aspas duplas extras)
+  // JQL corrigida (sem as aspas duplas extras)
   return `text ~ "FSA ${sanitizedNumber}" OR text ~ "FSA-${sanitizedNumber}" OR summary ~ "${sanitizedNumber}" ORDER BY created DESC`;
 }
 

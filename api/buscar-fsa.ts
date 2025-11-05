@@ -1,16 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-// Função buildBaseUrl (a mesma de antes, com useEx = false)
+// Função buildBaseUrl - prioriza Cloud ID se disponível (formato correto para Jira Cloud)
 function buildBaseUrl(cloudId?: string, site?: string): string {
-  const useEx = false; // Corrigido para 'false'
-  
-  if (useEx && cloudId) {
+  // Se tiver Cloud ID, usa o formato /ex/jira/{cloudId} (formato recomendado)
+  if (cloudId) {
     return `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3`;
   }
+  // Caso contrário, usa o site/base URL tradicional
   if (site) {
     return `${site.replace(/\/$/, '')}/rest/api/3`;
   }
-  throw new Error('Missing Jira base config: JIRA_BASE_URL required');
+  throw new Error('Missing Jira base config: JIRA_CLOUD_ID or JIRA_BASE_URL required');
 }
 
 export default async function handler(
@@ -38,15 +38,30 @@ export default async function handler(
     
     const email = process.env.JIRA_USER_EMAIL || process.env.JIRA_EMAIL;
     const token = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN;
+    const cloudId = process.env.JIRA_CLOUD_ID;
     const site = process.env.JIRA_BASE_URL || process.env.JIRA_URL;
     
-    if (!email || !token || !site) {
-      console.error('Missing JIRA credentials or JIRA_BASE_URL');
-      return res.status(500).json({ error: 'Jira config incomplete.' });
+    if (!email || !token) {
+      console.error('Missing JIRA credentials');
+      return res.status(500).json({ error: 'Jira credentials incomplete.' });
     }
     
-    const baseUrl = buildBaseUrl(undefined, site);
+    if (!cloudId && !site) {
+      console.error('Missing JIRA_CLOUD_ID or JIRA_BASE_URL');
+      return res.status(500).json({ error: 'Jira base config incomplete. Provide JIRA_CLOUD_ID or JIRA_BASE_URL.' });
+    }
+    
+    const baseUrl = buildBaseUrl(cloudId, site);
     const auth = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
+    
+    // ---- DEBUG ----
+    console.log('API /api/buscar-fsa: Configuração Jira:', {
+      usingCloudId: !!cloudId,
+      cloudId: cloudId ? '***' : 'N/A',
+      site: site || 'N/A',
+      baseUrl: baseUrl
+    });
+    // ---------------
     
     // 2. LER PARÂMETROS DO BODY
     const { jql, fields, maxResults } = req.body;

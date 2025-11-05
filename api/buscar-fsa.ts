@@ -270,6 +270,43 @@ export default async function handler(
       } catch (testError) {
         console.error('API /api/buscar-fsa: Erro no teste 3:', testError);
       }
+      
+      // Teste 4: Tentar obter Cloud ID usando a API da Atlassian
+      try {
+        const cloudIdResponse = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': auth
+          }
+        });
+        
+        if (cloudIdResponse.ok) {
+          const cloudIdData = await cloudIdResponse.json();
+          const jiraResource = cloudIdData.find((r: any) => r.url?.includes('delfia.atlassian.net'));
+          console.log('API /api/buscar-fsa: Teste 4 - Cloud ID encontrado:', {
+            resourcesFound: cloudIdData.length,
+            jiraResource: jiraResource ? {
+              id: jiraResource.id,
+              name: jiraResource.name,
+              url: jiraResource.url
+            } : 'Não encontrado',
+            allResources: cloudIdData.map((r: any) => ({ id: r.id, name: r.name, url: r.url }))
+          });
+          
+          if (jiraResource?.id) {
+            console.log('API /api/buscar-fsa: SUGESTÃO - Use JIRA_CLOUD_ID =', jiraResource.id);
+          }
+        } else {
+          const cloudIdError = await cloudIdResponse.text();
+          console.error('API /api/buscar-fsa: Teste 4 falhou:', {
+            status: cloudIdResponse.status,
+            error: cloudIdError
+          });
+        }
+      } catch (testError) {
+        console.error('API /api/buscar-fsa: Erro no teste 4:', testError);
+      }
     }
     // ---------------
     

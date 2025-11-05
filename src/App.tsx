@@ -230,8 +230,8 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <GlobalSearch />
       <BrowserRouter>
+        <GlobalSearch />
         <ServiceManagerProvider>
           <RatAutofillProvider>
             <Routes>
@@ -416,7 +416,7 @@ const App = () => (
             </Routes>
           </RatAutofillProvider>
         </ServiceManagerProvider>
-      </BrowserRouter>
+        </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );

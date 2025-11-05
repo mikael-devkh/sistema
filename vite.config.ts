@@ -9,6 +9,18 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     port: 8080,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Garantir nomes de arquivos consistentes
+        entryFileNames: 'assets/[name].[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[ext]',
+      },
+    },
+    // Aumentar limite de aviso de tamanho
+    chunkSizeWarningLimit: 1000,
+  },
   plugins: [
     react(),
     mode === "development" && componentTagger(),

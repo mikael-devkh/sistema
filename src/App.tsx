@@ -44,9 +44,11 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutos
-      cacheTime: 10 * 60 * 1000, // 10 minutos
+      // gcTime no v5, cacheTime no v4
+      gcTime: 10 * 60 * 1000, // 10 minutos
       refetchOnWindowFocus: false,
       retry: 1,
+      refetchOnMount: true, // Sempre refazer fetch ao montar componente
     },
   },
 });

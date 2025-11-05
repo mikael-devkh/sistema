@@ -3,11 +3,38 @@ import { useMemo, useState } from "react";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
+import { useAuth } from "../context/AuthContext";
+import { signOut } from "firebase/auth";
+import { auth } from "../firebase";
+import { toast } from "sonner";
+import { Button } from "./ui/button";
+import { LogOut } from "lucide-react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
+
+  const handleLogout = async () => {
+    try {
+      // Limpar cache primeiro
+      localStorage.clear();
+      sessionStorage.clear();
+      // Fazer logout
+      await signOut(auth);
+      toast.success("Sessão encerrada com sucesso.");
+      // Forçar reload completo para limpar todo o estado
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 500);
+    } catch (error) {
+      console.error("Erro ao sair da conta:", error);
+      toast.error("Não foi possível encerrar a sessão.");
+      // Mesmo com erro, tentar redirecionar
+      window.location.href = "/login";
+    }
+  };
 
   const crumbs = useMemo(() => {
     const path = location.pathname || "/";
@@ -43,7 +70,25 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <span className="material-icons">menu</span>
             </button>
             <div className="font-bold text-lg">WT Serviços</div>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              {user && (
+                <span className="hidden md:block text-sm text-muted-foreground truncate max-w-[200px]">
+                  {user.email}
+                </span>
+              )}
+              <ThemeToggle />
+              {user && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                  className="hidden md:flex"
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sair
+                </Button>
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-between">
             <Breadcrumb>

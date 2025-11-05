@@ -1,4 +1,4 @@
-import React, { type ReactElement } from "react";
+import React, { type ReactElement, Component, type ReactNode } from "react";
 import { Toaster } from "./components/ui/toaster";
 import { Toaster as Sonner } from "./components/ui/sonner";
 import { TooltipProvider } from "./components/ui/tooltip";
@@ -19,8 +19,52 @@ const TemplatesRatPage = React.lazy(() => import("./pages/TemplatesRatPage"));
 const MyQueue = React.lazy(() => import("./pages/MyQueue"));
 const FsasKanban = React.lazy(() => import("./pages/FsasKanban"));
 const Loja360 = React.lazy(() => import("./pages/Loja360"));
-const TechnicianRegisterPage = React.lazy(() => import("./pages/TechnicianRegisterPage"));
-const TechniciansManagementPage = React.lazy(() => import("./pages/TechniciansManagementPage"));
+// Função helper para retry em caso de erro de carregamento (404, cache antigo, etc)
+const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
+  return React.lazy(async () => {
+    let lastError: any;
+    
+    for (let i = 0; i <= retries; i++) {
+      try {
+        const module = await componentImport();
+        // Se chegou aqui, sucesso! Limpar flag de refresh
+        if (i > 0) {
+          sessionStorage.removeItem('pageRefreshed');
+        }
+        return module;
+      } catch (error: any) {
+        lastError = error;
+        console.warn(`⚠️ Tentativa ${i + 1} de carregar módulo falhou:`, error);
+        
+        // Se é erro 404 ou erro de módulo, tentar recarregar a página
+        if (i < retries && (error?.message?.includes('404') || error?.message?.includes('Failed to fetch') || error?.message?.includes('dynamically imported'))) {
+          const pageAlreadyRefreshed = sessionStorage.getItem('pageRefreshed') === 'true';
+          
+          if (!pageAlreadyRefreshed && i === retries - 1) {
+            // Última tentativa: recarregar a página
+            console.log('🔄 Recarregando página para limpar cache...');
+            sessionStorage.setItem('pageRefreshed', 'true');
+            setTimeout(() => {
+              window.location.reload();
+            }, 100);
+            // Aguardar um pouco antes de lançar o erro
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } else {
+            // Aguardar um pouco antes de tentar novamente
+            await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
+          }
+        } else {
+          break;
+        }
+      }
+    }
+    
+    throw lastError;
+  });
+};
+
+const TechnicianRegisterPage = lazyWithRetry(() => import("./pages/TechnicianRegisterPage"));
+const TechniciansManagementPage = lazyWithRetry(() => import("./pages/TechniciansManagementPage"));
 import { ServiceManagerProvider } from "./hooks/use-service-manager";
 import { RatAutofillProvider } from "./context/RatAutofillContext";
 import { useAuth } from "./context/AuthContext";
@@ -429,9 +473,20 @@ const App = () => (
                 element={(
                   <ProtectedAdminRoute>
                     <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <TechnicianRegisterPage />
-                      </React.Suspense>
+                      <ErrorBoundary>
+                        <React.Suspense 
+                          fallback={
+                            <div className="flex min-h-[60vh] items-center justify-center">
+                              <div className="text-center">
+                                <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+                                <p className="text-sm text-muted-foreground">Carregando formulário de cadastro...</p>
+                              </div>
+                            </div>
+                          }
+                        >
+                          <TechnicianRegisterPage />
+                        </React.Suspense>
+                      </ErrorBoundary>
                     </AppLayout>
                   </ProtectedAdminRoute>
                 )}

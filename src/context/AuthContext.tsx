@@ -4,7 +4,7 @@ import type { User } from "firebase/auth";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "../firebase";
 import { db } from "../firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export interface UserProfileData {
   nome?: string;
@@ -41,7 +41,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const profileRef = doc(db, "users", user.uid);
       const snapshot = await getDoc(profileRef);
-      if (snapshot.exists()) {
+      
+      if (!snapshot.exists()) {
+        // Criar documento automaticamente se não existir
+        await setDoc(
+          profileRef,
+          {
+            email: user.email ?? "",
+            role: 'tecnico', // Default - pode mudar depois no Firebase Console
+            createdAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+        
+        // Atualizar profile local com dados padrão
+        setProfile({
+          nome: undefined,
+          matricula: undefined,
+          role: 'tecnico',
+          email: user.email ?? undefined,
+          allowedFsaIds: undefined,
+          avatarUrl: undefined,
+        });
+        
+        console.log('✅ Documento users criado automaticamente para:', user.uid);
+      } else {
+        // Documento existe - ler dados normalmente
         const data = snapshot.data();
         setProfile({
           nome: typeof data.nome === "string" ? data.nome : undefined,
@@ -51,8 +76,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           allowedFsaIds: Array.isArray(data.allowedFsaIds) ? data.allowedFsaIds as string[] : undefined,
           avatarUrl: typeof data.avatarUrl === 'string' ? data.avatarUrl : undefined,
         });
-      } else {
-        setProfile(null);
       }
     } catch (error) {
       console.error("Não foi possível carregar o perfil do usuário:", error);

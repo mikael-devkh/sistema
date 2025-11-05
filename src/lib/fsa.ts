@@ -239,6 +239,15 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
 
   const data: JiraSearchResult | { error: string, details?: any } = await response.json();
 
+  // ---- DEBUG ----
+  console.log('FRONTEND: Resposta completa da API:', {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    data: data
+  });
+  // ---------------
+
   if (!response.ok) {
     const errorMsg = (data as any).error || 'Falha ao buscar FSA';
     console.error('FRONTEND: Erro da API:', (data as any).details || data);
@@ -250,12 +259,16 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   // ---- DEBUG ----
   console.log('FRONTEND: Resultado da busca:', {
     total: searchResult.total || 0,
+    maxResults: searchResult.maxResults || 0,
+    startAt: searchResult.startAt || 0,
     issuesFound: searchResult.issues?.length || 0,
+    issues: searchResult.issues,
     jql: jql
   });
   // ---------------
   
   if (!searchResult.issues || searchResult.issues.length === 0) {
+    console.warn('FRONTEND: Nenhuma issue encontrada. Resposta completa:', searchResult);
     throw new Error(`Nenhuma FSA encontrada para o número "${fsaNumber}". JQL usada: ${jql}`);
   }
 

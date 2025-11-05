@@ -63,7 +63,16 @@ export default async function handler(
     };
 
     // 4. CHAMAR A API DO JIRA COM POST
-    const jiraUrl = `${baseUrl}/search/jql`;
+    const jiraUrl = `${baseUrl}/search`;
+    
+    // ---- DEBUG ----
+    console.log('API /api/buscar-fsa: Chamando Jira:', {
+      url: jiraUrl,
+      body: jiraBody,
+      jql: jiraBody.jql
+    });
+    // ---------------
+    
     const jiraResponse = await fetch(jiraUrl, {
       method: 'POST',
       headers: {
@@ -76,16 +85,49 @@ export default async function handler(
     
     const responseData = await jiraResponse.text();
     
+    // ---- DEBUG ----
+    console.log('API /api/buscar-fsa: Resposta do Jira:', {
+      status: jiraResponse.status,
+      statusText: jiraResponse.statusText,
+      ok: jiraResponse.ok,
+      responseData: responseData.substring(0, 500) // Primeiros 500 caracteres para debug
+    });
+    // ---------------
+    
     if (!jiraResponse.ok) {
       console.error('Jira API error:', responseData);
+      let errorDetails;
+      try {
+        errorDetails = JSON.parse(responseData);
+      } catch {
+        errorDetails = responseData;
+      }
       return res.status(jiraResponse.status).json({
         error: 'Failed to search Jira issues',
-        details: responseData
+        details: errorDetails
       });
     }
     
     // Retornar resposta de sucesso
-    return res.status(200).json(JSON.parse(responseData));
+    let parsedData;
+    try {
+      parsedData = JSON.parse(responseData);
+    } catch (error) {
+      console.error('Error parsing Jira response:', error);
+      return res.status(500).json({
+        error: 'Failed to parse Jira response',
+        details: responseData.substring(0, 500)
+      });
+    }
+    
+    // ---- DEBUG ----
+    console.log('API /api/buscar-fsa: Retornando dados:', {
+      total: parsedData.total || 0,
+      issuesFound: parsedData.issues?.length || 0
+    });
+    // ---------------
+    
+    return res.status(200).json(parsedData);
     
   } catch (error: any) {
     console.error('Error searching Jira issues:', error);

@@ -63,7 +63,8 @@ export default async function handler(
     };
 
     // 4. CHAMAR A API DO JIRA COM POST
-    // Migrado para /search/jql conforme mudança do Jira (CHANGE-2046)
+    // Usando /search/jql conforme mudança do Jira (CHANGE-2046)
+    // Nota: A nova API pode precisar de um formato ligeiramente diferente
     const jiraUrl = `${baseUrl}/search/jql`;
     
     // ---- DEBUG ----
@@ -73,7 +74,8 @@ export default async function handler(
       body: jiraBody,
       jql: jiraBody.jql,
       fields: jiraBody.fields,
-      maxResults: jiraBody.maxResults
+      maxResults: jiraBody.maxResults,
+      bodyStringified: JSON.stringify(jiraBody)
     });
     // ---------------
     
@@ -90,11 +92,13 @@ export default async function handler(
     const responseData = await jiraResponse.text();
     
     // ---- DEBUG ----
-    console.log('API /api/buscar-fsa: Resposta do Jira:', {
+    console.log('API /api/buscar-fsa: Resposta completa do Jira:', {
       status: jiraResponse.status,
       statusText: jiraResponse.statusText,
       ok: jiraResponse.ok,
-      responseData: responseData.substring(0, 500) // Primeiros 500 caracteres para debug
+      headers: Object.fromEntries(jiraResponse.headers.entries()),
+      responseDataLength: responseData.length,
+      responseData: responseData // Resposta completa para debug
     });
     // ---------------
     

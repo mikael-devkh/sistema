@@ -39,19 +39,37 @@ class JiraAPI {
     const url = `${this._base()}${endpoint}`;
     const headers = this._authHeaders();
 
-    return fetch(url, {
+    // ---- DEBUG ----
+    if (method === 'POST') {
+      console.log('JiraAPI._req: Enviando requisição:', {
+        url,
+        method,
+        body: body,
+        headers: {
+          ...headers,
+          Authorization: headers.Authorization.substring(0, 15) + '***'
+        }
+      });
+    }
+    // ---------------
+
+    const response = await fetch(url, {
       method,
       headers,
       body: body ? JSON.stringify(body) : undefined
     });
+
+    return response;
   }
 
   // Método principal de busca usando POST /search/jql com paginação
   async buscarChamados(jql: string, fields: string[], maxResults: number = 50): Promise<any> {
     const allIssues: any[] = [];
     let nextPageToken: string | null = null;
+    let pageCount = 0;
 
     do {
+      pageCount++;
       const body: any = {
         jql,
         fields,
@@ -62,17 +80,47 @@ class JiraAPI {
         body.nextPageToken = nextPageToken;
       }
 
+      console.log(`JiraAPI.buscarChamados: Página ${pageCount}`, {
+        jql,
+        fieldsCount: fields.length,
+        maxResults,
+        hasNextPageToken: !!nextPageToken
+      });
+
       const response = await this._req('/search/jql', 'POST', body);
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('JiraAPI.buscarChamados: Erro na requisição', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorText
+        });
         throw new Error(`Jira API error (${response.status}): ${errorText}`);
       }
 
-      const data = await response.json();
+      const responseText = await response.text();
+      
+      // ---- DEBUG ----
+      console.log('JiraAPI.buscarChamados: Resposta recebida:', {
+        status: response.status,
+        responseLength: responseText.length,
+        responsePreview: responseText.substring(0, 300)
+      });
+      // ---------------
+      
+      const data = JSON.parse(responseText);
       const issues = data.issues || [];
-      allIssues.push(...issues);
+      
+      console.log(`JiraAPI.buscarChamados: Página ${pageCount} processada`, {
+        issuesInPage: issues.length,
+        total: data.total || 0,
+        isLast: data.isLast,
+        hasNextPageToken: !!data.nextPageToken,
+        firstIssueKey: issues[0]?.key
+      });
 
+      allIssues.push(...issues);
       nextPageToken = data.nextPageToken || null;
     } while (nextPageToken);
 

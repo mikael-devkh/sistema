@@ -4,6 +4,7 @@ import { usePermissions } from '../hooks/use-permissions';
 import { useAuth } from '../context/AuthContext';
 import { listTechnicians, updateTechnicianAvailability } from '../lib/technician-firestore';
 import { TechnicianCard } from '../components/TechnicianCard';
+import { TechnicianEditDialog } from '../components/TechnicianEditDialog';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -20,6 +21,8 @@ export default function TechniciansManagementPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'todos' | 'ativos' | 'inativos'>('todos');
   const [searchTerm, setSearchTerm] = useState('');
+  const [editingTechnician, setEditingTechnician] = useState<TechnicianProfile | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   useEffect(() => {
     loadTechnicians();
@@ -60,6 +63,15 @@ export default function TechniciansManagementPage() {
       console.error('Erro ao atualizar disponibilidade:', error);
       toast.error('Erro ao atualizar disponibilidade');
     }
+  };
+
+  const handleEdit = (technician: TechnicianProfile) => {
+    setEditingTechnician(technician);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleEditSuccess = () => {
+    loadTechnicians();
   };
 
   const filteredTechnicians = technicians.filter(tech => {
@@ -195,11 +207,19 @@ export default function TechniciansManagementPage() {
             <TechnicianCard
               key={tech.uid}
               technician={tech}
+              onEdit={handleEdit}
               onToggleAvailability={handleToggleAvailability}
             />
           ))}
         </div>
       )}
+
+      <TechnicianEditDialog
+        technician={editingTechnician}
+        open={isEditDialogOpen}
+        onOpenChange={setIsEditDialogOpen}
+        onSuccess={handleEditSuccess}
+      />
     </div>
   );
 }

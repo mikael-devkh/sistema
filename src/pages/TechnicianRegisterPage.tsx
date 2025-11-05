@@ -33,22 +33,22 @@ const technicianSchema = z.object({
   cidade: z.string().optional(),
   uf: z.string().length(2, 'UF deve ter 2 caracteres').optional(),
   endereco: z.string().optional(),
-  veiculoPlaca: z.string().optional(),
-  veiculoModelo: z.string().optional(),
-  veiculoTipo: z.enum(['carro', 'moto', 'van']).optional(),
+  banco: z.string().optional(),
+  agencia: z.string().optional(),
+  conta: z.string().optional(),
+  tipoConta: z.enum(['corrente', 'poupanca']).optional(),
+  pix: z.string().optional(),
+  observacoesPagamento: z.string().optional(),
 });
 
 type TechnicianFormValues = z.infer<typeof technicianSchema>;
 
 const ESPECIALIDADES_OPTIONS = [
-  'Hardware',
-  'Rede',
-  'Impressora',
-  'Software',
-  'PDV',
-  'Balança',
-  'Scanner',
-  'Outros',
+  'PDVs',
+  'Desktops',
+  'Impressora Zebra',
+  'Infraestrutura',
+  'Field Service',
 ];
 
 const UFS = [
@@ -131,10 +131,13 @@ export default function TechnicianRegisterPage() {
         cidade: values.cidade,
         uf: values.uf,
         endereco: values.endereco,
-        veiculo: values.veiculoPlaca ? {
-          placa: values.veiculoPlaca,
-          modelo: values.veiculoModelo,
-          tipo: values.veiculoTipo,
+        pagamento: values.banco || values.agencia || values.conta || values.pix ? {
+          banco: values.banco,
+          agencia: values.agencia,
+          conta: values.conta,
+          tipoConta: values.tipoConta,
+          pix: values.pix,
+          observacoes: values.observacoesPagamento,
         } : undefined,
         status: 'ativo',
         disponivel: true,
@@ -411,18 +414,18 @@ export default function TechnicianRegisterPage() {
                 </div>
               </div>
 
-              {/* Dados de Veículo */}
+              {/* Dados de Pagamento */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Dados do Veículo (Opcional)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <h3 className="text-lg font-semibold">Dados de Pagamento (Opcional)</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
-                    name="veiculoPlaca"
+                    name="banco"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Placa</FormLabel>
+                        <FormLabel>Banco</FormLabel>
                         <FormControl>
-                          <Input placeholder="ABC-1234" {...field} />
+                          <Input placeholder="Banco do Brasil" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -430,12 +433,12 @@ export default function TechnicianRegisterPage() {
                   />
                   <FormField
                     control={form.control}
-                    name="veiculoModelo"
+                    name="agencia"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Modelo</FormLabel>
+                        <FormLabel>Agência</FormLabel>
                         <FormControl>
-                          <Input placeholder="Fiat Uno" {...field} />
+                          <Input placeholder="1234-5" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -443,20 +446,58 @@ export default function TechnicianRegisterPage() {
                   />
                   <FormField
                     control={form.control}
-                    name="veiculoTipo"
+                    name="conta"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Tipo</FormLabel>
+                        <FormLabel>Conta</FormLabel>
+                        <FormControl>
+                          <Input placeholder="12345-6" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="tipoConta"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Tipo de Conta</FormLabel>
                         <Select onValueChange={field.onChange} value={field.value}>
                           <SelectTrigger>
                             <SelectValue placeholder="Selecione" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="carro">Carro</SelectItem>
-                            <SelectItem value="moto">Moto</SelectItem>
-                            <SelectItem value="van">Van</SelectItem>
+                            <SelectItem value="corrente">Conta Corrente</SelectItem>
+                            <SelectItem value="poupanca">Conta Poupança</SelectItem>
                           </SelectContent>
                         </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="pix"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Chave PIX</FormLabel>
+                        <FormControl>
+                          <Input placeholder="CPF, e-mail, telefone ou chave aleatória" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="observacoesPagamento"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Observações</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Informações adicionais sobre pagamento" {...field} />
+                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}

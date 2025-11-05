@@ -10,8 +10,7 @@ import {
   XCircle,
   User,
   Phone,
-  MapPin,
-  Car
+  MapPin
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -130,10 +129,10 @@ export function TechnicianCard({
               <span>{technician.cidade}, {technician.uf}</span>
             </div>
           )}
-          {technician.veiculo?.placa && (
+          {technician.pagamento?.pix && (
             <div className="flex items-center gap-2 text-sm">
-              <Car className="h-4 w-4 text-muted-foreground" />
-              <span>{technician.veiculo.placa}</span>
+              <Phone className="h-4 w-4 text-muted-foreground" />
+              <span>PIX: {technician.pagamento.pix}</span>
             </div>
           )}
         </div>

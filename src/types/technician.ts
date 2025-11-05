@@ -24,11 +24,14 @@ export interface TechnicianProfile {
   uf?: string;
   endereco?: string;
   
-  // Dados de frota/veículo
-  veiculo?: {
-    placa?: string;
-    modelo?: string;
-    tipo?: 'carro' | 'moto' | 'van';
+  // Dados de pagamento
+  pagamento?: {
+    banco?: string;
+    agencia?: string;
+    conta?: string;
+    tipoConta?: 'corrente' | 'poupanca';
+    pix?: string;
+    observacoes?: string;
   };
   
   // Status e disponibilidade

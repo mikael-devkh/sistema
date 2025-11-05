@@ -59,7 +59,10 @@ export default async function handler(
       usingCloudId: !!cloudId,
       cloudId: cloudId ? '***' : 'N/A',
       site: site || 'N/A',
-      baseUrl: baseUrl
+      baseUrl: baseUrl,
+      email: email ? `${email.substring(0, 3)}***${email.substring(email.length - 3)}` : 'N/A',
+      tokenLength: token ? token.length : 0,
+      authHeaderPrefix: auth.substring(0, 10) + '***'
     });
     // ---------------
     

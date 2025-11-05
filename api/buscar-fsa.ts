@@ -169,18 +169,19 @@ export default async function handler(
       })) || []
     });
     
-    // Se não encontrou resultados, fazer um teste de busca simples
+    // Se não encontrou resultados, fazer testes de diagnóstico
     if ((parsedData.total || 0) === 0 && parsedData.issues?.length === 0) {
-      console.warn('API /api/buscar-fsa: Nenhum resultado encontrado. Testando busca simples do projeto...');
-      // Teste opcional: buscar apenas "project = FSA" para verificar se o projeto existe
-      const testJql = 'project = FSA ORDER BY created DESC';
-      const testBody = {
-        jql: testJql,
-        fields: ['summary', 'key'],
-        maxResults: 1
-      };
+      console.warn('API /api/buscar-fsa: Nenhum resultado encontrado. Executando testes de diagnóstico...');
       
+      // Teste 1: Buscar qualquer issue do projeto FSA
       try {
+        const testJql = 'project = FSA ORDER BY created DESC';
+        const testBody = {
+          jql: testJql,
+          fields: ['summary', 'key'],
+          maxResults: 1
+        };
+        
         const testResponse = await fetch(`${baseUrl}/search/jql`, {
           method: 'POST',
           headers: {
@@ -193,14 +194,45 @@ export default async function handler(
         
         if (testResponse.ok) {
           const testData = await testResponse.json();
-          console.log('API /api/buscar-fsa: Teste de busca simples:', {
+          console.log('API /api/buscar-fsa: Teste 1 - Busca simples projeto FSA:', {
             total: testData.total || 0,
             found: testData.issues?.length || 0,
             sample: testData.issues?.[0]?.key
           });
+        } else {
+          const testError = await testResponse.text();
+          console.error('API /api/buscar-fsa: Teste 1 falhou:', testResponse.status, testError);
         }
       } catch (testError) {
-        console.error('API /api/buscar-fsa: Erro no teste:', testError);
+        console.error('API /api/buscar-fsa: Erro no teste 1:', testError);
+      }
+      
+      // Teste 2: Listar projetos acessíveis
+      try {
+        const projectsResponse = await fetch(`${baseUrl}/project`, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': auth
+          }
+        });
+        
+        if (projectsResponse.ok) {
+          const projectsData = await projectsResponse.json();
+          const fsaProject = projectsData.find((p: any) => p.key === 'FSA' || p.name?.toUpperCase().includes('FSA'));
+          console.log('API /api/buscar-fsa: Teste 2 - Projetos acessíveis:', {
+            totalProjects: projectsData.length,
+            fsaProjectFound: !!fsaProject,
+            fsaProjectKey: fsaProject?.key,
+            fsaProjectName: fsaProject?.name,
+            firstProjects: projectsData.slice(0, 5).map((p: any) => ({ key: p.key, name: p.name }))
+          });
+        } else {
+          const projectsError = await projectsResponse.text();
+          console.error('API /api/buscar-fsa: Teste 2 falhou:', projectsResponse.status, projectsError);
+        }
+      } catch (testError) {
+        console.error('API /api/buscar-fsa: Erro no teste 2:', testError);
       }
     }
     // ---------------

@@ -198,8 +198,8 @@ function buildJqlQueryByNumber(fsaNumber: string): string {
   const fsaKey = `FSA-${sanitizedNumber}`;
 
   // JQL CORRETA: Combina a regra 'project = FSA'
-  // com a busca por número
-  return `project = FSA AND (key = "${fsaKey}" OR text ~ "FSA ${sanitizedNumber}" OR text ~ "${fsaKey}" OR summary ~ "${sanitizedNumber}") ORDER BY created DESC`;
+  // com a busca por número (key e summary apenas, pois 'text' pode não estar disponível)
+  return `project = FSA AND (key = "${fsaKey}" OR summary ~ "${sanitizedNumber}" OR summary ~ "FSA ${sanitizedNumber}" OR summary ~ "${fsaKey}") ORDER BY created DESC`;
 }
 
 /**

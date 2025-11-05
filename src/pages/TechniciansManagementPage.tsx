@@ -42,49 +42,10 @@ export default function TechniciansManagementPage() {
   const [filterCargo, setFilterCargo] = useState<string>('todos');
   const [filterUF, setFilterUF] = useState<string>('todos');
 
-  useEffect(() => {
-    loadTechnicians();
-  }, [filter]);
-
-  // Listener em tempo real para atualizar quando técnicos são adicionados
-  useEffect(() => {
-    const techniciansRef = collection(db, 'technicians');
-    
-    // Usar query simples sem orderBy para evitar erro de índice
-    const q = query(techniciansRef);
-    
-    const unsubscribe = onSnapshot(
-      q,
-      (snapshot) => {
-        const technicians = snapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            uid: doc.id,
-            ...data,
-          };
-        }) as TechnicianProfile[];
-        
-        // Ordenar no cliente
-        technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
-        
-        console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
-        console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
-        setTechnicians(technicians);
-      },
-      (error) => {
-        console.error('❌ Erro no listener real-time:', error);
-        // Se falhar, recarrega manualmente
-        loadTechnicians();
-      }
-    );
-    
-    return () => unsubscribe();
-  }, []);
-
   const loadTechnicians = async () => {
     setLoading(true);
     try {
-      console.log('🔄 Carregando técnicos... Filtro:', filter);
+      console.log('🔄 Carregando técnicos manualmente... Filtro:', filter);
       
       const filters: any = {};
       if (filter === 'ativos') {
@@ -95,7 +56,10 @@ export default function TechniciansManagementPage() {
         filter === 'todos' ? undefined : { status: filters.status }
       );
 
-      console.log(`📊 Técnicos recebidos: ${data.length}`);
+      console.log(`📊 Técnicos recebidos do Firestore: ${data.length}`);
+      if (data.length > 0) {
+        console.log('📋 Primeiros técnicos:', data.slice(0, 3).map(t => ({ uid: t.uid, nome: t.nome, codigo: t.codigoTecnico })));
+      }
 
       // Filtrar inativos se necessário
       const filteredData = filter === 'inativos'
@@ -106,7 +70,11 @@ export default function TechniciansManagementPage() {
       setTechnicians(filteredData);
       
       if (filteredData.length === 0 && data.length === 0) {
-        console.warn('⚠️ Nenhum técnico encontrado no Firestore. Verifique se a collection "technicians" existe.');
+        console.warn('⚠️ Nenhum técnico encontrado no Firestore.');
+        console.warn('💡 Verifique:');
+        console.warn('   1. Se a collection "technicians" existe no Firestore');
+        console.warn('   2. Se há documentos dentro da collection');
+        console.warn('   3. Se os documentos têm os campos corretos (uid, nome, codigoTecnico, etc)');
       }
     } catch (error: any) {
       console.error('❌ Erro ao carregar técnicos:', error);
@@ -121,7 +89,7 @@ export default function TechniciansManagementPage() {
         errorMessage = 'Erro: Índice Firestore necessário. Verifique o console para mais detalhes.';
         console.error('💡 SOLUÇÃO: Crie um índice composto no Firebase Console para:', {
           collection: 'technicians',
-          fields: ['status', 'dataCadastro'] // ou os campos que você está usando
+          fields: ['status', 'dataCadastro']
         });
       }
       
@@ -171,6 +139,60 @@ export default function TechniciansManagementPage() {
     }
   };
 
+  // Listener em tempo real para atualizar quando técnicos são adicionados
+  useEffect(() => {
+    console.log('🔧 Configurando listener real-time...');
+    const techniciansRef = collection(db, 'technicians');
+    
+    // Usar query simples sem orderBy para evitar erro de índice
+    const q = query(techniciansRef);
+    
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        console.log('📡 Snapshot recebido:', snapshot.size, 'documento(s)');
+        const technicians = snapshot.docs.map(doc => {
+          const data = doc.data();
+          console.log('📄 Documento:', doc.id, {
+            uid: doc.id,
+            nome: data.nome,
+            codigo: data.codigoTecnico,
+            status: data.status
+          });
+          return {
+            uid: doc.id,
+            ...data,
+          };
+        }) as TechnicianProfile[];
+        
+        // Ordenar no cliente
+        technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
+        
+        console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
+        console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
+        console.log('📝 Nomes:', technicians.map(t => t.nome));
+        setTechnicians(technicians);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('❌ Erro no listener real-time:', error);
+        // Se falhar, recarrega manualmente
+        loadTechnicians();
+      }
+    );
+    
+    return () => {
+      console.log('🔌 Removendo listener real-time...');
+      unsubscribe();
+    };
+  }, []);
+  
+  // Carregar manualmente quando o filtro mudar (fallback)
+  useEffect(() => {
+    console.log('🔄 Filtro mudou, recarregando técnicos...', filter);
+    loadTechnicians();
+  }, [filter]);
+
   const filteredTechnicians = technicians.filter(tech => {
     // Busca por texto
     if (searchTerm) {
@@ -201,6 +223,23 @@ export default function TechniciansManagementPage() {
 
     return true;
   });
+  
+  // Debug: log dos técnicos filtrados
+  useEffect(() => {
+    console.log('🔍 Estado atual:', {
+      totalTechnicians: technicians.length,
+      filteredCount: filteredTechnicians.length,
+      loading,
+      filter,
+      searchTerm,
+      filterEspecialidade,
+      filterCargo,
+      filterUF
+    });
+    if (filteredTechnicians.length > 0) {
+      console.log('✅ Técnicos que serão exibidos:', filteredTechnicians.map(t => ({ nome: t.nome, codigo: t.codigoTecnico })));
+    }
+  }, [technicians, filteredTechnicians, loading, filter, searchTerm, filterEspecialidade, filterCargo, filterUF]);
 
   // Obter lista única de especialidades e UFs para os filtros
   const especialidadesUnicas = Array.from(

@@ -166,11 +166,20 @@ export default async function handler(
     
     if (!cloudId && !site) {
       console.error('Missing JIRA_CLOUD_ID or JIRA_BASE_URL');
-      return res.status(500).json({ error: 'Jira base config incomplete. Provide JIRA_CLOUD_ID or JIRA_BASE_URL.' });
+      return res.status(500).json({ 
+        error: 'Jira base config incomplete. Provide JIRA_CLOUD_ID or JIRA_BASE_URL.',
+        hint: 'Para Jira Cloud, é recomendado usar JIRA_CLOUD_ID com o formato: https://api.atlassian.com/ex/jira/{cloudId}/rest/api/3'
+      });
     }
     
-    // Tentar obter Cloud ID automaticamente se não estiver configurado
+    // Se não tiver Cloud ID, tentar obter automaticamente (mas pode falhar com 401)
     let resolvedCloudId = cloudId;
+    
+    // IMPORTANTE: Para Jira Cloud, o Cloud ID é necessário para funcionar corretamente
+    if (!resolvedCloudId) {
+      console.warn('API /api/buscar-fsa: JIRA_CLOUD_ID não configurado. A busca pode não funcionar corretamente.');
+      console.warn('API /api/buscar-fsa: Configure JIRA_CLOUD_ID na Vercel para usar o formato EX API (recomendado para Jira Cloud).');
+    }
     if (!resolvedCloudId && site) {
       try {
         const cleanToken = token.trim().replace(/\s+/g, '');

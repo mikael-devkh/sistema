@@ -54,8 +54,8 @@ export function TechnicianCard({
   };
 
   return (
-    <Card className="hover:shadow-lg transition-shadow">
-      <div className="p-4">
+    <Card className="hover:shadow-lg transition-all border-2 hover:border-primary/50 bg-background">
+      <div className="p-5">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <Avatar>
@@ -177,16 +177,40 @@ export function TechnicianCard({
           </Badge>
         </div>
 
-        {technician.totalChamados !== undefined && (
-          <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-            <div className="flex justify-between">
-              <span>Chamados:</span>
-              <span className="font-medium">{technician.totalChamados || 0}</span>
-            </div>
+        {(technician.totalChamados !== undefined || technician.avaliacaoMedia !== undefined) && (
+          <div className="mt-3 pt-3 border-t text-xs text-muted-foreground space-y-1">
+            {technician.totalChamados !== undefined && (
+              <div className="flex justify-between">
+                <span>Chamados:</span>
+                <span className="font-medium">{technician.totalChamados || 0}</span>
+              </div>
+            )}
             {technician.chamadosConcluidos !== undefined && (
               <div className="flex justify-between">
                 <span>Concluídos:</span>
-                <span className="font-medium">{technician.chamadosConcluidos}</span>
+                <span className="font-medium text-green-600">{technician.chamadosConcluidos}</span>
+              </div>
+            )}
+            {technician.chamadosEmAndamento !== undefined && technician.chamadosEmAndamento > 0 && (
+              <div className="flex justify-between">
+                <span>Em Andamento:</span>
+                <span className="font-medium text-orange-600">{technician.chamadosEmAndamento}</span>
+              </div>
+            )}
+            {technician.avaliacaoMedia !== undefined && technician.avaliacaoMedia > 0 && (
+              <div className="flex justify-between">
+                <span>Avaliação Média:</span>
+                <span className="font-medium text-yellow-600">
+                  {technician.avaliacaoMedia.toFixed(1)} ⭐
+                </span>
+              </div>
+            )}
+            {technician.mediaTempoAtendimento !== undefined && technician.mediaTempoAtendimento > 0 && (
+              <div className="flex justify-between">
+                <span>Tempo Médio:</span>
+                <span className="font-medium">
+                  {Math.round(technician.mediaTempoAtendimento)} min
+                </span>
               </div>
             )}
           </div>

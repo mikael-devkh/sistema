@@ -162,7 +162,12 @@ export default function TechnicianRegisterPage() {
       toast.success(`Técnico cadastrado com sucesso! Código: ${codigoTecnico}`);
       form.reset();
       setGeneratedCode(null);
-      setTimeout(() => navigate('/tecnicos'), 2000);
+      
+      // Aguardar um pouco para garantir que o Firestore salvou
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Redirecionar para a página de gestão
+      navigate('/tecnicos');
 
     } catch (error: any) {
       console.error('Erro ao cadastrar técnico:', error);

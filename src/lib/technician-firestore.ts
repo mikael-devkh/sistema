@@ -82,33 +82,98 @@ export async function listTechnicians(filters?: {
   uf?: string;
 }): Promise<TechnicianProfile[]> {
   const techniciansRef = collection(db, 'technicians');
-  let q = query(techniciansRef, orderBy('dataCadastro', 'desc'));
   
-  if (filters?.status) {
-    q = query(q, where('status', '==', filters.status));
+  try {
+    // Primeiro, tentar com orderBy
+    const queryConstraints: any[] = [];
+    
+    if (filters?.status) {
+      queryConstraints.push(where('status', '==', filters.status));
+    }
+    
+    if (filters?.disponivel !== undefined) {
+      queryConstraints.push(where('disponivel', '==', filters.disponivel));
+    }
+    
+    if (filters?.cargo) {
+      queryConstraints.push(where('cargo', '==', filters.cargo));
+    }
+    
+    if (filters?.uf) {
+      queryConstraints.push(where('uf', '==', filters.uf));
+    }
+    
+    // Adicionar orderBy no final
+    queryConstraints.push(orderBy('dataCadastro', 'desc'));
+    
+    if (filters?.limitCount) {
+      queryConstraints.push(limit(filters.limitCount));
+    }
+    
+    const q = queryConstraints.length > 0 
+      ? query(techniciansRef, ...queryConstraints)
+      : query(techniciansRef, orderBy('dataCadastro', 'desc'));
+    
+    const snapshot = await getDocs(q);
+    const technicians = snapshot.docs.map(doc => ({
+      uid: doc.id,
+      ...doc.data(),
+    })) as TechnicianProfile[];
+    
+    console.log(`✅ listTechnicians: ${technicians.length} técnico(s) encontrado(s)`);
+    return technicians;
+  } catch (error: any) {
+    console.error('❌ Erro ao listar técnicos:', error);
+    
+    // Fallback: buscar sem orderBy se houver erro de índice
+    if (error.code === 'failed-precondition' || error.message?.includes('index')) {
+      console.warn('⚠️ Tentando buscar sem orderBy devido a erro de índice...');
+      try {
+        const queryConstraints: any[] = [];
+        
+        if (filters?.status) {
+          queryConstraints.push(where('status', '==', filters.status));
+        }
+        
+        if (filters?.disponivel !== undefined) {
+          queryConstraints.push(where('disponivel', '==', filters.disponivel));
+        }
+        
+        if (filters?.cargo) {
+          queryConstraints.push(where('cargo', '==', filters.cargo));
+        }
+        
+        if (filters?.uf) {
+          queryConstraints.push(where('uf', '==', filters.uf));
+        }
+        
+        if (filters?.limitCount) {
+          queryConstraints.push(limit(filters.limitCount));
+        }
+        
+        const q = queryConstraints.length > 0 
+          ? query(techniciansRef, ...queryConstraints)
+          : query(techniciansRef);
+        
+        const snapshot = await getDocs(q);
+        const technicians = snapshot.docs.map(doc => ({
+          uid: doc.id,
+          ...doc.data(),
+        })) as TechnicianProfile[];
+        
+        // Ordenar no cliente
+        technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
+        
+        console.log(`✅ listTechnicians (fallback): ${technicians.length} técnico(s) encontrado(s)`);
+        return technicians;
+      } catch (fallbackError) {
+        console.error('❌ Erro no fallback:', fallbackError);
+        throw error;
+      }
+    }
+    
+    throw error;
   }
-  
-  if (filters?.disponivel !== undefined) {
-    q = query(q, where('disponivel', '==', filters.disponivel));
-  }
-  
-  if (filters?.cargo) {
-    q = query(q, where('cargo', '==', filters.cargo));
-  }
-  
-  if (filters?.uf) {
-    q = query(q, where('uf', '==', filters.uf));
-  }
-  
-  if (filters?.limitCount) {
-    q = query(q, limit(filters.limitCount));
-  }
-  
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({
-    uid: doc.id,
-    ...doc.data(),
-  })) as TechnicianProfile[];
 }
 
 /**
@@ -183,6 +248,18 @@ export async function updateTechnicianStats(
   const technicianRef = doc(db, 'technicians', uid);
   await updateDoc(technicianRef, {
     ...stats,
+    dataAtualizacao: Date.now(),
+  });
+}
+
+/**
+ * Soft delete: marca técnico como desligado (não remove do banco)
+ */
+export async function deleteTechnician(uid: string): Promise<void> {
+  const technicianRef = doc(db, 'technicians', uid);
+  await updateDoc(technicianRef, {
+    status: 'desligado',
+    disponivel: false,
     dataAtualizacao: Date.now(),
   });
 }

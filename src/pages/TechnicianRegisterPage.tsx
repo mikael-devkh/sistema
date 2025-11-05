@@ -106,15 +106,27 @@ export default function TechnicianRegisterPage() {
   const onSubmit = async (values: TechnicianFormValues) => {
     setIsSubmitting(true);
     try {
+      console.log('🔄 Gerando código único para o técnico...');
       const codigoTecnico = await generateTechnicianCode();
+      console.log('✅ Código gerado:', codigoTecnico);
       setGeneratedCode(codigoTecnico);
 
+      console.log('👤 Criando usuário no Firebase Auth...', {
+        email: values.email,
+        nome: values.nome
+      });
+      
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         values.email,
         values.password
       );
       const newUser = userCredential.user;
+      
+      console.log('✅ Usuário criado no Firebase Auth:', {
+        uid: newUser.uid,
+        email: newUser.email
+      });
 
       const technicianData: TechnicianProfile = {
         uid: newUser.uid,
@@ -149,7 +161,15 @@ export default function TechnicianRegisterPage() {
         chamadosEmAndamento: 0,
       };
 
+      console.log('💾 Salvando técnico no Firestore...', {
+        uid: newUser.uid,
+        codigoTecnico,
+        nome: values.nome,
+        email: values.email
+      });
+
       await createOrUpdateTechnician(technicianData);
+      console.log('✅ Técnico salvo na collection "technicians"');
 
       await setDoc(doc(db, 'users', newUser.uid), {
         nome: values.nome,
@@ -158,13 +178,27 @@ export default function TechnicianRegisterPage() {
         email: values.email,
         createdAt: serverTimestamp(),
       });
+      console.log('✅ Usuário salvo na collection "users"');
 
-      toast.success(`Técnico cadastrado com sucesso! Código: ${codigoTecnico}`);
-      form.reset();
-      setGeneratedCode(null);
+      console.log('🎉 Cadastro concluído com sucesso!');
+      console.log('📋 Resumo do cadastro:', {
+        codigoTecnico,
+        nome: values.nome,
+        email: values.email,
+        cargo: values.cargo,
+        especialidades: values.especialidades
+      });
       
-      // Aguardar um pouco para garantir que o Firestore salvou
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      toast.success(`Técnico cadastrado com sucesso! Código: ${codigoTecnico}`, {
+        duration: 5000,
+      });
+      
+      // NÃO limpar o código gerado - manter visível
+      // form.reset(); // Comentar para não limpar o formulário imediatamente
+      // setGeneratedCode(null); // Manter o código visível
+      
+      // Aguardar um pouco para garantir que o Firestore salvou e o usuário veja o código
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
       // Redirecionar para a página de gestão
       navigate('/tecnicos');
@@ -511,10 +545,28 @@ export default function TechnicianRegisterPage() {
               </div>
 
               {generatedCode && (
-                <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                  <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                    ✅ Código gerado: <strong>{generatedCode}</strong>
-                  </p>
+                <div className="p-6 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 border-2 border-green-500 dark:border-green-600 rounded-xl shadow-lg">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="text-2xl">✅</div>
+                    <div>
+                      <p className="text-sm font-semibold text-green-900 dark:text-green-100 uppercase tracking-wide">
+                        Código do Técnico Gerado
+                      </p>
+                      <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                        Anote este código - ele será usado para identificar o técnico
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg border-2 border-green-500 dark:border-green-600">
+                    <p className="text-center">
+                      <span className="text-3xl font-bold text-green-700 dark:text-green-300 font-mono tracking-wider">
+                        {generatedCode}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="mt-3 text-xs text-green-700 dark:text-green-300 text-center">
+                    📝 Verifique o console do navegador (F12) para ver os logs detalhados
+                  </div>
                 </div>
               )}
 

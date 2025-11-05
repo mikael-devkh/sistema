@@ -50,44 +50,31 @@ export default function TechniciansManagementPage() {
   useEffect(() => {
     const techniciansRef = collection(db, 'technicians');
     
-    // Tentar com orderBy primeiro, se falhar usa sem
-    let q;
-    try {
-      q = query(techniciansRef, orderBy('dataCadastro', 'desc'));
-    } catch (error) {
-      console.warn('Não foi possível usar orderBy no listener, usando query simples:', error);
-      q = query(techniciansRef);
-    }
+    // Usar query simples sem orderBy para evitar erro de índice
+    const q = query(techniciansRef);
     
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const technicians = snapshot.docs.map(doc => ({
-          uid: doc.id,
-          ...doc.data(),
-        })) as TechnicianProfile[];
+        const technicians = snapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            uid: doc.id,
+            ...data,
+          };
+        }) as TechnicianProfile[];
         
-        // Ordenar no cliente se necessário
+        // Ordenar no cliente
         technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
         
         console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
+        console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
         setTechnicians(technicians);
       },
       (error) => {
-        console.error('Erro no listener real-time:', error);
-        // Se falhar, tenta carregar manualmente uma vez
-        if (error.code === 'failed-precondition') {
-          console.warn('Índice necessário para orderBy. Usando query simples...');
-          const qSimple = query(techniciansRef);
-          onSnapshot(qSimple, (snap) => {
-            const techs = snap.docs.map(doc => ({
-              uid: doc.id,
-              ...doc.data(),
-            })) as TechnicianProfile[];
-            techs.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
-            setTechnicians(techs);
-          });
-        }
+        console.error('❌ Erro no listener real-time:', error);
+        // Se falhar, recarrega manualmente
+        loadTechnicians();
       }
     );
     

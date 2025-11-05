@@ -20,14 +20,26 @@ export async function createOrUpdateTechnician(
   technician: TechnicianProfile
 ): Promise<void> {
   const technicianRef = doc(db, 'technicians', technician.uid);
+  const dataToSave = {
+    ...technician,
+    dataAtualizacao: Date.now(),
+  };
+  
+  console.log('💾 Salvando técnico no Firestore:', {
+    uid: technician.uid,
+    codigoTecnico: technician.codigoTecnico,
+    nome: technician.nome,
+    collection: 'technicians',
+    documentId: technician.uid
+  });
+  
   await setDoc(
     technicianRef,
-    {
-      ...technician,
-      dataAtualizacao: Date.now(),
-    },
+    dataToSave,
     { merge: true }
   );
+  
+  console.log('✅ Técnico salvo com sucesso no Firestore');
 }
 
 /**
@@ -83,8 +95,35 @@ export async function listTechnicians(filters?: {
 }): Promise<TechnicianProfile[]> {
   const techniciansRef = collection(db, 'technicians');
   
+  // Se não há filtros, buscar todos diretamente sem orderBy (não precisa de índice)
+  const hasFilters = filters && Object.keys(filters).length > 0;
+  
+  if (!hasFilters) {
+    console.log('📋 Buscando todos os técnicos sem filtros (query simples)...');
+    try {
+      const snapshot = await getDocs(techniciansRef);
+      const technicians = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          uid: doc.id,
+          ...data,
+        } as TechnicianProfile;
+      });
+      
+      // Ordenar no cliente
+      technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
+      
+      console.log(`✅ listTechnicians (sem filtros): ${technicians.length} técnico(s) encontrado(s)`);
+      console.log('📝 IDs encontrados:', technicians.map(t => t.uid));
+      return technicians;
+    } catch (error: any) {
+      console.error('❌ Erro ao buscar técnicos (sem filtros):', error);
+      throw error;
+    }
+  }
+  
+  // Se há filtros, tentar com orderBy primeiro
   try {
-    // Primeiro, tentar com orderBy
     const queryConstraints: any[] = [];
     
     if (filters?.status) {
@@ -103,24 +142,21 @@ export async function listTechnicians(filters?: {
       queryConstraints.push(where('uf', '==', filters.uf));
     }
     
-    // Adicionar orderBy no final
+    // Tentar adicionar orderBy (pode precisar de índice)
     queryConstraints.push(orderBy('dataCadastro', 'desc'));
     
     if (filters?.limitCount) {
       queryConstraints.push(limit(filters.limitCount));
     }
     
-    const q = queryConstraints.length > 0 
-      ? query(techniciansRef, ...queryConstraints)
-      : query(techniciansRef, orderBy('dataCadastro', 'desc'));
-    
+    const q = query(techniciansRef, ...queryConstraints);
     const snapshot = await getDocs(q);
     const technicians = snapshot.docs.map(doc => ({
       uid: doc.id,
       ...doc.data(),
     })) as TechnicianProfile[];
     
-    console.log(`✅ listTechnicians: ${technicians.length} técnico(s) encontrado(s)`);
+    console.log(`✅ listTechnicians (com filtros): ${technicians.length} técnico(s) encontrado(s)`);
     return technicians;
   } catch (error: any) {
     console.error('❌ Erro ao listar técnicos:', error);

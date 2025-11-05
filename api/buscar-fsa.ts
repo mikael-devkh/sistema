@@ -157,8 +157,52 @@ export default async function handler(
     // ---- DEBUG ----
     console.log('API /api/buscar-fsa: Retornando dados:', {
       total: parsedData.total || 0,
-      issuesFound: parsedData.issues?.length || 0
+      maxResults: parsedData.maxResults || 0,
+      startAt: parsedData.startAt || 0,
+      issuesFound: parsedData.issues?.length || 0,
+      isLast: parsedData.isLast,
+      nextPageToken: parsedData.nextPageToken ? 'presente' : 'não presente',
+      jql: jiraBody.jql,
+      sampleIssues: parsedData.issues?.slice(0, 2).map((i: any) => ({
+        key: i.key,
+        summary: i.fields?.summary
+      })) || []
     });
+    
+    // Se não encontrou resultados, fazer um teste de busca simples
+    if ((parsedData.total || 0) === 0 && parsedData.issues?.length === 0) {
+      console.warn('API /api/buscar-fsa: Nenhum resultado encontrado. Testando busca simples do projeto...');
+      // Teste opcional: buscar apenas "project = FSA" para verificar se o projeto existe
+      const testJql = 'project = FSA ORDER BY created DESC';
+      const testBody = {
+        jql: testJql,
+        fields: ['summary', 'key'],
+        maxResults: 1
+      };
+      
+      try {
+        const testResponse = await fetch(`${baseUrl}/search/jql`, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'Authorization': auth
+          },
+          body: JSON.stringify(testBody)
+        });
+        
+        if (testResponse.ok) {
+          const testData = await testResponse.json();
+          console.log('API /api/buscar-fsa: Teste de busca simples:', {
+            total: testData.total || 0,
+            found: testData.issues?.length || 0,
+            sample: testData.issues?.[0]?.key
+          });
+        }
+      } catch (testError) {
+        console.error('API /api/buscar-fsa: Erro no teste:', testError);
+      }
+    }
     // ---------------
     
     return res.status(200).json(parsedData);

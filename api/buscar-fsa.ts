@@ -185,19 +185,48 @@ export default async function handler(
           }
         });
         
+        console.log('API /api/buscar-fsa: Resposta Cloud ID:', {
+          status: cloudIdResponse.status,
+          ok: cloudIdResponse.ok
+        });
+        
         if (cloudIdResponse.ok) {
           const resources = await cloudIdResponse.json();
+          console.log('API /api/buscar-fsa: Recursos encontrados:', {
+            totalResources: resources.length,
+            resources: resources.map((r: any) => ({ id: r.id, name: r.name, url: r.url }))
+          });
+          
           const jiraResource = resources.find((r: any) => 
-            r.url?.includes('delfia.atlassian.net') || site.includes(r.url?.replace('https://', ''))
+            r.url?.includes('delfia.atlassian.net') || 
+            site.includes(r.url?.replace('https://', '')) ||
+            r.url?.includes('atlassian.net')
           );
           
           if (jiraResource?.id) {
             resolvedCloudId = jiraResource.id;
             console.log('API /api/buscar-fsa: Cloud ID obtido automaticamente:', resolvedCloudId);
+          } else {
+            console.warn('API /api/buscar-fsa: Recurso Jira não encontrado nos recursos acessíveis');
+            // Se não encontrou, tenta usar o primeiro recurso do tipo 'jira'
+            const firstJira = resources.find((r: any) => r.name?.toLowerCase().includes('jira') || r.scopes?.includes('read:jira-work'));
+            if (firstJira?.id) {
+              resolvedCloudId = firstJira.id;
+              console.log('API /api/buscar-fsa: Usando primeiro recurso Jira encontrado:', resolvedCloudId);
+            }
           }
+        } else {
+          const errorText = await cloudIdResponse.text();
+          console.error('API /api/buscar-fsa: Erro ao obter Cloud ID:', {
+            status: cloudIdResponse.status,
+            error: errorText
+          });
         }
-      } catch (error) {
-        console.warn('API /api/buscar-fsa: Não foi possível obter Cloud ID automaticamente:', error);
+      } catch (error: any) {
+        console.warn('API /api/buscar-fsa: Não foi possível obter Cloud ID automaticamente:', {
+          message: error?.message,
+          error: error
+        });
       }
     }
     
@@ -249,6 +278,30 @@ export default async function handler(
       }))
     });
     // ---------------
+    
+    // Se não encontrou resultados, fazer teste de diagnóstico
+    if (resultado.issues.length === 0) {
+      console.warn('API /api/buscar-fsa: Nenhum resultado encontrado. Executando teste de diagnóstico...');
+      
+      try {
+        // Teste: buscar qualquer issue do projeto FSA (sem filtro de key)
+        const testeJql = 'project = FSA ORDER BY created DESC';
+        const testeResultado = await jiraApi.buscarChamados(testeJql, ['summary', 'key'], 5);
+        
+        console.log('API /api/buscar-fsa: Teste diagnóstico - Busca simples projeto FSA:', {
+          issuesEncontradas: testeResultado.issues.length,
+          sampleKeys: testeResultado.issues.map((i: any) => i.key)
+        });
+        
+        if (testeResultado.issues.length > 0) {
+          console.log('API /api/buscar-fsa: PROJETO FSA ACESSÍVEL - O problema pode ser com a JQL específica ou a issue não existe');
+        } else {
+          console.error('API /api/buscar-fsa: PROJETO FSA NÃO ACESSÍVEL - Problema de permissões ou projeto não existe');
+        }
+      } catch (testError: any) {
+        console.error('API /api/buscar-fsa: Erro no teste diagnóstico:', testError?.message);
+      }
+    }
     
     // 5. RETORNAR RESULTADO NO FORMATO ESPERADO
     return res.status(200).json({

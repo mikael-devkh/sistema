@@ -72,8 +72,35 @@ export default function TechnicianRegisterPage() {
     },
   });
 
-  if (!currentUser || profile?.role !== 'admin') {
+  // Debug
+  console.log('TechnicianRegisterPage - User:', currentUser?.uid);
+  console.log('TechnicianRegisterPage - Profile role:', profile?.role);
+  
+  if (!currentUser) {
     return <Navigate to="/" replace />;
+  }
+  
+  if (profile?.role !== 'admin') {
+    return (
+      <div className="max-w-4xl mx-auto py-8 px-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Acesso Negado</CardTitle>
+            <CardDescription>
+              Você precisa ter permissão de administrador para cadastrar técnicos.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Role atual: {profile?.role || 'não definido'}
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              Para ter acesso, seu perfil no Firestore precisa ter o campo <code>role: 'admin'</code> no documento <code>users/{currentUser.uid}</code>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const onSubmit = async (values: TechnicianFormValues) => {

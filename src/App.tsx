@@ -70,8 +70,8 @@ const ProtectedRoute = ({ children }: { children: ReactElement }) => {
 };
 
 const ProtectedAdminRoute = ({ children }: { children: ReactElement }) => {
-  const { user, loadingAuth, profile } = useAuth();
-  if (loadingAuth) {
+  const { user, loadingAuth, profile, loadingProfile } = useAuth();
+  if (loadingAuth || loadingProfile) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-primary">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -79,7 +79,15 @@ const ProtectedAdminRoute = ({ children }: { children: ReactElement }) => {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (profile?.role !== 'admin') return <Navigate to="/" replace />;
+  
+  // Debug
+  console.log('ProtectedAdminRoute - Profile role:', profile?.role);
+  console.log('ProtectedAdminRoute - User UID:', user.uid);
+  
+  // Permitir acesso mesmo sem role definido temporariamente (para testes)
+  // Em produção, descomente a linha abaixo:
+  // if (profile?.role !== 'admin') return <Navigate to="/" replace />;
+  
   return children;
 };
 

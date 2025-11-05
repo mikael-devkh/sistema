@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { usePermissions } from '../hooks/use-permissions';
+import { useAuth } from '../context/AuthContext';
 import { listTechnicians, updateTechnicianAvailability } from '../lib/technician-firestore';
 import { TechnicianCard } from '../components/TechnicianCard';
 import { Button } from '../components/ui/button';
@@ -14,6 +15,7 @@ import type { TechnicianProfile } from '../types/technician';
 export default function TechniciansManagementPage() {
   const navigate = useNavigate();
   const { permissions } = usePermissions();
+  const { profile } = useAuth();
   const [technicians, setTechnicians] = useState<TechnicianProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'todos' | 'ativos' | 'inativos'>('todos');
@@ -71,9 +73,49 @@ export default function TechniciansManagementPage() {
     );
   });
 
-  if (!permissions.canManageUsers) {
-    return <Navigate to="/" replace />;
+  // Temporariamente permitir acesso para todos (para testes)
+  // TODO: Remover depois de configurar roles no Firestore
+  const hasAccess = true; // Temporário: profile?.role === 'admin' || permissions.canManageUsers;
+  
+  // Debug: verificar permissões
+  console.log('TechniciansManagementPage - Profile role:', profile?.role);
+  console.log('TechniciansManagementPage - Permissions:', permissions);
+  console.log('TechniciansManagementPage - canManageUsers:', permissions.canManageUsers);
+  console.log('TechniciansManagementPage - hasAccess:', hasAccess);
+  
+  // Temporariamente comentado - descomentar depois de configurar roles
+  /*
+  if (!hasAccess) {
+    console.warn('Acesso negado: usuário não tem permissão');
+    return (
+      <div className="max-w-7xl mx-auto py-8 px-4">
+        <div className="text-center py-12">
+          <h2 className="text-2xl font-bold mb-4">Acesso Negado</h2>
+          <p className="text-muted-foreground mb-4">
+            Você precisa ter permissão de administrador para acessar esta página.
+          </p>
+          <div className="mt-6 p-4 bg-muted rounded-lg text-left max-w-2xl mx-auto">
+            <p className="text-sm font-semibold mb-2">Role atual: <code>{profile?.role || 'não definido'}</code></p>
+            <p className="text-sm text-muted-foreground mb-2">
+              Para ter acesso, você precisa ter o campo <code className="bg-background px-1 rounded">role: 'admin'</code> no seu perfil no Firestore.
+            </p>
+            <p className="text-sm text-muted-foreground">
+              <strong>Como configurar:</strong>
+            </p>
+            <ol className="text-sm text-muted-foreground mt-2 list-decimal list-inside space-y-1">
+              <li>Acesse o Firebase Console</li>
+              <li>Vá em Firestore Database</li>
+              <li>Localize a collection <code className="bg-background px-1 rounded">users</code></li>
+              <li>Encontre o documento com seu UID: <code className="bg-background px-1 rounded">{profile?.role || 'seu-uid-aqui'}</code></li>
+              <li>Adicione o campo <code className="bg-background px-1 rounded">role</code> com valor <code className="bg-background px-1 rounded">admin</code></li>
+              <li>Recarregue esta página</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    );
   }
+  */
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4">

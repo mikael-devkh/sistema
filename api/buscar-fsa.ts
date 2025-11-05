@@ -169,6 +169,38 @@ export default async function handler(
       return res.status(500).json({ error: 'Jira base config incomplete. Provide JIRA_CLOUD_ID or JIRA_BASE_URL.' });
     }
     
+    // Tentar obter Cloud ID automaticamente se não estiver configurado
+    let resolvedCloudId = cloudId;
+    if (!resolvedCloudId && site) {
+      try {
+        const cleanToken = token.trim().replace(/\s+/g, '');
+        const auth = 'Basic ' + Buffer.from(`${email}:${cleanToken}`).toString('base64');
+        
+        console.log('API /api/buscar-fsa: Tentando obter Cloud ID automaticamente...');
+        const cloudIdResponse = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': auth
+          }
+        });
+        
+        if (cloudIdResponse.ok) {
+          const resources = await cloudIdResponse.json();
+          const jiraResource = resources.find((r: any) => 
+            r.url?.includes('delfia.atlassian.net') || site.includes(r.url?.replace('https://', ''))
+          );
+          
+          if (jiraResource?.id) {
+            resolvedCloudId = jiraResource.id;
+            console.log('API /api/buscar-fsa: Cloud ID obtido automaticamente:', resolvedCloudId);
+          }
+        }
+      } catch (error) {
+        console.warn('API /api/buscar-fsa: Não foi possível obter Cloud ID automaticamente:', error);
+      }
+    }
+    
     // 2. LER PARÂMETROS DO BODY
     const { jql, fields, maxResults } = req.body;
     
@@ -176,21 +208,23 @@ export default async function handler(
       return res.status(400).json({ error: 'Missing required body parameter: jql' });
     }
 
-    // 3. INSTANCIAR A CLASSE JiraAPI
+    // 3. INSTANCIAR A CLASSE JiraAPI - usar Cloud ID se disponível
     const jiraApi = new JiraAPI(
       email,
       token,
       site || 'https://delfia.atlassian.net',
-      cloudId,
-      !!cloudId // useExApi = true se tiver cloudId
+      resolvedCloudId,
+      !!resolvedCloudId // useExApi = true se tiver cloudId
     );
 
     // ---- DEBUG ----
     console.log('API /api/buscar-fsa: Configuração Jira:', {
-      usingCloudId: !!cloudId,
-      cloudId: cloudId ? '***' : 'N/A',
+      cloudIdOriginal: cloudId ? '***' : 'N/A',
+      cloudIdResolved: resolvedCloudId ? '***' : 'N/A',
+      usingCloudId: !!resolvedCloudId,
       site: site || 'N/A',
       useExApi: jiraApi.useExApi,
+      baseUrl: resolvedCloudId ? `https://api.atlassian.com/ex/jira/${resolvedCloudId.substring(0, 8)}***/rest/api/3` : (site || 'N/A') + '/rest/api/3',
       email: email ? `${email.substring(0, 3)}***${email.substring(email.length - 3)}` : 'N/A',
       tokenLength: token ? token.trim().replace(/\s+/g, '').length : 0,
       tokenStartsWithATATT: token?.trim().replace(/\s+/g, '').startsWith('ATATT') || false

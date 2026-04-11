@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Card } from "../components/ui/card";
+import { Card, CardContent } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { FileText, Clipboard, Eye } from "lucide-react";
+import { FileText, Clipboard, Eye, Download, Save, RotateCcw, Search, Store, Hash, CalendarRange } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
+import { Badge } from "../components/ui/badge";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { Button } from "../components/ui/button";
@@ -128,24 +129,38 @@ export default function ReportsPage() {
     }
   };
 
+  const statusBadge = (s: string) => {
+    if (s === "Finalizada") return "bg-primary/15 text-primary border-primary/30";
+    if (s === "Pendente") return "bg-amber-500/15 text-amber-400 border-amber-500/30";
+    return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+  };
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-2">
-        <div className="flex-1">
-          <label className="mb-1 block font-semibold">Busca Rápida</label>
-          <Input
-            type="text"
-            placeholder="Buscar por código, loja, status ou resumo..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="max-w-full"
-          />
-        </div>
-        <div className="min-w-[180px]">
-          <label className="mb-1 block font-semibold">Status</label>
+    <div className="space-y-5 pb-6">
+      {/* Page header */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Histórico de RATs</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Registros de atendimento arquivados</p>
+      </div>
+
+      {/* Filter panel */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="flex flex-wrap gap-3">
+          {/* Search */}
+          <div className="flex-1 min-w-[200px] relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Buscar por código, loja ou resumo…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
+          {/* Status */}
           <Select value={status} onValueChange={(v) => setStatus(v as any)}>
-            <SelectTrigger>
-              <SelectValue placeholder="Todos" />
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
@@ -154,136 +169,211 @@ export default function ReportsPage() {
               <SelectItem value="Finalizada">Finalizada</SelectItem>
             </SelectContent>
           </Select>
-        </div>
-        <div className="min-w-[140px]">
-          <label className="mb-1 block font-semibold">Loja</label>
-          <Input placeholder="Ex: 1323" value={storeFilter} onChange={e => setStoreFilter(e.target.value)} />
-        </div>
-        <div className="min-w-[140px]">
-          <label className="mb-1 block font-semibold">FSA</label>
-          <Input placeholder="Ex: 2025-001" value={fsaFilter} onChange={e => setFsaFilter(e.target.value)} />
-        </div>
-        <div className="min-w-[210px] flex gap-2">
-          <div>
-            <label className="mb-1 block font-semibold">De</label>
-            <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} />
+
+          {/* Loja */}
+          <div className="relative w-32">
+            <Store className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Input placeholder="Loja" value={storeFilter} onChange={e => setStoreFilter(e.target.value)} className="pl-8" />
           </div>
-          <div>
-            <label className="mb-1 block font-semibold">Até</label>
-            <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} />
+
+          {/* FSA */}
+          <div className="relative w-36">
+            <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Input placeholder="FSA" value={fsaFilter} onChange={e => setFsaFilter(e.target.value)} className="pl-8" />
+          </div>
+
+          {/* Date range */}
+          <div className="flex items-center gap-1.5">
+            <CalendarRange className="w-4 h-4 text-muted-foreground shrink-0" />
+            <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="w-36" />
+            <span className="text-muted-foreground text-xs">–</span>
+            <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="w-36" />
+          </div>
+        </div>
+
+        {/* Action bar */}
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">
+            {filtered.length} registro(s)
+            {Object.values(selectedIds).some(Boolean) && (
+              <span className="ml-1 text-primary">· {Object.values(selectedIds).filter(Boolean).length} selecionado(s)</span>
+            )}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs"
+              onClick={() => {
+                const view = { status, storeFilter, fsaFilter, dateStart, dateEnd };
+                localStorage.setItem("reports_view", JSON.stringify(view));
+                toast.success("Visão salva.");
+              }}
+            >
+              <Save className="w-3.5 h-3.5" /> Salvar visão
+            </Button>
+            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs"
+              onClick={() => {
+                const raw = localStorage.getItem("reports_view");
+                if (!raw) { toast.info("Nenhuma visão salva."); return; }
+                try {
+                  const v = JSON.parse(raw);
+                  setStatus(v.status || "all");
+                  setStoreFilter(v.storeFilter || "");
+                  setFsaFilter(v.fsaFilter || "");
+                  setDateStart(v.dateStart || "");
+                  setDateEnd(v.dateEnd || "");
+                  toast.success("Visão aplicada.");
+                } catch { toast.error("Falha ao carregar visão."); }
+              }}
+            >
+              <RotateCcw className="w-3.5 h-3.5" /> Aplicar visão
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs"
+              onClick={() => {
+                const rows = filtered.filter(r => selectedIds[r.id]);
+                if (!rows.length) { toast.info("Selecione ao menos 1 item."); return; }
+                const header = ["id","status","loja","data","responsavel","resumo"];
+                const csv = [header.join(","), ...rows.map(r => header.map(h => JSON.stringify((r as any)[h] ?? "")).join(","))].join("\n");
+                const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = `historico-${Date.now()}.csv`; a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download className="w-3.5 h-3.5" /> Exportar CSV
+            </Button>
           </div>
         </div>
       </div>
-      <div className="flex justify-between items-center mb-2">
-        <div className="text-xs text-muted-foreground">{filtered.length} registro(s)</div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const view = { status, storeFilter, fsaFilter, dateStart, dateEnd };
-              localStorage.setItem("reports_view", JSON.stringify(view));
-              toast.success("Visão salva.");
-            }}
-          >Salvar visão</Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              const raw = localStorage.getItem("reports_view");
-              if (!raw) { toast.info("Nenhuma visão salva."); return; }
-              try {
-                const v = JSON.parse(raw);
-                setStatus(v.status || "all");
-                setStoreFilter(v.storeFilter || "");
-                setFsaFilter(v.fsaFilter || "");
-                setDateStart(v.dateStart || "");
-                setDateEnd(v.dateEnd || "");
-                toast.success("Visão aplicada.");
-              } catch { toast.error("Falha ao carregar visão."); }
-            }}
-          >Aplicar visão</Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const rows = filtered.filter(r => selectedIds[r.id]).map(r => r);
-              if (!rows.length) { toast.info("Selecione ao menos 1 item."); return; }
-              const header = ["id","status","loja","data","responsavel","resumo"];
-              const csv = [header.join(","), ...rows.map(r => header.map(h => JSON.stringify((r as any)[h] ?? "")).join(","))].join("\n");
-              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url; a.download = `historico-${Date.now()}.csv`; a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >Exportar CSV</Button>
-        </div>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {loading && (
-          <>
-            {Array.from({ length: 6 }).map((_, i) => (
-              <Card key={i} className="p-4">
-                <div className="flex justify-between mb-2">
-                  <Skeleton className="h-5 w-32" />
-                  <Skeleton className="h-5 w-16" />
-                </div>
-                <Skeleton className="h-4 w-40 mb-2" />
-                <Skeleton className="h-4 w-full mb-4" />
-                <div className="flex gap-3">
-                  <Skeleton className="h-7 w-24" />
-                  <Skeleton className="h-7 w-28" />
-                </div>
-              </Card>
-            ))}
-          </>
-        )}
-        {!loading && filtered.length === 0 && <div className="text-center text-muted-foreground col-span-full">Nenhum registro encontrado.</div>}
-        {!loading && filtered.map(rep => (
-          <Card key={rep.id} className="p-4 flex flex-col gap-2 hover:shadow-lg transition group border-primary/20 border">
-            <div className="flex items-center gap-2 justify-between">
-              <div className="flex items-center gap-2 text-primary font-semibold">
-                <input type="checkbox" checked={!!selectedIds[rep.id]} onChange={(e) => setSelectedIds(prev => ({ ...prev, [rep.id]: e.target.checked }))} />
-                <FileText className="w-5 h-5" /> {rep.id}
-              </div>
-              <span className={`text-xs px-2 py-1 rounded font-semibold ${rep.status === "Finalizada" ? "bg-green-200 text-green-700" : rep.status === "Pendente" ? "bg-yellow-200 text-yellow-800" : "bg-primary/10 text-primary"}`}>{rep.status}</span>
+
+      {/* Grid */}
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {loading && Array.from({ length: 6 }).map((_, i) => (
+          <Card key={i} className="p-4 space-y-3">
+            <div className="flex justify-between">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-5 w-16 rounded-full" />
             </div>
-            <div className="text-xs text-muted-foreground mb-1">Loja: <span className="font-semibold">{rep.loja}</span> · {rep.data}</div>
-            <div className="text-sm font-medium mb-1">{rep.resumo}</div>
-            <div className="flex gap-3 mt-2">
-              <button className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-secondary border hover:bg-primary/10 transition" onClick={() => setSelected(rep)}>
-                <Eye className="w-4 h-4" /> Visualizar
-              </button>
-              <button className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-secondary border hover:bg-primary/10 transition" onClick={() => handleCopy(rep.id)}>
-                <Clipboard className="w-4 h-4" /> Copiar código
-              </button>
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-4 w-full" />
+            <div className="flex gap-2 pt-1">
+              <Skeleton className="h-7 w-24 rounded-md" />
+              <Skeleton className="h-7 w-28 rounded-md" />
             </div>
           </Card>
         ))}
+
+        {!loading && filtered.length === 0 && (
+          <div className="col-span-full flex flex-col items-center gap-3 py-16 text-muted-foreground">
+            <FileText className="w-10 h-10" />
+            <p className="text-sm">Nenhum registro encontrado.</p>
+          </div>
+        )}
+
+        {!loading && filtered.map(rep => (
+          <Card
+            key={rep.id}
+            className="group border border-border/60 hover:border-primary/40 hover:shadow-md transition-all duration-200 overflow-hidden"
+          >
+            <CardContent className="p-4 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <input
+                    type="checkbox"
+                    checked={!!selectedIds[rep.id]}
+                    onChange={(e) => setSelectedIds(prev => ({ ...prev, [rep.id]: e.target.checked }))}
+                    className="accent-primary mt-0.5 shrink-0"
+                  />
+                  <div className="flex items-center gap-1.5 text-primary font-semibold text-sm truncate">
+                    <FileText className="w-4 h-4 shrink-0" />
+                    <span className="truncate">{rep.id}</span>
+                  </div>
+                </div>
+                <Badge className={`text-[11px] border shrink-0 ${statusBadge(rep.status)}`}>
+                  {rep.status}
+                </Badge>
+              </div>
+
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Store className="w-3 h-3" /> {rep.loja}
+                </span>
+                <span>·</span>
+                <span>{rep.data}</span>
+              </div>
+
+              {rep.resumo && (
+                <p className="text-sm text-foreground/80 line-clamp-2">{rep.resumo}</p>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs flex-1"
+                  onClick={() => setSelected(rep)}
+                >
+                  <Eye className="w-3.5 h-3.5" /> Visualizar
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs flex-1"
+                  onClick={() => handleCopy(rep.id)}
+                >
+                  <Clipboard className="w-3.5 h-3.5" /> Copiar
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
+
       {!loading && hasMore && (
-        <div className="flex justify-center pt-4">
-          <Button variant="outline" onClick={() => fetchPage(lastDoc)}>
-            Carregar mais
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" onClick={() => fetchPage(lastDoc)} className="gap-2">
+            Carregar mais registros
           </Button>
         </div>
       )}
+
+      {/* Detail dialog */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Detalhes da RAT</DialogTitle>
-            <DialogDescription className="text-sm">{selected?.id}</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-primary" /> Detalhes da RAT
+            </DialogTitle>
+            <DialogDescription>{selected?.id}</DialogDescription>
           </DialogHeader>
           {selected && (
-            <div className="space-y-2 text-sm">
-              <div><span className="text-muted-foreground">Status:</span> {selected.status}</div>
-              <div><span className="text-muted-foreground">Loja:</span> {selected.loja}</div>
-              <div><span className="text-muted-foreground">Data:</span> {selected.data}</div>
-              <div><span className="text-muted-foreground">Responsável:</span> {selected.responsavel}</div>
-              <div className="mt-2">{selected.resumo}</div>
-              <div className="pt-3 flex justify-end">
-                <Button onClick={() => { handleCopy(selected.id); }} size="sm" variant="outline" className="gap-2"><Clipboard className="w-4 h-4" /> Copiar código</Button>
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Status</p>
+                  <Badge className={`text-xs border ${statusBadge(selected.status)}`}>{selected.status}</Badge>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Loja</p>
+                  <p className="font-medium">{selected.loja}</p>
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wide">Data</p>
+                  <p>{selected.data}</p>
+                </div>
+                {selected.responsavel && (
+                  <div className="space-y-0.5">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide">Responsável</p>
+                    <p>{selected.responsavel}</p>
+                  </div>
+                )}
+              </div>
+              {selected.resumo && (
+                <div className="rounded-lg bg-secondary/50 p-3 text-sm">{selected.resumo}</div>
+              )}
+              <div className="flex justify-end pt-1">
+                <Button onClick={() => handleCopy(selected.id)} size="sm" variant="outline" className="gap-2">
+                  <Clipboard className="w-4 h-4" /> Copiar código
+                </Button>
               </div>
             </div>
           )}

@@ -649,24 +649,15 @@ const ServiceManager = () => {
   const loading = usePageLoading(500, [activeCalls, calls]);
   return (
     <>
-      <div className="min-h-screen bg-gradient-primary px-4 py-8 pt-24">
-        <div className="mx-auto max-w-7xl space-y-8">
-          <header className="space-y-3 text-center">
-            <div className="flex justify-center">
-              <div className="rounded-2xl bg-secondary p-3 shadow-glow">
-                <ClipboardList className="h-8 w-8 text-primary" />
-              </div>
-            </div>
-            <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-              Gestão de Atendimento em Campo
-            </h1>
-            <p className="text-muted-foreground">
-              Controle chamados, mídias obrigatórias e previsão de faturamento
-              em um só lugar.
-            </p>
-          </header>
+      <div className="space-y-5 pb-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Gestão de Chamados</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Controle chamados, mídias obrigatórias e previsão de faturamento.
+          </p>
+        </div>
 
-          <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-3">
             <div className="space-y-4">
               <Card className="border-border bg-background/80 shadow-sm">
                 <CardHeader className="p-4 sm:p-6">
@@ -971,7 +962,6 @@ const ServiceManager = () => {
             </div>
           </div>
         </div>
-      </div>
       <AlertDialog open={isAdjustDialogOpen} onOpenChange={setIsAdjustDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

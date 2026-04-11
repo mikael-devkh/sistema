@@ -1,8 +1,13 @@
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../hooks/use-permissions";
-import { Card } from "../components/ui/card";
-import { FileText, Layers, User, PlusCircle, Settings, Network, BookText, LayoutTemplate, PhoneCall, TrendingUp, Clock, Users } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import {
+  FileText, Layers, User, PlusCircle, Settings, Network,
+  BookText, LayoutTemplate, PhoneCall, Clock, Users,
+  CalendarClock, TrendingUp, Wrench,
+} from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
+import { Badge } from "../components/ui/badge";
 import { db } from "../firebase";
 import { collection, getDocs, limit as fbLimit, orderBy, query, Timestamp, where } from "firebase/firestore";
 import { useEffect, useMemo, useState } from "react";
@@ -15,17 +20,33 @@ function getGreeting() {
   return "Boa noite";
 }
 
+function formatMinutes(m: number) {
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  if (h && r) return `${h}h ${r}min`;
+  if (h) return `${h}h`;
+  return `${r}min`;
+}
+
+const quickActions = [
+  { href: "/rat",              icon: PlusCircle,     label: "Nova RAT",           color: "text-primary" },
+  { href: "/service-manager", icon: PhoneCall,       label: "Chamados",           color: "text-blue-400" },
+  { href: "/agendamento",     icon: CalendarClock,   label: "Agendamentos",       color: "text-purple-400" },
+  { href: "/reports",         icon: TrendingUp,      label: "Histórico",          color: "text-amber-400" },
+  { href: "/gerador-ip",      icon: Network,         label: "Gerador de IP",      color: "text-cyan-400" },
+  { href: "/base-conhecimento", icon: BookText,       label: "Base de Conhecimento", color: "text-rose-400" },
+  { href: "/templates-rat",   icon: LayoutTemplate,  label: "Templates RAT",      color: "text-indigo-400" },
+  { href: "/perfil",          icon: User,            label: "Perfil",             color: "text-muted-foreground" },
+];
+
 export default function Dashboard() {
   const { profile, loadingAuth, loadingProfile, user } = useAuth();
   const { permissions } = usePermissions();
-  
-  // Debug: verificar role e permissões
-  console.log('Dashboard - Profile role:', profile?.role);
-  console.log('Dashboard - Permissions:', permissions);
-  console.log('Dashboard - canManageUsers:', permissions.canManageUsers);
+
   const nomeDisplay = profile?.nome?.split(" ")[0] || "Usuário";
   const avatarUrl = profile?.avatarUrl;
-  const initials = (profile?.nome || "U").split(" ").map(n => n[0]?.toUpperCase()).slice(0,2).join("") || "U";
+  const initials = (profile?.nome || "U").split(" ").map(n => n[0]?.toUpperCase()).slice(0, 2).join("") || "U";
+
   const [loadingData, setLoadingData] = useState(true);
   const [thisMonthCount, setThisMonthCount] = useState(0);
   const [pendingCount, setPendingCount] = useState(0);
@@ -40,224 +61,258 @@ export default function Dashboard() {
     }
   }, [storeTimers, getStoreTotalMinutes]);
 
-  const formatMinutes = (m: number) => {
-    const h = Math.floor(m / 60);
-    const r = m % 60;
-    if (h && r) return `${h}h ${r}min`;
-    if (h) return `${h}h`;
-    return `${r}min`;
-  };
-
   useEffect(() => {
     const CACHE_KEY = "dashboard_metrics_cache_v1";
-    const TTL_MS = 10 * 60 * 1000; // 10 minutos
+    const TTL_MS = 10 * 60 * 1000;
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (raw) {
-        const cached = JSON.parse(raw) as { month: number; recent: Array<{ id: string; loja: string; data: string; status: string }>, ts: number };
-        if (cached && typeof cached.month === "number") {
+        const cached = JSON.parse(raw) as { month: number; recent: typeof recent; ts: number };
+        if (cached && typeof cached.month === "number" && Date.now() - cached.ts < TTL_MS) {
           setThisMonthCount(cached.month);
           setRecent(cached.recent || []);
-          if (cached.ts && Date.now() - cached.ts < TTL_MS) {
-            setLoadingData(false);
-          }
+          setLoadingData(false);
         }
       }
     } catch {}
-
     (async () => {
       try {
-        const reportsCol = collection(db, "serviceReports");
         const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const startTs = Timestamp.fromDate(monthStart);
-
-        const clauses: any[] = [where("archivedAt", ">=", startTs)];
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const base = collection(db, "serviceReports");
+        const clauses: any[] = [
+          orderBy("archivedAt", "desc"),
+          fbLimit(5),
+        ];
         if (user?.uid) clauses.unshift(where("userId", "==", user.uid));
-        const qMonth = query(reportsCol, ...clauses);
-
-        const clausesRecent: any[] = [orderBy("archivedAt", "desc"), fbLimit(5)];
-        if (user?.uid) clausesRecent.unshift(where("userId", "==", user.uid));
-        const qRecent = query(reportsCol, ...clausesRecent);
-
-        const [snapMonth, snapRecent] = await Promise.all([getDocs(qMonth), getDocs(qRecent)]);
-        const monthCount = snapMonth.size;
-        const recentMapped = snapRecent.docs.map((d) => {
-          const data: any = d.data();
-          const date = data.archivedAt?.toDate?.() as Date | undefined;
+        const recentSnap = await getDocs(query(base, ...clauses));
+        const recentMapped = recentSnap.docs.map(d => {
+          const data = d.data();
+          const archivedAt = data.archivedAt?.toDate?.() as Date | undefined;
           return {
             id: data.fsa ? `RAT-${data.fsa}` : d.id,
             loja: String(data.codigoLoja || ""),
-            data: date ? date.toLocaleDateString("pt-BR") : "",
-            status: data.status === "archived" ? "Finalizada" : (data.status || ""),
+            data: archivedAt ? archivedAt.toISOString().slice(0, 10) : "—",
+            status: data.status || "Emitida",
           };
         });
 
+        const monthClauses: any[] = [
+          where("archivedAt", ">=", Timestamp.fromDate(startOfMonth)),
+          fbLimit(200),
+        ];
+        if (user?.uid) monthClauses.unshift(where("userId", "==", user.uid));
+        const monthSnap = await getDocs(query(base, ...monthClauses));
+        const monthCount = monthSnap.size;
+
         setThisMonthCount(monthCount);
         setRecent(recentMapped);
-        setLoadingData(false);
-
         try {
           localStorage.setItem(CACHE_KEY, JSON.stringify({ month: monthCount, recent: recentMapped, ts: Date.now() }));
         } catch {}
-      } catch (e) {
-        // mantém cache se houver
+      } catch {
+        // mantém cache
+      } finally {
+        setLoadingData(false);
       }
     })();
   }, [user?.uid]);
 
   useEffect(() => {
-    // pendentes reais provenientes do ServiceManager (status !== archived)
     try {
-      const open = activeCalls.filter(c => c.status === "open").length;
-      setPendingCount(open);
+      setPendingCount(activeCalls.filter(c => c.status === "open").length);
     } catch {
       setPendingCount(0);
     }
   }, [activeCalls]);
 
+  const isLoading = loadingAuth || loadingProfile;
+
+  const stats = [
+    {
+      label: "RATs este mês",
+      value: loadingData ? "—" : String(thisMonthCount),
+      icon: FileText,
+      gradient: "from-primary/20 to-primary/5",
+      border: "border-primary/30",
+      valueColor: "text-primary",
+      iconColor: "text-primary",
+    },
+    {
+      label: "Chamados abertos",
+      value: String(pendingCount),
+      icon: PhoneCall,
+      gradient: "from-blue-500/20 to-blue-600/5",
+      border: "border-blue-500/30",
+      valueColor: "text-blue-300",
+      iconColor: "text-blue-400",
+      href: "/service-manager",
+    },
+    {
+      label: "Tempo em campo",
+      value: totalServiceMinutes ? formatMinutes(totalServiceMinutes) : "—",
+      icon: Clock,
+      gradient: "from-amber-500/20 to-amber-600/5",
+      border: "border-amber-500/30",
+      valueColor: "text-amber-300",
+      iconColor: "text-amber-400",
+    },
+    {
+      label: "Perfil",
+      value: profile?.role ? (profile.role === "admin" ? "Admin" : "Técnico") : "—",
+      icon: User,
+      gradient: "from-purple-500/20 to-purple-600/5",
+      border: "border-purple-500/30",
+      valueColor: "text-purple-300",
+      iconColor: "text-purple-400",
+      href: "/perfil",
+    },
+  ];
+
   return (
-    <div className="space-y-8">
-      <Card className="w-full bg-gradient-to-br from-primary/10 to-secondary/30 rounded-xl shadow-lg p-6 mb-8">
-        <div className="flex items-center gap-4 mb-4">
-          {loadingAuth || loadingProfile ? (
-            <Skeleton className="h-12 w-12 rounded-full" />
+    <div className="space-y-5 pb-6">
+      {/* ── Hero card ── */}
+      <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-6 shadow-lg">
+        {/* Greeting */}
+        <div className="flex items-center gap-4 mb-6">
+          {isLoading ? (
+            <Skeleton className="h-12 w-12 rounded-full shrink-0" />
           ) : avatarUrl ? (
-            <img src={avatarUrl} alt="avatar" className="rounded-full h-12 w-12 object-cover border border-primary/30 shadow" />
+            <img src={avatarUrl} alt="avatar" className="rounded-full h-12 w-12 object-cover border-2 border-primary/30 shadow shrink-0" />
           ) : (
-            <div className="rounded-full h-12 w-12 bg-primary/20 font-bold flex items-center justify-center text-lg border border-primary/20 shadow">{initials}</div>
+            <div className="rounded-full h-12 w-12 bg-primary/20 font-bold flex items-center justify-center text-lg border-2 border-primary/20 shadow shrink-0 text-primary">
+              {initials}
+            </div>
           )}
           <div>
-            {loadingAuth || loadingProfile ? (
+            {isLoading ? (
               <>
-                <Skeleton className="h-5 w-52 mb-1" />
-                <Skeleton className="h-4 w-72" />
+                <Skeleton className="h-6 w-48 mb-1" />
+                <Skeleton className="h-4 w-64" />
               </>
             ) : (
               <>
-                <h2 className="text-xl font-bold mb-0.5">{getGreeting()}, {nomeDisplay}!</h2>
-                <p className="text-slate-500 mb-0.5">Veja rapidamente o status dos principais atendimentos:</p>
+                <h1 className="text-xl font-bold">{getGreeting()}, {nomeDisplay}!</h1>
+                <p className="text-sm text-muted-foreground">Aqui está o resumo do seu dia.</p>
               </>
             )}
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-4">
-          {(loadingAuth || loadingProfile) ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i} className="p-4">
-                <Skeleton className="h-8 w-8 rounded-md mb-2" />
-                <Skeleton className="h-5 w-40 mb-1" />
-                <Skeleton className="h-4 w-24" />
-              </Card>
-            ))
-          ) : (
-            <>
-              <Card className="p-4 flex flex-col items-center gap-2 hover:shadow-xl transition">
-                <FileText size={32} className="text-primary" />
-                <span className="font-bold text-lg">{thisMonthCount} RATs Emitidas</span>
-                <small className="text-muted-foreground">Este mês</small>
-              </Card>
-              <a href="/service-manager" className="p-4 flex flex-col items-center gap-2 hover:shadow-xl transition rounded-md border bg-card">
-                <Layers size={32} className="text-green-500" />
-                <span className="font-bold text-lg">{pendingCount} Pendentes</span>
-                <small className="text-muted-foreground">Tempo em atendimento: {formatMinutes(totalServiceMinutes)}</small>
-                <span className="text-xs text-primary underline">Ir para Chamados</span>
-              </a>
-              <Card className="p-4 flex flex-col items-center gap-2 hover:shadow-xl transition">
-                <User size={32} className="text-sky-500" />
-                <span className="font-bold text-lg">Seu Perfil</span>
-                <small className="text-muted-foreground">Gerencie dados e segurança</small>
-              </Card>
-              <Card className="p-4 flex flex-col items-center gap-2 hover:shadow-xl transition">
-                <Settings size={32} className="text-zinc-500" />
-                <span className="font-bold text-lg">Configurações</span>
-                <small className="text-muted-foreground">Preferências e acesso</small>
-              </Card>
-            </>
-          )}
+
+        {/* Metric tiles */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {isLoading
+            ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+            : stats.map(s => {
+                const Icon = s.icon;
+                const content = (
+                  <div
+                    className={`rounded-xl border ${s.border} bg-gradient-to-br ${s.gradient} p-4 space-y-2 ${s.href ? "hover:brightness-110 transition-all cursor-pointer" : ""}`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{s.label}</p>
+                      <Icon className={`w-4 h-4 ${s.iconColor}`} />
+                    </div>
+                    <p className={`text-2xl font-bold tabular-nums ${s.valueColor}`}>{s.value}</p>
+                  </div>
+                );
+                return s.href
+                  ? <a key={s.label} href={s.href}>{content}</a>
+                  : <div key={s.label}>{content}</div>;
+              })
+          }
         </div>
-        {loadingAuth || loadingProfile ? (
-          <div className="flex gap-3 mt-8">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-12 w-40 rounded-lg" />
-            ))}
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-3 mt-8">
-            <a href="/rat" className="bg-primary text-white font-semibold px-6 py-3 rounded-lg flex items-center gap-2 shadow transition hover:bg-primary/80">
-              <PlusCircle className="w-5 h-5" /> Nova RAT
-            </a>
-            <a href="/reports" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <Layers className="w-5 h-5" /> Histórico
-            </a>
-            <a href="/gerador-ip" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <Network className="w-5 h-5" /> Gerador de IP
-            </a>
-            <a href="/base-conhecimento" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <BookText className="w-5 h-5" /> Base de Conhecimento
-            </a>
-            <a href="/templates-rat" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <LayoutTemplate className="w-5 h-5" /> Templates RAT
-            </a>
-            <a href="/service-manager" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <PhoneCall className="w-5 h-5" /> Chamados
-            </a>
-            {/* Temporariamente sempre visível para testes - remover depois */}
-            <a href="/tecnicos" className="bg-secondary font-semibold px-6 py-3 rounded-lg flex items-center gap-2 border border-primary/10 shadow hover:bg-primary/10 transition">
-              <Users className="w-5 h-5" /> Técnicos
-            </a>
-          </div>
-        )}
-      </Card>
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="p-5 bg-background/80">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-semibold flex items-center gap-2"><TrendingUp className="h-5 w-5 text-primary" /> Últimas RATs</h3>
-            <a href="/reports" className="text-xs text-primary hover:underline">Ver tudo</a>
-          </div>
-          {loadingData ? (
-            <div className="space-y-2">
-              {Array.from({ length: 4 }).map((_, i) => (<Skeleton key={i} className="h-10 w-full" />))}
+      </div>
+
+      {/* ── Bottom grid ── */}
+      <div className="grid gap-5 md:grid-cols-2">
+        {/* Recent RATs */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-primary" /> Últimas RATs
+              </CardTitle>
+              <a href="/reports" className="text-xs text-primary hover:underline">Ver tudo</a>
             </div>
-          ) : recent.length ? (
-            <ul className="divide-y divide-border/60">
-              {recent.map(r => (
-                <li key={r.id} className="py-2 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-primary" />
-                    <span className="font-medium">{r.id}</span>
-                    <span className="text-xs text-muted-foreground">Loja {r.loja}</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5" /> {r.data}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="text-sm text-muted-foreground">Nenhuma RAT recente.</div>
-          )}
+          </CardHeader>
+          <CardContent>
+            {loadingData ? (
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-lg" />)}
+              </div>
+            ) : recent.length ? (
+              <ul className="space-y-1">
+                {recent.map(r => (
+                  <li key={r.id} className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-secondary/50 transition-colors">
+                    <div className="flex items-center gap-2.5">
+                      <FileText className="h-4 w-4 text-primary shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium leading-none">{r.id}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">Loja {r.loja}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[11px] text-muted-foreground hidden sm:block">{r.data}</span>
+                      <Badge
+                        className={`text-[10px] border ${
+                          r.status === "Finalizada"
+                            ? "bg-primary/15 text-primary border-primary/30"
+                            : r.status === "Pendente"
+                            ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                            : "bg-blue-500/15 text-blue-400 border-blue-500/30"
+                        }`}
+                      >
+                        {r.status}
+                      </Badge>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground">
+                <FileText className="w-8 h-8" />
+                <p className="text-sm">Nenhuma RAT recente.</p>
+              </div>
+            )}
+          </CardContent>
         </Card>
-        <Card className="p-5 bg-background/80">
-          <h3 className="font-semibold mb-3">Ações rápidas</h3>
-          <div className="grid sm:grid-cols-2 gap-3">
-            <a href="/rat" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
-              <PlusCircle className="h-5 w-5 text-primary" /> Nova RAT
-            </a>
-            <a href="/reports" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
-              <Layers className="h-5 w-5 text-primary" /> Histórico
-            </a>
-            <a href="/templates-rat" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
-              <LayoutTemplate className="h-5 w-5 text-primary" /> Templates de RAT
-            </a>
-            <a href="/base-conhecimento" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
-              <BookText className="h-5 w-5 text-primary" /> Base de Conhecimento
-            </a>
-            {/* Temporariamente sempre visível para testes - remover depois */}
-            <a href="/tecnicos" className="rounded-md border bg-card hover:bg-primary/10 transition p-3 flex items-center gap-2">
-              <Users className="h-5 w-5 text-primary" /> Gestão de Técnicos
-            </a>
-          </div>
+
+        {/* Quick actions */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <Wrench className="w-4 h-4 text-primary" /> Acesso rápido
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-2">
+              {quickActions
+                .filter(a => a.href !== "/tecnicos" || permissions.canManageUsers)
+                .map(a => {
+                  const Icon = a.icon;
+                  return (
+                    <a
+                      key={a.href}
+                      href={a.href}
+                      className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-secondary/30 hover:bg-secondary hover:border-border transition-all p-3 text-sm font-medium"
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 ${a.color}`} />
+                      <span className="truncate">{a.label}</span>
+                    </a>
+                  );
+                })}
+              {permissions.canManageUsers && (
+                <a
+                  href="/tecnicos"
+                  className="flex items-center gap-2.5 rounded-lg border border-border/50 bg-secondary/30 hover:bg-secondary hover:border-border transition-all p-3 text-sm font-medium"
+                >
+                  <Users className="w-4 h-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">Técnicos</span>
+                </a>
+              )}
+            </div>
+          </CardContent>
         </Card>
       </div>
     </div>

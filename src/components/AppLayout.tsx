@@ -1,6 +1,13 @@
 import { Sidebar } from "./Sidebar";
 import { useMemo, useState } from "react";
-import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "./ui/breadcrumb";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "../context/AuthContext";
@@ -8,7 +15,23 @@ import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
-import { LogOut } from "lucide-react";
+import { LogOut, Menu, ChevronLeft } from "lucide-react";
+
+const ROUTE_MAP: Record<string, string> = {
+  "/": "Dashboard",
+  "/rat": "Nova RAT",
+  "/reports": "Histórico",
+  "/gerador-ip": "Gerador de IP",
+  "/base-conhecimento": "Base de Conhecimento",
+  "/templates-rat": "Templates RAT",
+  "/service-manager": "Chamados",
+  "/agendamento": "Agendamentos",
+  "/configuracoes": "Configurações",
+  "/perfil": "Perfil",
+  "/minha-fila": "Minha Fila",
+  "/fsas": "FSAs",
+  "/tecnicos": "Técnicos",
+};
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -18,105 +41,127 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const handleLogout = async () => {
     try {
-      // Limpar cache primeiro
       localStorage.clear();
       sessionStorage.clear();
-      // Fazer logout
       await signOut(auth);
       toast.success("Sessão encerrada com sucesso.");
-      // Forçar reload completo para limpar todo o estado
-      setTimeout(() => {
-        window.location.href = "/login";
-      }, 500);
-    } catch (error) {
-      console.error("Erro ao sair da conta:", error);
-      toast.error("Não foi possível encerrar a sessão.");
-      // Mesmo com erro, tentar redirecionar
+      setTimeout(() => { window.location.href = "/login"; }, 500);
+    } catch {
       window.location.href = "/login";
     }
   };
 
   const crumbs = useMemo(() => {
     const path = location.pathname || "/";
-    const map: Record<string, string> = {
-      "/": "Dashboard",
-      "/rat": "Nova RAT",
-      "/reports": "Histórico",
-      "/gerador-ip": "Gerador de IP",
-      "/base-conhecimento": "Base de Conhecimento",
-      "/templates-rat": "Templates RAT",
-      "/service-manager": "Chamados",
-      "/agendamento": "Agendamentos",
-      "/configuracoes": "Configurações",
-      "/perfil": "Perfil",
-    };
     const segments = path.split("/").filter(Boolean);
+    if (segments.length === 0) return [{ href: "/", label: ROUTE_MAP["/"] }];
     const acc: { href: string; label: string }[] = [];
     let href = "";
-    if (segments.length === 0) return [{ href: "/", label: map["/"] }];
     for (const seg of segments) {
       href += `/${seg}`;
-      acc.push({ href, label: map[href] || seg });
+      acc.push({ href, label: ROUTE_MAP[href] || seg });
     }
     return acc;
   }, [location.pathname]);
 
+  const pageTitle = crumbs[crumbs.length - 1]?.label ?? "Dashboard";
+
   return (
-    <div className="flex min-h-screen bg-gradient-to-tr from-slate-800 to-slate-950">
+    <div className="flex min-h-screen bg-background">
+      {/* Mobile overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(s => !s)} />
-      <div className="flex-1 flex flex-col min-h-screen">
-        <header className="flex flex-col gap-2 bg-secondary px-4 py-3 border-b border-border shadow-md sticky top-0 z-20">
-          <div className="flex items-center justify-between">
-            <button className="md:hidden mr-2" onClick={() => setSidebarOpen(o => !o)}>
-              <span className="material-icons">menu</span>
-            </button>
-            <div className="font-bold text-lg">WT Serviços</div>
-            <div className="flex items-center gap-2">
+
+      <div className="flex-1 flex flex-col min-h-screen overflow-hidden">
+        {/* Header */}
+        <header className="sticky top-0 z-20 border-b border-border bg-card/80 backdrop-blur-sm">
+          <div className="flex items-center gap-3 px-4 h-14">
+            {/* Mobile hamburger */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="md:hidden -ml-1 h-9 w-9 p-0"
+              onClick={() => setSidebarOpen(o => !o)}
+            >
+              <Menu className="w-5 h-5" />
+            </Button>
+
+            {/* Mobile brand */}
+            <div className="md:hidden font-semibold text-sm text-foreground flex-1">
+              {pageTitle}
+            </div>
+
+            {/* Desktop breadcrumb */}
+            <div className="hidden md:flex items-center gap-2 flex-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => navigate(-1)}
+                title="Voltar"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink href="/" className="text-muted-foreground hover:text-foreground text-sm">
+                      Início
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  {crumbs.map((c, i) => (
+                    <span key={c.href} className="contents">
+                      <BreadcrumbSeparator />
+                      <BreadcrumbItem>
+                        {i === crumbs.length - 1 ? (
+                          <BreadcrumbPage className="text-sm font-medium">{c.label}</BreadcrumbPage>
+                        ) : (
+                          <BreadcrumbLink href={c.href} className="text-muted-foreground hover:text-foreground text-sm">
+                            {c.label}
+                          </BreadcrumbLink>
+                        )}
+                      </BreadcrumbItem>
+                    </span>
+                  ))}
+                </BreadcrumbList>
+              </Breadcrumb>
+            </div>
+
+            {/* Right controls */}
+            <div className="flex items-center gap-1.5 ml-auto">
               {user && (
-                <span className="hidden md:block text-sm text-muted-foreground truncate max-w-[200px]">
+                <span className="hidden lg:block text-xs text-muted-foreground truncate max-w-[180px] px-1">
                   {user.email}
                 </span>
               )}
               <ThemeToggle />
               {user && (
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
                   onClick={handleLogout}
-                  className="hidden md:flex"
+                  className="hidden md:flex h-9 gap-1.5 text-muted-foreground hover:text-destructive"
+                  title="Sair"
                 >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Sair
+                  <LogOut className="w-4 h-4" />
+                  <span className="hidden lg:inline">Sair</span>
                 </Button>
               )}
             </div>
           </div>
-          <div className="flex items-center justify-between">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink href="/">Início</BreadcrumbLink>
-                </BreadcrumbItem>
-                {crumbs.map((c, i) => (
-                  <>
-                    <BreadcrumbSeparator />
-                    {i === crumbs.length - 1 ? (
-                      <BreadcrumbItem>
-                        <BreadcrumbPage>{c.label}</BreadcrumbPage>
-                      </BreadcrumbItem>
-                    ) : (
-                      <BreadcrumbItem>
-                        <BreadcrumbLink href={c.href}>{c.label}</BreadcrumbLink>
-                      </BreadcrumbItem>
-                    )}
-                  </>
-                ))}
-              </BreadcrumbList>
-            </Breadcrumb>
-            <button className="text-sm text-muted-foreground hover:text-foreground" onClick={() => navigate(-1)}>Voltar</button>
-          </div>
         </header>
-        <main className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto">{children}</main>
+
+        {/* Main content */}
+        <main className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

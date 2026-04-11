@@ -28,16 +28,17 @@ class JiraAPI {
     return res;
   }
 
-  /** Paginated search – fetches all pages up to maxResults using POST /search/jql */
+  /** Paginated search – fetches all pages up to maxResults using POST /search/jql (cursor pagination) */
   async searchAll(jql: string, fields: string, maxResults = 600) {
-    const size = Math.min(maxResults, 100);
-    let start = 0;
-    const all: any[] = [];
+    const pageSize = Math.min(maxResults, 100);
     const fieldList = fields ? fields.split(',').map(f => f.trim()) : undefined;
+    const all: any[] = [];
+    let nextPageToken: string | undefined;
 
     while (all.length < maxResults) {
-      const body: Record<string, unknown> = { jql, maxResults: size, startAt: start };
+      const body: Record<string, unknown> = { jql, maxResults: pageSize };
       if (fieldList) body.fields = fieldList;
+      if (nextPageToken) body.nextPageToken = nextPageToken;
 
       const res = await this.req('/search/jql', 'POST', body);
       if (!res.ok) {
@@ -47,8 +48,8 @@ class JiraAPI {
       const data = await res.json();
       const issues: any[] = data.issues || [];
       all.push(...issues);
-      if (issues.length < size || all.length >= (data.total ?? 0)) break;
-      start += issues.length;
+      nextPageToken = data.nextPageToken;
+      if (!nextPageToken || issues.length < pageSize) break;
     }
     return all.slice(0, maxResults);
   }

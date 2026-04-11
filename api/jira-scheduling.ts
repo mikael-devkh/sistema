@@ -28,16 +28,18 @@ class JiraAPI {
     return res;
   }
 
-  /** Paginated search – fetches all pages up to maxResults */
+  /** Paginated search – fetches all pages up to maxResults using POST /search/jql */
   async searchAll(jql: string, fields: string, maxResults = 600) {
     const size = Math.min(maxResults, 100);
     let start = 0;
     const all: any[] = [];
+    const fieldList = fields ? fields.split(',').map(f => f.trim()) : undefined;
 
     while (all.length < maxResults) {
-      const res = await this.req(
-        `/search?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=${size}&startAt=${start}`
-      );
+      const body: Record<string, unknown> = { jql, maxResults: size, startAt: start };
+      if (fieldList) body.fields = fieldList;
+
+      const res = await this.req('/search/jql', 'POST', body);
       if (!res.ok) {
         const err = await res.text();
         throw new Error(`Jira search failed (${res.status}): ${err.slice(0, 300)}`);

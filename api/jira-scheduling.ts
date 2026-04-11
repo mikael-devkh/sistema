@@ -122,9 +122,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const email = process.env.JIRA_EMAIL || '';
-  const token = process.env.JIRA_TOKEN || '';
-  const site = process.env.JIRA_URL || 'https://delfia.atlassian.net';
+  const email = process.env.JIRA_USER_EMAIL || process.env.JIRA_EMAIL || '';
+  const token = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '';
+  const site = process.env.JIRA_BASE_URL || process.env.JIRA_URL || 'https://delfia.atlassian.net';
   let cloudId = process.env.JIRA_CLOUD_ID || '';
 
   if (!email || !token) return res.status(500).json({ error: 'Missing JIRA_EMAIL or JIRA_TOKEN env vars' });

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { ChevronDown, Copy, Check, MapPin, Hash, AlertCircle, AlertTriangle } from 'lucide-react';
 import { AgendamentoForm } from './AgendamentoForm';
 import { gerarMensagem } from '../../lib/jiraScheduling';
 import type { LojaGroup } from '../../types/scheduling';
@@ -28,47 +28,95 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   };
 
   const slaStatuses = group.issues.map(i => i.slaBadge).filter(Boolean);
-  const hasCriticalSla = slaStatuses.some(s => s.startsWith('🔴'));
-  const hasWarnSla = slaStatuses.some(s => s.startsWith('🟡'));
+  const hasCriticalSla = slaStatuses.some(s => s?.startsWith('🔴'));
+  const hasWarnSla = slaStatuses.some(s => s?.startsWith('🟡'));
+
+  const borderColor = hasCriticalSla
+    ? 'border-l-rose-500'
+    : hasWarnSla
+    ? 'border-l-amber-500'
+    : group.isCritical
+    ? 'border-l-rose-500'
+    : 'border-l-border';
+
+  const bgHover = open ? 'bg-card' : 'bg-card/50 hover:bg-card';
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
-        <button className="w-full flex items-center justify-between px-3 py-2 rounded-md hover:bg-muted/60 transition text-left border border-border/50">
-          <span className="flex items-center gap-2 flex-wrap">
-            {group.isCritical && <span className="text-destructive font-bold">🔴</span>}
-            <span className="font-medium text-sm">{group.loja}</span>
-            {group.cidade && <span className="text-xs text-muted-foreground">{group.cidade} – {group.uf}</span>}
-            <Badge variant="secondary" className="text-xs">{group.qtd} chamado(s)</Badge>
-            {hasCriticalSla && <Badge variant="destructive" className="text-[10px]">SLA ESTOURADO</Badge>}
-            {!hasCriticalSla && hasWarnSla && <Badge variant="outline" className="text-[10px] border-yellow-500 text-yellow-600">ALERTA SLA</Badge>}
+        <button
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border border-l-4 ${borderColor} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
+        >
+          <div className="flex items-center gap-3 flex-wrap min-w-0">
+            {/* Store name */}
+            <span className="font-semibold text-sm truncate max-w-[200px]">{group.loja}</span>
+
+            {/* Location */}
+            {group.cidade && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <MapPin className="w-3 h-3" />
+                {group.cidade}{group.uf ? ` – ${group.uf}` : ''}
+              </span>
+            )}
+
+            {/* Count badge */}
+            <Badge
+              variant="secondary"
+              className="text-xs font-medium tabular-nums"
+            >
+              <Hash className="w-3 h-3 mr-0.5" />{group.qtd}
+            </Badge>
+
+            {/* SLA badges */}
+            {hasCriticalSla && (
+              <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 gap-1">
+                <AlertCircle className="w-3 h-3" /> SLA Estourado
+              </Badge>
+            )}
+            {!hasCriticalSla && hasWarnSla && (
+              <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 gap-1">
+                <AlertTriangle className="w-3 h-3" /> Alerta SLA
+              </Badge>
+            )}
+
             {extra}
-          </span>
-          {open ? <ChevronDown className="w-4 h-4 shrink-0" /> : <ChevronRight className="w-4 h-4 shrink-0" />}
+          </div>
+
+          <ChevronDown
+            className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+          />
         </button>
       </CollapsibleTrigger>
 
       <CollapsibleContent>
-        <div className="mt-1 border border-border/40 rounded-md p-3 space-y-3">
+        <div className="mt-1 rounded-xl border border-border/50 bg-card p-4 space-y-4 shadow-sm">
           {warningText && (
-            <div className="flex items-start gap-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded text-xs text-yellow-700 dark:text-yellow-400">
-              ⚠️ {warningText}
+            <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{warningText}</span>
             </div>
           )}
 
-          <div className={`grid gap-3 ${showForm ? 'md:grid-cols-2' : ''}`}>
-            {/* Message */}
+          <div className={`grid gap-4 ${showForm ? 'md:grid-cols-2' : ''}`}>
+            {/* Message preview */}
             <div className="relative">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="absolute top-1 right-1 h-6 w-6 p-0"
-                onClick={copy}
-                title="Copiar mensagem"
-              >
-                {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
-              </Button>
-              <pre className="text-xs bg-muted/50 rounded p-3 pr-8 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-80">{msg}</pre>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Mensagem gerada</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={copy}
+                >
+                  {copied
+                    ? <><Check className="w-3.5 h-3.5 text-primary" /> Copiado!</>
+                    : <><Copy className="w-3.5 h-3.5" /> Copiar</>
+                  }
+                </Button>
+              </div>
+              <pre className="text-xs bg-secondary/50 border border-border/50 rounded-lg p-3 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-72 text-foreground/80">
+                {msg}
+              </pre>
             </div>
 
             {/* Schedule form */}

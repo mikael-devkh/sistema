@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d['name'], d['description'] if 'description' in d else '', '\\\\nDeps:', list\\(d.get\\('dependencies',{}\\).keys\\(\\)\\)[:15]\\)\")",
+      "Bash(ls -1 /c/Users/Outro/Documents/sistema-main/src/components/*.tsx)",
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)",
+      "Bash(./node_modules/.bin/tsc --noEmit)"
+    ]
+  }
+}

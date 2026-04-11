@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">
+  <defs>
+    <linearGradient id="wtGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2f7cf5" />
+      <stop offset="100%" stop-color="#2fc56c" />
+    </linearGradient>
+  </defs>
+  <circle cx="60" cy="60" r="55" fill="none" stroke="url(#wtGradient)" stroke-width="6" opacity="0.85" />
+  <g fill="#2f7cf5">
+    <circle cx="34" cy="42" r="7" />
+    <circle cx="56" cy="30" r="5" />
+    <circle cx="82" cy="44" r="6" />
+    <circle cx="94" cy="70" r="5" />
+  </g>
+  <path d="M34 42 L56 30 L82 44 L94 70" stroke="#2fc56c" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+  <g fill="#2fc56c" font-family="'Inter', 'Segoe UI', sans-serif" font-weight="700">
+    <text x="30" y="88" font-size="40">WT</text>
+  </g>
+  <text x="32" y="105" font-size="12" font-family="'Inter', 'Segoe UI', sans-serif" fill="#1d4b5f" font-weight="600">TECNOLOGIA</text>
+</svg>

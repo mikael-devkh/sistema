@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { SearchForm } from "../components/SearchForm";
 import { ResultCard } from "../components/ResultCard";
 import { HistoryList, HistoryItem } from "../components/HistoryList";
-import { Network } from "lucide-react";
+import { Network, History, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { calcularIP, IPConfig } from "../utils/ipCalculator";
 import { getStoreData } from "../data/storesData";
+import { cn } from "../lib/utils";
 
 interface ResultData extends IPConfig {
   tipo: string;
@@ -17,10 +18,10 @@ const GeradorIPPage = () => {
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
-    const savedHistory = localStorage.getItem("searchHistory");
-    if (savedHistory) {
-      setHistory(JSON.parse(savedHistory));
-    }
+    try {
+      const saved = localStorage.getItem("searchHistory");
+      if (saved) setHistory(JSON.parse(saved));
+    } catch {}
   }, []);
 
   const handleSearch = (lojaDigitada: string, tipo: string, numeroPDV?: string) => {
@@ -29,82 +30,93 @@ const GeradorIPPage = () => {
       const lojaEncontrada = getStoreData(lojaFormatada);
 
       if (!lojaEncontrada) {
-        toast.error("Loja não encontrada.");
+        toast.error("Loja não encontrada. Verifique o código e tente novamente.");
         setResult(null);
         return;
       }
 
       const ipBase = tipo === "PDV" ? lojaEncontrada.ipPDV : lojaEncontrada.ipDesktop;
       const config = calcularIP(ipBase, tipo, numeroPDV);
-
-      const resultData: ResultData = {
-        ...config,
-        nomeLoja: lojaEncontrada.nomeLoja,
-        tipo,
-        numeroPDV
-      };
+      const resultData: ResultData = { ...config, nomeLoja: lojaEncontrada.nomeLoja, tipo, numeroPDV };
       setResult(resultData);
 
-      const newHistoryItem: HistoryItem = { ...resultData, timestamp: Date.now() };
-      const newHistory = [newHistoryItem, ...history.slice(0, 9)];
+      const newHistory = [{ ...resultData, timestamp: Date.now() }, ...history.slice(0, 9)];
       setHistory(newHistory);
-      localStorage.setItem("searchHistory", JSON.stringify(newHistory));
-
-      toast.success("Configuração de IP gerada!");
+      try { localStorage.setItem("searchHistory", JSON.stringify(newHistory)); } catch {}
+      toast.success("Configuração de IP gerada com sucesso!");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Erro ao gerar IP");
+      toast.error(error instanceof Error ? error.message : "Erro ao gerar IP.");
       setResult(null);
     }
   };
 
-  const handleHistorySelect = (item: HistoryItem) => {
-    setResult(item);
-  };
+  const handleHistorySelect = (item: HistoryItem) => setResult(item);
 
   const handleHistoryClear = () => {
     setHistory([]);
-    localStorage.removeItem("searchHistory");
+    try { localStorage.removeItem("searchHistory"); } catch {}
     toast.info("Histórico limpo.");
   };
 
   return (
-    <div className="min-h-screen bg-gradient-primary px-4 py-8">
-      <div className="max-w-md mx-auto space-y-8">
-        <header className="text-center space-y-3">
-          <div className="flex justify-center">
-            <div className="p-3 bg-secondary rounded-2xl shadow-glow">
-              <Network className="h-8 w-8 text-primary" />
-            </div>
+    <div className="max-w-xl mx-auto space-y-6 pb-10 animate-page-in">
+
+      {/* ── Cabeçalho ── */}
+      <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
+        <div className="h-1 w-full bg-gradient-to-r from-cyan-500/50 via-primary to-cyan-500/30" />
+        <div className="flex items-center gap-4 p-5">
+          <div className="w-11 h-11 rounded-xl bg-primary/10 border border-primary/15 flex items-center justify-center shrink-0">
+            <Network className="w-5 h-5 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">
-            Gerador de IP
-          </h1>
-          <p className="text-muted-foreground">
-            Configure IPs para PDVs, impressoras e desktops com rapidez e histórico.
-          </p>
-        </header>
-        <div className="space-y-6">
-          <div className="bg-card border border-border rounded-lg p-4 space-y-6 sm:p-6">
-            <SearchForm onSearch={handleSearch} />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight">Gerador de IP</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Configure IPs para PDVs, impressoras e desktops
+            </p>
           </div>
-          {result && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <ResultCard
-                nomeLoja={result.nomeLoja}
-                tipo={result.tipo}
-                numeroPDV={result.numeroPDV}
-                ip={result.ip}
-                mascara={result.mascara}
-                gateway={result.gateway}
-                broadcast={result.broadcast}
-                dns1={result.dns1}
-                dns2={result.dns2}
-              />
-            </div>
-          )}
-          <HistoryList history={history} onSelect={handleHistorySelect} onClear={handleHistoryClear} />
         </div>
       </div>
+
+      {/* ── Formulário de busca ── */}
+      <div className="rounded-xl border border-border bg-card shadow-card p-5 space-y-1">
+        <div className="flex items-center gap-2 mb-4">
+          <Sparkles className="w-4 h-4 text-primary" />
+          <h2 className="text-sm font-semibold">Consultar loja</h2>
+        </div>
+        <SearchForm onSearch={handleSearch} />
+      </div>
+
+      {/* ── Resultado ── */}
+      {result && (
+        <div className={cn("transition-all", result ? "animate-slide-up" : "")}>
+          <ResultCard
+            nomeLoja={result.nomeLoja}
+            tipo={result.tipo}
+            numeroPDV={result.numeroPDV}
+            ip={result.ip}
+            mascara={result.mascara}
+            gateway={result.gateway}
+            broadcast={result.broadcast}
+            dns1={result.dns1}
+            dns2={result.dns2}
+          />
+        </div>
+      )}
+
+      {/* ── Histórico ── */}
+      {history.length > 0 && (
+        <div className="rounded-xl border border-border bg-card shadow-card p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <History className="w-4 h-4 text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Histórico recente</h2>
+          </div>
+          <HistoryList
+            history={history}
+            onSelect={handleHistorySelect}
+            onClear={handleHistoryClear}
+          />
+        </div>
+      )}
     </div>
   );
 };

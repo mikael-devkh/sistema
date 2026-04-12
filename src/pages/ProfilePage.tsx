@@ -3,101 +3,68 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "../compone
 import { Label } from "../components/ui/label";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { Switch } from "../components/ui/switch";
 import { Badge } from "../components/ui/badge";
-import { Avatar } from "../components/ui/avatar";
-import { Loader2, UserCog, Moon, Sun, Image as ImageIcon, X } from "lucide-react";
+import { Separator } from "../components/ui/separator";
+import { Loader2, UserCog, Image as ImageIcon, X, ShieldCheck, Mail, Hash } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "next-themes";
 import { db } from "../firebase";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
 import { toast } from "sonner";
-import { useState as useThemeState } from "react"; // para tema manual, substitua por hook real se tiver!
 import { Skeleton } from "../components/ui/skeleton";
 import { usePageLoading } from "../hooks/use-page-loading";
+import { ThemeToggle } from "../components/ThemeToggle";
+import { cn } from "../lib/utils";
 
 const ProfilePage = () => {
   const { user, profile, loadingAuth, loadingProfile, refreshProfile, updateProfileLocally } = useAuth();
+  const { resolvedTheme } = useTheme();
   const [nome, setNome] = useState("");
   const [matricula, setMatricula] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | undefined>(undefined);
-  const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [theme, setTheme] = useThemeState("light");
 
   useEffect(() => {
     if (profile) {
       setNome(profile.nome ?? "");
       setMatricula(profile.matricula ?? "");
       setAvatarUrl(profile.avatarUrl);
-    } else {
-      setNome("");
-      setMatricula("");
-      setAvatarUrl(undefined);
     }
   }, [profile]);
 
-  useEffect(() => {
-    if (!loadingAuth && user && !profile && !loadingProfile) {
-      void (async () => {
-        try {
-          const snapshot = await getDoc(doc(db, "users", user.uid));
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            setNome(typeof data.nome === "string" ? data.nome : "");
-            setMatricula(typeof data.matricula === "string" ? data.matricula : "");
-            setAvatarUrl(typeof data.avatarUrl === "string" ? data.avatarUrl : undefined);
-            updateProfileLocally({
-              nome: typeof data.nome === "string" ? data.nome : undefined,
-              matricula: typeof data.matricula === "string" ? data.matricula : undefined,
-              avatarUrl: typeof data.avatarUrl === "string" ? data.avatarUrl : undefined,
-            });
-          }
-        } catch (error) {
-          console.error("Erro ao buscar dados do perfil:", error);
-        }
-      })();
-    }
-  }, [loadingAuth, loadingProfile, profile, updateProfileLocally, user]);
+  const loadingUi = usePageLoading(400, [loadingProfile, profile]);
 
   if (loadingAuth) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-primary">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex min-h-[50vh] items-center justify-center">
+        <Loader2 className="h-7 w-7 animate-spin text-primary" />
       </div>
     );
   }
 
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
-  const handleAvatarUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const base64 = reader.result as string;
-        setAvatarUrl(base64);
-        setAvatarFile(file);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Imagem muito grande. Máximo: 2 MB.");
+      return;
     }
+    const reader = new FileReader();
+    reader.onload = () => setAvatarUrl(reader.result as string);
+    reader.readAsDataURL(file);
   };
 
-  const handleRemoveAvatar = () => {
-    setAvatarUrl(undefined);
-    setAvatarFile(null);
-  };
+  const handleRemoveAvatar = () => setAvatarUrl(undefined);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     if (!user) return;
-
     setIsSaving(true);
     try {
-      const profileRef = doc(db, "users", user.uid);
       await setDoc(
-        profileRef,
+        doc(db, "users", user.uid),
         {
           email: user.email ?? "",
           nome: nome.trim(),
@@ -107,130 +74,195 @@ const ProfilePage = () => {
         },
         { merge: true },
       );
-      updateProfileLocally({ nome: nome.trim(), matricula: matricula.trim(), avatarUrl: avatarUrl });
-      toast.success("Perfil salvo com sucesso. Suas RATs usarão estes dados automaticamente.");
+      updateProfileLocally({ nome: nome.trim(), matricula: matricula.trim(), avatarUrl });
+      toast.success("Perfil salvo! Suas RATs usarão estes dados automaticamente.");
       await refreshProfile();
-    } catch (error) {
-      console.error("Erro ao salvar perfil:", error);
-      toast.error("Não foi possível salvar as informações do perfil.");
+    } catch {
+      toast.error("Não foi possível salvar o perfil. Tente novamente.");
     } finally {
       setIsSaving(false);
     }
   };
 
-  const initials = nome
-    ?.split(" ")
-    .slice(0, 2)
-    .map(s => s.charAt(0).toUpperCase())
-    .join("") || "US";
+  const initials =
+    (nome || user.email || "U")
+      .split(" ")
+      .slice(0, 2)
+      .map(s => s[0]?.toUpperCase() ?? "")
+      .join("") || "U";
 
-  const loadingUi = usePageLoading(400, [loadingProfile, profile]);
+  const roleLabel = profile?.role === "admin" ? "Administrador" : "Técnico";
+
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-8 py-10">
-      <Card className="mb-2 p-6 bg-background/80 flex flex-col md:flex-row items-center gap-6 shadow-lg">
-        <div className="relative flex flex-col items-center">
-          {loadingUi ? (
-            <Skeleton className="h-20 w-20 rounded-full" />
-          ) : avatarUrl ? (
-            <>
-              <img src={avatarUrl} alt="Avatar" className="rounded-full h-20 w-20 object-cover border border-primary/30 shadow" />
-              <button type="button" className="absolute top-0 right-0 bg-background rounded-full p-1 hover:bg-primary/10" onClick={handleRemoveAvatar} title="Remover avatar">
-                <X className="w-5 h-5 text-destructive" />
-              </button>
-            </>
-          ) : (
-            <Avatar className="h-20 w-20 text-3xl font-bold bg-muted border-primary/30 border shadow-md flex items-center justify-center">
-              {initials}
-            </Avatar>
-          )}
-          <label htmlFor="avatar-upload" className="flex flex-col items-center mt-3 cursor-pointer text-xs text-primary hover:text-foreground transition">
-            <ImageIcon className="h-5 w-5 mr-1 inline-block" />
-            {avatarUrl ? "Trocar imagem" : "Adicionar imagem"}
-            <input id="avatar-upload" type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-          </label>
-        </div>
-        <div className="flex-1 flex flex-col gap-2">
-          {loadingUi ? (
-            <>
-              <Skeleton className="h-6 w-48 mb-1" />
-              <Skeleton className="h-4 w-40 mb-1" />
-              <Skeleton className="h-4 w-64" />
-            </>
-          ) : (
-            <>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg font-semibold">{nome || "Seu Nome"}</span>
-                {user.emailVerified && <Badge variant="success">Verificado</Badge>}
+    <div className="max-w-2xl mx-auto py-6 space-y-5 pb-10 animate-page-in">
+
+      {/* ── Card de identidade ── */}
+      <Card className="shadow-card overflow-hidden">
+        {/* Faixa de acento */}
+        <div className="h-1 w-full bg-gradient-to-r from-primary/50 via-primary to-primary/40" />
+
+        <div className="p-6 flex flex-col sm:flex-row items-center sm:items-start gap-6">
+          {/* Avatar */}
+          <div className="relative shrink-0">
+            {loadingUi ? (
+              <Skeleton className="h-24 w-24 rounded-full" />
+            ) : avatarUrl ? (
+              <>
+                <img
+                  src={avatarUrl}
+                  alt="Avatar"
+                  className="rounded-full h-24 w-24 object-cover border-2 border-primary/20 shadow-md"
+                />
+                <button
+                  type="button"
+                  onClick={handleRemoveAvatar}
+                  title="Remover foto"
+                  className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center shadow-md hover:brightness-110 transition"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </>
+            ) : (
+              <div className="h-24 w-24 rounded-full bg-primary/15 border-2 border-primary/15 flex items-center justify-center text-2xl font-bold text-primary shadow-sm">
+                {initials}
               </div>
-              <div className="text-sm text-muted-foreground">Matrícula/RG: <strong>{matricula || ""}</strong></div>
-              <div className="text-sm text-muted-foreground">E-mail: {user.email}</div>
-            </>
-          )}
-          <div className="flex items-center gap-3 mt-2">
-            <Switch checked={theme === 'dark'} onCheckedChange={checked => setTheme(checked ? 'dark' : 'light')} id="theme-toggle" />
-            <Label htmlFor="theme-toggle" className="flex items-center gap-1 cursor-pointer">
-              {theme === 'dark' ? <Moon className="w-4 h-4 text-primary" /> : <Sun className="w-4 h-4 text-yellow-500" />}
-              Tema {theme === 'dark' ? "Escuro" : "Claro"}
-            </Label>
+            )}
+
+            <label
+              htmlFor="avatar-upload"
+              className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card border border-border shadow cursor-pointer flex items-center justify-center hover:bg-secondary transition"
+              title="Alterar foto (máx. 2 MB)"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              <input
+                id="avatar-upload"
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarUpload}
+              />
+            </label>
           </div>
-        </div>
-      </Card>
-      <Card className="bg-background/90 shadow-lg">
-        <CardHeader>
-          <CardTitle className="text-lg font-semibold text-foreground sm:text-xl flex gap-2 items-center">
-            <UserCog className="h-6 w-6 text-primary mr-1" /> Informações do prestador
-          </CardTitle>
-        </CardHeader>
-        <form onSubmit={handleSubmit}>
-          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+          {/* Info */}
+          <div className="flex-1 min-w-0 space-y-2 text-center sm:text-left">
             {loadingUi ? (
               <>
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-6 w-48 mx-auto sm:mx-0" />
+                <Skeleton className="h-4 w-36 mx-auto sm:mx-0" />
+                <Skeleton className="h-4 w-56 mx-auto sm:mx-0" />
               </>
             ) : (
               <>
-                <div className="space-y-1">
-                  <Label>E-mail corporativo</Label>
-                  <Input value={user.email ?? ""} readOnly disabled />
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <h2 className="text-xl font-bold truncate">{nome || "Seu nome"}</h2>
+                  {user.emailVerified && (
+                    <Badge className="bg-emerald-500/15 text-emerald-600 border-emerald-500/25 dark:text-emerald-400 text-[10px] gap-1">
+                      <ShieldCheck className="w-3 h-3" /> Verificado
+                    </Badge>
+                  )}
+                  {profile?.role && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      {roleLabel}
+                    </Badge>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="nome">Nome completo</Label>
+
+                <div className="flex flex-col sm:flex-row flex-wrap gap-x-4 gap-y-0.5 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 shrink-0" />
+                    {user.email}
+                  </span>
+                  {matricula && (
+                    <span className="flex items-center gap-1.5">
+                      <Hash className="w-3.5 h-3.5 shrink-0" />
+                      Matrícula {matricula}
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+
+            {/* Tema */}
+            <div className="flex items-center gap-2 pt-1 justify-center sm:justify-start">
+              <span className="text-xs text-muted-foreground">
+                Tema: <span className="font-medium text-foreground capitalize">{resolvedTheme === "dark" ? "Escuro" : "Claro"}</span>
+              </span>
+              <ThemeToggle />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── Formulário de dados ── */}
+      <Card className="shadow-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold flex items-center gap-2">
+            <UserCog className="h-4 w-4 text-primary" />
+            Dados do prestador
+          </CardTitle>
+        </CardHeader>
+
+        <Separator />
+
+        <form onSubmit={handleSubmit}>
+          <CardContent className="pt-5">
+            {loadingUi ? (
+              <div className="space-y-4">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label>E-mail corporativo</Label>
+                  <Input value={user.email ?? ""} readOnly disabled className="bg-muted/50" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="nome">Nome completo <span className="text-destructive">*</span></Label>
                   <Input
                     id="nome"
                     value={nome}
-                    onChange={(event) => setNome(event.target.value)}
-                    placeholder="Ex: Maria Souza"
+                    onChange={e => setNome(e.target.value)}
+                    placeholder="Ex: Maria da Silva"
                     autoComplete="name"
                     required
                   />
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="matricula">Matrícula ou RG</Label>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="matricula">Matrícula / RG <span className="text-destructive">*</span></Label>
                   <Input
                     id="matricula"
                     value={matricula}
-                    onChange={(event) => setMatricula(event.target.value)}
+                    onChange={e => setMatricula(e.target.value)}
                     placeholder="Ex: 123456"
                     required
                   />
                 </div>
-              </>
+              </div>
             )}
           </CardContent>
-          <CardFooter className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button type="submit" className="gap-2" disabled={isSaving} variant="primary">
+
+          <CardFooter className="flex items-center justify-between pt-2">
+            <p className="text-xs text-muted-foreground">
+              Esses dados aparecem automaticamente nas RATs emitidas.
+            </p>
+            <Button
+              type="submit"
+              className="gap-2 shrink-0"
+              disabled={isSaving || loadingUi}
+            >
               {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
               Salvar perfil
             </Button>
           </CardFooter>
         </form>
       </Card>
-      {/* Comentário: avatar/nome acima mudam só no dashboard e no app, os dados da RAT são capturados do perfil na hora da emissão */}
     </div>
   );
 };
 
 export default ProfilePage;
-

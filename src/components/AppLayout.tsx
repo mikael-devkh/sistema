@@ -15,7 +15,8 @@ import { signOut } from "firebase/auth";
 import { auth } from "../firebase";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
-import { LogOut, Menu, ChevronLeft } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { LogOut, Menu, ChevronLeft, PanelLeft } from "lucide-react";
 import { cn } from "../lib/utils";
 
 const ROUTE_MAP: Record<string, string> = {
@@ -95,30 +96,55 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         open={sidebarOpen}
         onToggle={() => setSidebarOpen(s => !s)}
         collapsed={sidebarCollapsed}
-        onToggleCollapse={handleToggleCollapse}
       />
 
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden min-w-0">
-        {/* Header */}
+        {/* ── Header ── */}
         <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur-md">
-          <div className="flex items-center gap-2.5 px-4 h-14">
-            {/* Mobile hamburger */}
+          <div className="flex items-center gap-1.5 px-3 h-14">
+
+            {/* ── Mobile: hamburger ── */}
             <Button
               variant="ghost"
               size="sm"
-              className="md:hidden -ml-1 h-9 w-9 p-0 shrink-0"
+              className="md:hidden h-9 w-9 p-0 shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => setSidebarOpen(o => !o)}
             >
               <Menu className="w-[18px] h-[18px]" />
             </Button>
 
-            {/* Mobile: page title */}
-            <div className="md:hidden font-semibold text-sm text-foreground flex-1 truncate">
+            {/* ── Desktop: sidebar toggle (SEMPRE visível) ── */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="hidden md:flex h-9 w-9 p-0 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={handleToggleCollapse}
+                >
+                  <PanelLeft
+                    className={cn(
+                      "w-[18px] h-[18px] transition-transform duration-300",
+                      sidebarCollapsed && "rotate-180",
+                    )}
+                  />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {sidebarCollapsed ? "Expandir menu" : "Recolher menu"}
+              </TooltipContent>
+            </Tooltip>
+
+            {/* Divisor */}
+            <div className="hidden md:block h-5 w-px bg-border/60 mx-1 shrink-0" />
+
+            {/* ── Mobile: título da página ── */}
+            <div className="md:hidden font-semibold text-sm text-foreground flex-1 truncate pl-1">
               {pageTitle}
             </div>
 
-            {/* Desktop: back + breadcrumb */}
-            <div className="hidden md:flex items-center gap-1.5 flex-1 min-w-0">
+            {/* ── Desktop: voltar + breadcrumb ── */}
+            <div className="hidden md:flex items-center gap-1 flex-1 min-w-0">
               <Button
                 variant="ghost"
                 size="sm"
@@ -162,35 +188,34 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </Breadcrumb>
             </div>
 
-            {/* Right controls */}
+            {/* ── Controles direita ── */}
             <div className="flex items-center gap-1 ml-auto shrink-0">
               {user && (
-                <span
-                  className={cn(
-                    "hidden lg:block text-xs text-muted-foreground truncate max-w-[160px] px-1",
-                  )}
-                >
+                <span className="hidden lg:block text-xs text-muted-foreground truncate max-w-[160px] px-1">
                   {user.email}
                 </span>
               )}
               <ThemeToggle />
               {user && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={handleLogout}
-                  className="hidden md:flex h-9 gap-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/8 px-2.5"
-                  title="Sair"
-                >
-                  <LogOut className="w-4 h-4" />
-                  <span className="hidden lg:inline text-sm">Sair</span>
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleLogout}
+                      className="hidden md:flex h-9 w-9 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    >
+                      <LogOut className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Sair</TooltipContent>
+                </Tooltip>
               )}
             </div>
           </div>
         </header>
 
-        {/* Main content */}
+        {/* ── Conteúdo ── */}
         <main className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
           {children}
         </main>

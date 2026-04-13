@@ -193,21 +193,23 @@ const SupportCenter = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-primary px-4 py-8 pt-24">
-      <div className="max-w-7xl mx-auto space-y-8">
-        <header className="text-center space-y-3">
-          <div className="flex justify-center">
-            <div className="p-3 bg-secondary rounded-2xl shadow-glow">
-              <Layers className="h-8 w-8 text-primary" />
-            </div>
+    <div className="space-y-6 animate-page-in">
+      {/* Header */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Layers className="w-5 h-5 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Centro de Suporte e Biblioteca Técnica</h1>
-          <p className="text-muted-foreground">
-            Consulte a base de conhecimento validada em campo e, quando necessário, utilize os templates de RAT para acelerar o registro técnico.
-          </p>
-        </header>
-        {renderTabsContent()}
+          <div>
+            <h1 className="text-xl font-bold">Centro de Suporte</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Base de conhecimento e templates de RAT validados em campo
+            </p>
+          </div>
+        </div>
       </div>
+      {renderTabsContent()}
     </div>
   );
 };

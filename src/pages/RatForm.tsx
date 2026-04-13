@@ -674,10 +674,6 @@ const RatForm = () => {
       const issue = await searchFsaByNumber(fsaNumberInput);
       const fields = issue.fields;
       
-      // ---- DEBUG ----
-      console.log('FORMULÁRIO: Preenchendo RAT com dados da FSA:', issue);
-      // ---------------
-
       clearAutofillData();
 
       // Preenche o formulário
@@ -706,21 +702,23 @@ const RatForm = () => {
   };
 
   return (
-      <div className="min-h-screen bg-gradient-primary px-4 py-8 pt-24">
-        <div className="max-w-6xl mx-auto space-y-6">
-          <header className="text-center space-y-3">
-            <div className="flex justify-center">
-              <div className="p-3 bg-secondary rounded-2xl shadow-glow">
-                <FileText className="h-8 w-8 text-primary" />
-              </div>
+      <div className="space-y-6 animate-page-in">
+        {/* Header */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+          <div className="flex items-center gap-4 px-6 py-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <FileText className="w-5 h-5 text-primary" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground">
-              Relatório de Atendimento Técnico - RAT
-            </h1>
-            <p className="text-muted-foreground">
-              Preencha os dados para gerar a RAT
-            </p>
-          </header>
+            <div>
+              <h1 className="text-xl font-bold">Nova RAT</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Relatório de Atendimento Técnico — preencha e gere o PDF
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-6">
 
           <div className="grid gap-6 lg:grid-cols-[2fr,1fr]">
             <Card className="relative overflow-hidden p-4 sm:p-6 space-y-6">

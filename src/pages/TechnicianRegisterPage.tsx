@@ -73,8 +73,6 @@ export default function TechnicianRegisterPage() {
   });
 
   // Debug
-  console.log('TechnicianRegisterPage - User:', currentUser?.uid);
-  console.log('TechnicianRegisterPage - Profile role:', profile?.role);
   
   if (!currentUser) {
     return <Navigate to="/" replace />;
@@ -106,27 +104,15 @@ export default function TechnicianRegisterPage() {
   const onSubmit = async (values: TechnicianFormValues) => {
     setIsSubmitting(true);
     try {
-      console.log('🔄 Gerando código único para o técnico...');
       const codigoTecnico = await generateTechnicianCode();
-      console.log('✅ Código gerado:', codigoTecnico);
       setGeneratedCode(codigoTecnico);
 
-      console.log('👤 Criando usuário no Firebase Auth...', {
-        email: values.email,
-        nome: values.nome
-      });
-      
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         values.email,
         values.password
       );
       const newUser = userCredential.user;
-      
-      console.log('✅ Usuário criado no Firebase Auth:', {
-        uid: newUser.uid,
-        email: newUser.email
-      });
 
       const technicianData: TechnicianProfile = {
         uid: newUser.uid,
@@ -161,15 +147,7 @@ export default function TechnicianRegisterPage() {
         chamadosEmAndamento: 0,
       };
 
-      console.log('💾 Salvando técnico no Firestore...', {
-        uid: newUser.uid,
-        codigoTecnico,
-        nome: values.nome,
-        email: values.email
-      });
-
       await createOrUpdateTechnician(technicianData);
-      console.log('✅ Técnico salvo na collection "technicians"');
 
       await setDoc(doc(db, 'users', newUser.uid), {
         nome: values.nome,
@@ -177,16 +155,6 @@ export default function TechnicianRegisterPage() {
         role: 'tecnico',
         email: values.email,
         createdAt: serverTimestamp(),
-      });
-      console.log('✅ Usuário salvo na collection "users"');
-
-      console.log('🎉 Cadastro concluído com sucesso!');
-      console.log('📋 Resumo do cadastro:', {
-        codigoTecnico,
-        nome: values.nome,
-        email: values.email,
-        cargo: values.cargo,
-        especialidades: values.especialidades
       });
       
       toast.success(`Técnico cadastrado com sucesso! Código: ${codigoTecnico}`, {

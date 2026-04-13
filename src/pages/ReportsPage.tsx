@@ -184,11 +184,19 @@ export default function ReportsPage() {
     <div className="space-y-5 pb-8 animate-page-in">
 
       {/* ── Cabeçalho ── */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Histórico de RATs</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Registros de atendimento arquivados
-        </p>
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Histórico de RATs</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Registros de atendimento arquivados
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* ── Painel de filtros ── */}

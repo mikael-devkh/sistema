@@ -649,12 +649,21 @@ const ServiceManager = () => {
   const loading = usePageLoading(500, [activeCalls, calls]);
   return (
     <>
-      <div className="space-y-5 pb-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Gestão de Chamados</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Controle chamados, mídias obrigatórias e previsão de faturamento.
-          </p>
+      <div className="space-y-5 pb-6 animate-page-in">
+        {/* Header */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+          <div className="flex items-center gap-4 px-6 py-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <ClipboardList className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Gestão de Chamados</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Controle chamados, mídias obrigatórias e previsão de faturamento.
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">

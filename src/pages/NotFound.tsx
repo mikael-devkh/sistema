@@ -8,7 +8,7 @@ const NotFound = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    console.error("404 – rota inexistente:", location.pathname);
+    // 404 – route not found: location.pathname
   }, [location.pathname]);
 
   return (

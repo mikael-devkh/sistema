@@ -4,7 +4,7 @@ import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../components/ui/accordion";
 import { Badge } from "../components/ui/badge";
-import { FileText, Search, Sparkles, Edit3, Plus, Trash2, RefreshCcw } from "lucide-react";
+import { BookOpen, Search, Edit3, Plus, Trash2, RefreshCcw } from "lucide-react";
 import { Procedure } from "../data/troubleshootingData";
 import { loadEditableProcedures, saveProceduresToLocalStorage, resetToDefaults } from "../utils/data-editor-utils";
 import { cn } from "../lib/utils";
@@ -109,20 +109,24 @@ export default function BaseConhecimentoPage() {
     toast.success("Base restaurada para os padrões.");
   };
   return (
-    <div className="max-w-4xl mx-auto space-y-8 pt-4 pb-10">
-      <div className="rounded-lg bg-primary/10 border border-primary/20 text-primary flex items-center gap-4 p-4 mb-2">
-        <Sparkles className="w-7 h-7" />
-        <div>
-          <div className="font-bold text-base">Bem-vindo à Base de Conhecimento!</div>
-          <div className="text-sm text-primary/90">Procure passo-a-passos e dicas validadas pelo time técnico WT. Pesquise por nome, sintoma, equipamento ou código.</div>
+    <div className="max-w-4xl mx-auto space-y-6 animate-page-in">
+      {/* Header */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <BookOpen className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Base de Conhecimento</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Passo-a-passos e dicas validadas pelo time técnico WT. Pesquise por nome, sintoma ou equipamento.
+            </p>
+          </div>
         </div>
       </div>
-      <Card className="p-4 sm:p-6 space-y-4 shadow-lg">
-        <div className="space-y-2 text-center lg:text-left">
-          <h2 className="text-lg font-bold text-foreground flex items-center gap-2 justify-center lg:justify-start sm:text-xl">
-            <FileText className="h-5 w-5 text-primary" /> Base de Conhecimento Técnico
-          </h2>
-        </div>
+
+      <Card className="p-4 sm:p-6 space-y-4">
         <div className="relative mb-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input

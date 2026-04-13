@@ -39,22 +39,26 @@ export function TechnicianCard({
     .map(s => s.charAt(0).toUpperCase())
     .join('') || 'T';
 
-  const statusColors: Record<string, string> = {
-    ativo: 'bg-green-500',
-    inativo: 'bg-gray-500',
-    ferias: 'bg-yellow-500',
-    licenca: 'bg-blue-500',
-    desligado: 'bg-red-500',
-  };
-
   const cargoLabels: Record<string, string> = {
     tecnico: 'Técnico',
     supervisor: 'Supervisor',
     coordenador: 'Coordenador',
   };
 
+  const statusConfig: Record<string, { label: string; className: string }> = {
+    ativo:     { label: "Ativo",     className: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" },
+    inativo:   { label: "Inativo",   className: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400" },
+    ferias:    { label: "Férias",    className: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
+    licenca:   { label: "Licença",   className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
+    desligado: { label: "Desligado", className: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300" },
+  };
+
+  const statusInfo = statusConfig[technician.status] ?? { label: technician.status, className: "bg-muted text-muted-foreground" };
+
   return (
-    <Card className="hover:shadow-lg transition-all border-2 hover:border-primary/50 bg-background">
+    <Card className="hover:shadow-md transition-shadow bg-card border-border overflow-hidden">
+      {/* Colored accent bar based on availability */}
+      <div className={`h-0.5 ${technician.disponivel && technician.status === 'ativo' ? 'bg-emerald-500' : 'bg-border'}`} />
       <div className="p-5">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -152,29 +156,14 @@ export function TechnicianCard({
 
         <div className="flex items-center justify-between pt-4 border-t">
           <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                technician.disponivel ? 'bg-green-500' : 'bg-gray-400'
-              }`}
-            />
+            <div className={`w-2 h-2 rounded-full ${technician.disponivel ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600'}`} />
             <span className="text-sm text-muted-foreground">
               {technician.disponivel ? 'Disponível' : 'Indisponível'}
             </span>
           </div>
-          <Badge
-            variant="outline"
-            style={{
-              backgroundColor: technician.status === 'ativo' ? '#10b981' : 
-                               technician.status === 'inativo' ? '#6b7280' :
-                               technician.status === 'ferias' ? '#eab308' :
-                               technician.status === 'licenca' ? '#3b82f6' :
-                               technician.status === 'desligado' ? '#ef4444' : '#6b7280',
-              color: 'white',
-              border: 'none'
-            }}
-          >
-            {technician.status}
-          </Badge>
+          <span className={`text-[11px] font-semibold rounded-full px-2.5 py-0.5 ${statusInfo.className}`}>
+            {statusInfo.label}
+          </span>
         </div>
 
         {(technician.totalChamados !== undefined || technician.avaliacaoMedia !== undefined) && (

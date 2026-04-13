@@ -218,10 +218,22 @@ const ConfigPage = () => {
     toast.success("Preferências salvas.");
   };
   return (
-    <div className="max-w-3xl mx-auto py-8 px-2">
-      <h1 className="text-2xl sm:text-3xl font-bold mb-6 ">Configurações</h1>
+    <div className="max-w-3xl mx-auto space-y-6 animate-page-in">
+      {/* Header */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <UserCog className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Configurações</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Preferências, aparência e integrações</p>
+          </div>
+        </div>
+      </div>
       <Tabs defaultValue="perfil" className="w-full">
-        <TabsList className="mb-6 flex gap-3">
+        <TabsList className="flex gap-3">
           <TabsTrigger value="perfil" className="flex items-center gap-2"><UserCog className="w-5 h-5" />Minha Conta</TabsTrigger>
           <TabsTrigger value="personalizar" className="flex items-center gap-2"><FileText className="w-5 h-5" />Personalizar</TabsTrigger>
         </TabsList>

@@ -45,54 +45,22 @@ export default function TechniciansManagementPage() {
   const loadTechnicians = async () => {
     setLoading(true);
     try {
-      console.log('🔄 Carregando técnicos manualmente... Filtro:', filter);
-      
       const filters: any = {};
-      if (filter === 'ativos') {
-        filters.status = 'ativo';
-      }
+      if (filter === 'ativos') filters.status = 'ativo';
 
       const data = await listTechnicians(
         filter === 'todos' ? undefined : { status: filters.status }
       );
 
-      console.log(`📊 Técnicos recebidos do Firestore: ${data.length}`);
-      if (data.length > 0) {
-        console.log('📋 Primeiros técnicos:', data.slice(0, 3).map(t => ({ uid: t.uid, nome: t.nome, codigo: t.codigoTecnico })));
-      }
-
-      // Filtrar inativos se necessário
       const filteredData = filter === 'inativos'
         ? data.filter(t => t.status !== 'ativo')
         : data;
 
-      console.log(`✅ Técnicos após filtro: ${filteredData.length}`);
       setTechnicians(filteredData);
-      
-      if (filteredData.length === 0 && data.length === 0) {
-        console.warn('⚠️ Nenhum técnico encontrado no Firestore.');
-        console.warn('💡 Verifique:');
-        console.warn('   1. Se a collection "technicians" existe no Firestore');
-        console.warn('   2. Se há documentos dentro da collection');
-        console.warn('   3. Se os documentos têm os campos corretos (uid, nome, codigoTecnico, etc)');
-      }
     } catch (error: any) {
-      console.error('❌ Erro ao carregar técnicos:', error);
-      console.error('Detalhes do erro:', {
-        code: error.code,
-        message: error.message,
-        stack: error.stack
-      });
-      
-      let errorMessage = 'Erro ao carregar lista de técnicos';
-      if (error.code === 'failed-precondition') {
-        errorMessage = 'Erro: Índice Firestore necessário. Verifique o console para mais detalhes.';
-        console.error('💡 SOLUÇÃO: Crie um índice composto no Firebase Console para:', {
-          collection: 'technicians',
-          fields: ['status', 'dataCadastro']
-        });
-      }
-      
+      const errorMessage = error.code === 'failed-precondition'
+        ? 'Índice Firestore necessário. Verifique o console.'
+        : 'Erro ao carregar lista de técnicos';
       toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -139,96 +107,27 @@ export default function TechniciansManagementPage() {
     }
   };
 
-  // Listener em tempo real para atualizar quando técnicos são adicionados
+  // Listener em tempo real
   useEffect(() => {
-    console.log('🔧 Configurando listener real-time...');
-    console.log('🔍 Verificando conexão com Firestore...');
-    
     try {
-      const techniciansRef = collection(db, 'technicians');
-      console.log('✅ Referência da collection criada:', techniciansRef.path);
-      
-      // Usar query simples sem orderBy para evitar erro de índice
-      const q = query(techniciansRef);
-      console.log('✅ Query criada');
-      
-      console.log('⏳ Aguardando snapshot inicial...');
+      const q = query(collection(db, 'technicians'));
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
-          console.log('📡 Snapshot recebido:', snapshot.size, 'documento(s)');
-          console.log('📡 Snapshot metadata:', {
-            hasPendingWrites: snapshot.metadata.hasPendingWrites,
-            fromCache: snapshot.metadata.fromCache
-          });
-          
-          if (snapshot.empty) {
-            console.warn('⚠️ Collection está vazia! Nenhum técnico encontrado.');
-            console.warn('💡 Possíveis causas:');
-            console.warn('   1. Nenhum técnico foi cadastrado ainda');
-            console.warn('   2. Técnicos foram salvos em outra collection');
-            console.warn('   3. Problema de permissões no Firestore');
-          }
-          
-          const technicians = snapshot.docs.map(doc => {
-            const data = doc.data();
-            console.log('📄 Documento encontrado:', doc.id, {
-              uid: doc.id,
-              nome: data.nome,
-              codigo: data.codigoTecnico,
-              status: data.status,
-              email: data.email
-            });
-            return {
-              uid: doc.id,
-              ...data,
-            };
-          }) as TechnicianProfile[];
-          
-          // Ordenar no cliente
-          technicians.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
-          
-          console.log(`🔄 Realtime update: ${technicians.length} técnico(s)`);
-          if (technicians.length > 0) {
-            console.log('📝 IDs atualizados:', technicians.map(t => t.uid));
-            console.log('📝 Nomes:', technicians.map(t => t.nome));
-          }
-          setTechnicians(technicians);
+          const data = snapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() })) as TechnicianProfile[];
+          data.sort((a, b) => (b.dataCadastro || 0) - (a.dataCadastro || 0));
+          setTechnicians(data);
           setLoading(false);
         },
-        (error) => {
-          console.error('❌ Erro no listener real-time:', error);
-          console.error('Detalhes do erro:', {
-            code: error.code,
-            message: error.message,
-            stack: error.stack
-          });
-          // Se falhar, recarrega manualmente
-          loadTechnicians();
-        }
+        () => { loadTechnicians(); }
       );
-      
-      return () => {
-        console.log('🔌 Removendo listener real-time...');
-        unsubscribe();
-      };
-    } catch (error) {
-      console.error('❌ Erro ao configurar listener:', error);
+      return () => unsubscribe();
+    } catch {
       loadTechnicians();
     }
   }, []);
-  
-  // Carregar manualmente quando o filtro mudar (fallback)
-  useEffect(() => {
-    console.log('🔄 Filtro mudou, recarregando técnicos...', filter);
-    loadTechnicians();
-  }, [filter]);
-  
-  // Carregar na montagem inicial também
-  useEffect(() => {
-    console.log('🚀 Carregando técnicos na montagem inicial...');
-    loadTechnicians();
-  }, []);
+
+  useEffect(() => { loadTechnicians(); }, [filter]);
 
   const filteredTechnicians = technicians.filter(tech => {
     // Busca por texto
@@ -261,22 +160,6 @@ export default function TechniciansManagementPage() {
     return true;
   });
   
-  // Debug: log dos técnicos filtrados
-  useEffect(() => {
-    console.log('🔍 Estado atual:', {
-      totalTechnicians: technicians.length,
-      filteredCount: filteredTechnicians.length,
-      loading,
-      filter,
-      searchTerm,
-      filterEspecialidade,
-      filterCargo,
-      filterUF
-    });
-    if (filteredTechnicians.length > 0) {
-      console.log('✅ Técnicos que serão exibidos:', filteredTechnicians.map(t => ({ nome: t.nome, codigo: t.codigoTecnico })));
-    }
-  }, [technicians, filteredTechnicians, loading, filter, searchTerm, filterEspecialidade, filterCargo, filterUF]);
 
   // Obter lista única de especialidades e UFs para os filtros
   const especialidadesUnicas = Array.from(
@@ -401,77 +284,38 @@ export default function TechniciansManagementPage() {
     chamadosConcluidos: technicians.reduce((acc, t) => acc + (t.chamadosConcluidos || 0), 0),
   };
 
-  // Temporariamente permitir acesso para todos (para testes)
-  // TODO: Remover depois de configurar roles no Firestore
-  const hasAccess = true; // Temporário: profile?.role === 'admin' || permissions.canManageUsers;
-  
-  // Debug: verificar permissões
-  console.log('TechniciansManagementPage - Profile role:', profile?.role);
-  console.log('TechniciansManagementPage - Permissions:', permissions);
-  console.log('TechniciansManagementPage - canManageUsers:', permissions.canManageUsers);
-  console.log('TechniciansManagementPage - hasAccess:', hasAccess);
-  
-  // Temporariamente comentado - descomentar depois de configurar roles
-  /*
-  if (!hasAccess) {
-    console.warn('Acesso negado: usuário não tem permissão');
-    return (
-      <div className="max-w-7xl mx-auto py-8 px-4">
-        <div className="text-center py-12">
-          <h2 className="text-2xl font-bold mb-4">Acesso Negado</h2>
-          <p className="text-muted-foreground mb-4">
-            Você precisa ter permissão de administrador para acessar esta página.
-          </p>
-          <div className="mt-6 p-4 bg-muted rounded-lg text-left max-w-2xl mx-auto">
-            <p className="text-sm font-semibold mb-2">Role atual: <code>{profile?.role || 'não definido'}</code></p>
-            <p className="text-sm text-muted-foreground mb-2">
-              Para ter acesso, você precisa ter o campo <code className="bg-background px-1 rounded">role: 'admin'</code> no seu perfil no Firestore.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              <strong>Como configurar:</strong>
-            </p>
-            <ol className="text-sm text-muted-foreground mt-2 list-decimal list-inside space-y-1">
-              <li>Acesse o Firebase Console</li>
-              <li>Vá em Firestore Database</li>
-              <li>Localize a collection <code className="bg-background px-1 rounded">users</code></li>
-              <li>Encontre o documento com seu UID: <code className="bg-background px-1 rounded">{profile?.role || 'seu-uid-aqui'}</code></li>
-              <li>Adicione o campo <code className="bg-background px-1 rounded">role</code> com valor <code className="bg-background px-1 rounded">admin</code></li>
-              <li>Recarregue esta página</li>
-            </ol>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  */
-
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Gestão de Técnicos</h1>
-          <p className="text-muted-foreground text-base">
-            Gerencie a frota de técnicos e distribuição de chamados
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={handleExportCSV}
-            disabled={filteredTechnicians.length === 0}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Exportar CSV
-          </Button>
-          <Button onClick={() => navigate('/cadastrar-tecnico')}>
-            <Plus className="mr-2 h-4 w-4" />
-            Cadastrar Técnico
-          </Button>
+    <div className="space-y-6 animate-page-in">
+      {/* Header card */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 px-6 py-4">
+          <div>
+            <h1 className="text-xl font-bold">Gestão de Técnicos</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Gerencie a frota de técnicos e distribuição de chamados
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportCSV}
+              disabled={filteredTechnicians.length === 0}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <Button size="sm" onClick={() => navigate('/cadastrar-tecnico')}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Cadastrar Técnico
+            </Button>
+          </div>
         </div>
       </div>
 
       {/* Filtros e busca */}
-      <div className="space-y-4 mb-6">
+      <div className="space-y-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <Tabs value={filter} onValueChange={(v) => setFilter(v as any)} className="w-full sm:w-auto">
             <TabsList>
@@ -532,7 +376,7 @@ export default function TechniciansManagementPage() {
       </div>
 
       {/* Estatísticas rápidas */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow">
           <p className="text-sm font-medium text-muted-foreground mb-2">Total</p>
           <p className="text-3xl font-bold text-foreground">{stats.total}</p>
@@ -560,7 +404,7 @@ export default function TechniciansManagementPage() {
       </div>
 
       {/* Estatísticas por cargo e status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="p-5 border-2 rounded-xl bg-background shadow-sm">
           <p className="text-base font-semibold mb-4 text-foreground">Distribuição por Cargo</p>
           <div className="space-y-3">
@@ -615,7 +459,6 @@ export default function TechniciansManagementPage() {
       ) : filteredTechnicians.length === 0 ? (
         <div className="text-center py-16 px-4">
           <div className="max-w-md mx-auto">
-            <div className="mb-4 text-6xl">👷</div>
             <h3 className="text-xl font-semibold text-foreground mb-2">
               Nenhum técnico encontrado
             </h3>
@@ -626,22 +469,10 @@ export default function TechniciansManagementPage() {
               }
             </p>
             {technicians.length === 0 && (
-              <>
-                <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-4 text-left">
-                  <p className="text-sm text-yellow-800 dark:text-yellow-200 font-semibold mb-2">
-                    ℹ️ Informações de Debug:
-                  </p>
-                  <ul className="text-xs text-yellow-700 dark:text-yellow-300 space-y-1 list-disc list-inside">
-                    <li>Abra o console do navegador (F12) para ver logs detalhados</li>
-                    <li>Verifique se a collection "technicians" existe no Firebase Console</li>
-                    <li>Após cadastrar, aguarde alguns segundos e recarregue a página</li>
-                  </ul>
-                </div>
-                <Button onClick={() => navigate('/cadastrar-tecnico')} size="lg">
-                  <Plus className="mr-2 h-5 w-5" />
-                  Cadastrar Primeiro Técnico
-                </Button>
-              </>
+              <Button onClick={() => navigate('/cadastrar-tecnico')} size="sm" className="mt-2">
+                <Plus className="mr-1.5 h-4 w-4" />
+                Cadastrar Primeiro Técnico
+              </Button>
             )}
           </div>
         </div>

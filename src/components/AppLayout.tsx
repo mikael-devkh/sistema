@@ -22,17 +22,15 @@ import { cn } from "../lib/utils";
 const ROUTE_MAP: Record<string, string> = {
   "/": "Dashboard",
   "/rat": "Nova RAT",
-  "/reports": "Histórico",
   "/gerador-ip": "Gerador de IP",
-  "/base-conhecimento": "Base de Conhecimento",
-  "/templates-rat": "Templates RAT",
-  "/service-manager": "Chamados",
   "/agendamento": "Agendamentos",
+  "/base-conhecimento": "Base de Conhecimento",
+  "/templates-rat": "Templates de RAT",
   "/configuracoes": "Configurações",
   "/perfil": "Perfil",
-  "/minha-fila": "Minha Fila",
-  "/fsas": "FSAs",
   "/tecnicos": "Técnicos",
+  "/cadastrar-tecnico": "Cadastrar Técnico",
+  "/support": "Suporte",
 };
 
 function getSidebarCollapsed() {

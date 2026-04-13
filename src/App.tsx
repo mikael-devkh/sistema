@@ -8,18 +8,13 @@ import Dashboard from "./pages/Dashboard";
 const RatForm = React.lazy(() => import("./pages/RatForm"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const SupportCenter = React.lazy(() => import("./pages/SupportCenter"));
-const ServiceManager = React.lazy(() => import("./pages/ServiceManager"));
 const LoginPage = React.lazy(() => import("./pages/LoginPage"));
 const RegisterPage = React.lazy(() => import("./pages/RegisterPage"));
 const ProfilePage = React.lazy(() => import("./pages/ProfilePage"));
-const ReportsPage = React.lazy(() => import("./pages/ReportsPage"));
 const GeradorIPPage = React.lazy(() => import("./pages/GeradorIPPage"));
 const BaseConhecimentoPage = React.lazy(() => import("./pages/BaseConhecimentoPage"));
 const TemplatesRatPage = React.lazy(() => import("./pages/TemplatesRatPage"));
-const MyQueue = React.lazy(() => import("./pages/MyQueue"));
 const AgendamentoPage = React.lazy(() => import("./pages/AgendamentoPage"));
-const FsasKanban = React.lazy(() => import("./pages/FsasKanban"));
-const Loja360 = React.lazy(() => import("./pages/Loja360"));
 // Função helper para retry em caso de erro de carregamento (404, cache antigo, etc)
 const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
   return React.lazy(async () => {
@@ -66,7 +61,6 @@ const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
 
 const TechnicianRegisterPage = lazyWithRetry(() => import("./pages/TechnicianRegisterPage"));
 const TechniciansManagementPage = lazyWithRetry(() => import("./pages/TechniciansManagementPage"));
-import { ServiceManagerProvider } from "./hooks/use-service-manager";
 import { RatAutofillProvider } from "./context/RatAutofillContext";
 import { useAuth } from "./context/AuthContext";
 import { GlobalSearch } from "./components/GlobalSearch";
@@ -356,8 +350,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <ServiceManagerProvider>
-          <RatAutofillProvider>
+        <RatAutofillProvider>
             <GlobalSearch />
             <Routes>
               <Route
@@ -398,18 +391,6 @@ const App = () => (
                 )}
               />
               <Route
-                path="/service-manager"
-                element={(
-                  <ProtectedRoute>
-                    <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <ServiceManager />
-                      </React.Suspense>
-                    </AppLayout>
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
                 path="/profile"
                 element={(
                   <ProtectedRoute>
@@ -428,18 +409,6 @@ const App = () => (
                     <AppLayout>
                       <React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
                         <ProfilePage />
-                      </React.Suspense>
-                    </AppLayout>
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="/reports"
-                element={(
-                  <ProtectedRoute>
-                    <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <ReportsPage />
                       </React.Suspense>
                     </AppLayout>
                   </ProtectedRoute>
@@ -482,18 +451,6 @@ const App = () => (
                 )}
               />
               <Route
-                path="/minha-fila"
-                element={(
-                  <ProtectedRoute>
-                    <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <MyQueue />
-                      </React.Suspense>
-                    </AppLayout>
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
                 path="/agendamento"
                 element={(
                   <ProtectedRoute>
@@ -506,45 +463,11 @@ const App = () => (
                 )}
               />
               <Route
-                path="/fsas"
-                element={(
-                  <ProtectedAdminRoute>
-                    <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <FsasKanban />
-                      </React.Suspense>
-                    </AppLayout>
-                  </ProtectedAdminRoute>
-                )}
-              />
-              <Route
-                path="/loja/:fsaId"
-                element={(
-                  <ProtectedRoute>
-                    <AppLayout>
-                      <React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
-                        <Loja360 />
-                      </React.Suspense>
-                    </AppLayout>
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
                 path="/configuracoes"
                 element={(
                   <ProtectedRoute>
                     <AppLayout>
                       <ConfigPage />
-                    </AppLayout>
-                  </ProtectedRoute>
-                )}
-              />
-              <Route
-                path="/historico"
-                element={(
-                  <ProtectedRoute>
-                    <AppLayout>
-                      <ReportsPage />
                     </AppLayout>
                   </ProtectedRoute>
                 )}
@@ -587,7 +510,6 @@ const App = () => (
               <Route path="*" element={<React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}><NotFound /></React.Suspense>} />
             </Routes>
           </RatAutofillProvider>
-        </ServiceManagerProvider>
         </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

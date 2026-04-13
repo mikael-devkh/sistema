@@ -3,16 +3,14 @@ import { usePermissions } from "../hooks/use-permissions";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import {
   FileText, User, PlusCircle, Network,
-  BookText, LayoutTemplate, PhoneCall, Clock, Users,
+  BookText, LayoutTemplate, Users,
   CalendarClock, TrendingUp, Wrench, ArrowRight,
-  ClipboardList, BarChart2,
 } from "lucide-react";
 import { Skeleton } from "../components/ui/skeleton";
 import { Badge } from "../components/ui/badge";
 import { db } from "../firebase";
 import { collection, getDocs, limit as fbLimit, orderBy, query, Timestamp, where } from "firebase/firestore";
-import { useEffect, useMemo, useState } from "react";
-import { useServiceManager } from "../hooks/use-service-manager";
+import { useEffect, useState } from "react";
 import { cn } from "../lib/utils";
 
 function getGreeting() {
@@ -20,14 +18,6 @@ function getGreeting() {
   if (h < 12) return "Bom dia";
   if (h < 18) return "Boa tarde";
   return "Boa noite";
-}
-
-function formatMinutes(m: number) {
-  const h = Math.floor(m / 60);
-  const r = m % 60;
-  if (h && r) return `${h}h ${r}min`;
-  if (h) return `${h}h`;
-  return `${r}min`;
 }
 
 const quickActions = [
@@ -39,25 +29,11 @@ const quickActions = [
     accent: "text-emerald-500 bg-emerald-500/10",
   },
   {
-    href: "/service-manager",
-    icon: PhoneCall,
-    label: "Chamados",
-    description: "Gerenciar chamados ativos",
-    accent: "text-blue-500 bg-blue-500/10",
-  },
-  {
     href: "/agendamento",
     icon: CalendarClock,
     label: "Agendamentos",
     description: "Ver agenda de visitas",
     accent: "text-violet-500 bg-violet-500/10",
-  },
-  {
-    href: "/reports",
-    icon: BarChart2,
-    label: "Histórico",
-    description: "Relatórios e métricas",
-    accent: "text-amber-500 bg-amber-500/10",
   },
   {
     href: "/gerador-ip",
@@ -70,7 +46,7 @@ const quickActions = [
     href: "/base-conhecimento",
     icon: BookText,
     label: "Base de Conhecimento",
-    description: "Artigos e procedimentos",
+    description: "Artigos e procedimentos técnicos",
     accent: "text-rose-500 bg-rose-500/10",
   },
   {
@@ -104,17 +80,7 @@ export default function Dashboard() {
 
   const [loadingData, setLoadingData] = useState(true);
   const [thisMonthCount, setThisMonthCount] = useState(0);
-  const [pendingCount, setPendingCount] = useState(0);
   const [recent, setRecent] = useState<Array<{ id: string; loja: string; data: string; status: string }>>([]);
-  const { activeCalls, storeTimers, getStoreTotalMinutes } = useServiceManager();
-
-  const totalServiceMinutes = useMemo(() => {
-    try {
-      return Object.keys(storeTimers).reduce((acc, store) => acc + getStoreTotalMinutes(store), 0);
-    } catch {
-      return 0;
-    }
-  }, [storeTimers, getStoreTotalMinutes]);
 
   useEffect(() => {
     const CACHE_KEY = "dashboard_metrics_cache_v1";
@@ -172,14 +138,6 @@ export default function Dashboard() {
     })();
   }, [user?.uid]);
 
-  useEffect(() => {
-    try {
-      setPendingCount(activeCalls.filter(c => c.status === "open").length);
-    } catch {
-      setPendingCount(0);
-    }
-  }, [activeCalls]);
-
   const isLoading = loadingAuth || loadingProfile;
 
   const stats = [
@@ -190,23 +148,25 @@ export default function Dashboard() {
       colorClass: "text-emerald-600 dark:text-emerald-400",
       bgClass: "bg-emerald-500/10",
       borderClass: "border-emerald-500/20",
+      href: "/rat",
     },
     {
-      label: "Chamados abertos",
-      value: String(pendingCount),
-      icon: PhoneCall,
-      colorClass: "text-blue-600 dark:text-blue-400",
-      bgClass: "bg-blue-500/10",
-      borderClass: "border-blue-500/20",
-      href: "/service-manager",
+      label: "Agendamentos",
+      value: "Ver",
+      icon: CalendarClock,
+      colorClass: "text-violet-600 dark:text-violet-400",
+      bgClass: "bg-violet-500/10",
+      borderClass: "border-violet-500/20",
+      href: "/agendamento",
     },
     {
-      label: "Tempo em campo",
-      value: totalServiceMinutes ? formatMinutes(totalServiceMinutes) : "—",
-      icon: Clock,
-      colorClass: "text-amber-600 dark:text-amber-400",
-      bgClass: "bg-amber-500/10",
-      borderClass: "border-amber-500/20",
+      label: "Gerador de IP",
+      value: "Usar",
+      icon: Network,
+      colorClass: "text-cyan-600 dark:text-cyan-400",
+      bgClass: "bg-cyan-500/10",
+      borderClass: "border-cyan-500/20",
+      href: "/gerador-ip",
     },
     {
       label: "Função",
@@ -223,7 +183,6 @@ export default function Dashboard() {
     <div className="space-y-6 pb-6">
       {/* ── Hero ── */}
       <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
-        {/* Barra de acento no topo */}
         <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/40" />
 
         <div className="p-5 sm:p-6">
@@ -310,10 +269,10 @@ export default function Dashboard() {
                 Últimas RATs
               </CardTitle>
               <a
-                href="/reports"
+                href="/rat"
                 className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 transition-colors"
               >
-                Ver tudo
+                Nova RAT
                 <ArrowRight className="w-3 h-3" />
               </a>
             </div>
@@ -330,7 +289,7 @@ export default function Dashboard() {
                 {recent.map(r => (
                   <li
                     key={r.id}
-                    className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-secondary/50 transition-colors group"
+                    className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-secondary/50 transition-colors"
                   >
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -372,10 +331,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium">Nenhuma RAT recente</p>
                   <p className="text-xs mt-0.5">As RATs emitidas aparecerão aqui</p>
                 </div>
-                <a
-                  href="/rat"
-                  className="text-xs text-primary font-medium hover:underline"
-                >
+                <a href="/rat" className="text-xs text-primary font-medium hover:underline">
                   Criar primeira RAT
                 </a>
               </div>
@@ -393,30 +349,26 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent className="pt-0">
             <div className="grid grid-cols-2 gap-2">
-              {quickActions
-                .filter(a => a.href !== "/tecnicos" || permissions.canManageUsers)
-                .map(a => {
-                  const Icon = a.icon;
-                  return (
-                    <a
-                      key={a.href}
-                      href={a.href}
-                      className="group flex items-start gap-3 rounded-xl border border-border/60 bg-secondary/20 hover:bg-secondary hover:border-border transition-all p-3"
-                    >
-                      <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", a.accent)}>
-                        <Icon className="w-[15px] h-[15px]" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-none truncate">
-                          {a.label}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground mt-1 leading-snug line-clamp-2">
-                          {a.description}
-                        </p>
-                      </div>
-                    </a>
-                  );
-                })}
+              {quickActions.map(a => {
+                const Icon = a.icon;
+                return (
+                  <a
+                    key={a.href}
+                    href={a.href}
+                    className="group flex items-start gap-3 rounded-xl border border-border/60 bg-secondary/20 hover:bg-secondary hover:border-border transition-all p-3"
+                  >
+                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", a.accent)}>
+                      <Icon className="w-[15px] h-[15px]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-none truncate">{a.label}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1 leading-snug line-clamp-2">
+                        {a.description}
+                      </p>
+                    </div>
+                  </a>
+                );
+              })}
               {permissions.canManageUsers && (
                 <a
                   href="/tecnicos"
@@ -436,18 +388,18 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Minha Fila (rodapé de destaque) */}
+      {/* ── CTA Agendamentos ── */}
       <a
-        href="/minha-fila"
+        href="/agendamento"
         className="flex items-center justify-between rounded-xl border border-border/60 bg-card hover:bg-secondary/30 transition-all px-5 py-4 shadow-card group"
       >
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center">
-            <ClipboardList className="w-4 h-4 text-primary" />
+            <CalendarClock className="w-4 h-4 text-primary" />
           </div>
           <div>
-            <p className="text-sm font-semibold">Minha Fila</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Visualize seus chamados pendentes</p>
+            <p className="text-sm font-semibold">Agendamentos do dia</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Veja e gerencie a agenda de visitas técnicas</p>
           </div>
         </div>
         <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all" />

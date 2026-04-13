@@ -49,11 +49,11 @@ export function GlobalSearch() {
 
     // Rotas principais
     const routes = [
-      { path: '/rat', label: 'RAT', icon: FileText },
-      { path: '/support', label: 'KB/RAT Pré-pronta', icon: NotebookPen },
-      { path: '/service-manager', label: 'Chamados/Mídia', icon: User },
-      { path: '/reports', label: 'Relatórios', icon: BarChart3 },
-      { path: '/gerador-ip', label: 'Gerador de IP', icon: Network },
+      { path: '/rat',              label: 'Nova RAT',            icon: FileText   },
+      { path: '/agendamento',      label: 'Agendamentos',        icon: NotebookPen },
+      { path: '/gerador-ip',       label: 'Gerador de IP',       icon: Network    },
+      { path: '/base-conhecimento',label: 'Base de Conhecimento',icon: BarChart3  },
+      { path: '/templates-rat',    label: 'Templates de RAT',    icon: User       },
     ];
 
     routes.forEach(route => {

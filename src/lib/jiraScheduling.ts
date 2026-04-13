@@ -130,7 +130,7 @@ export function parseIssue(raw: any): SchedulingIssue {
     cep: String(f[CF.CEP] || ''),
     dataAgenda: f[CF.DATA_AGENDA] || null,
     tecnico: extractAdfText(f[CF.TECNICOS]),
-    req: '', // not used in scheduling panel
+    req: String(f[CF.REQ] || ''),
     status: status.name || '',
     statusId: String(status.id || ''),
     created,

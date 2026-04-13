@@ -492,6 +492,22 @@ function ChamadosTab({
     return s;
   }, [allLojaGroups]);
 
+  // Badge counts filtered by current mode
+  const filteredCounts = useMemo(() => {
+    const pred = filterMode === 'both'
+      ? () => true
+      : filterMode === 'terminal'
+        ? isTerminalIssue
+        : (i: SchedulingIssue) => !isTerminalIssue(i);
+    const countGroups = (groups: LojaGroup[]) =>
+      groups.reduce((s, g) => s + g.issues.filter(pred).length, 0);
+    return {
+      pendentes: countGroups(pendentes),
+      agendados: countGroups([...agendados.values()].flat()),
+      tecCampo:  countGroups(tecCampo),
+    };
+  }, [filterMode, pendentes, agendados, tecCampo]);
+
   return (
     <div className="space-y-4">
       {/* ── Filter control ───────────────────────────────────────────────── */}
@@ -540,17 +556,17 @@ function ChamadosTab({
           <TabsTrigger value="pendentes" className="gap-1.5">
             <Clock className="w-3.5 h-3.5" />
             Pendentes
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{kpi.agendamento}</Badge>
+            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.pendentes}</Badge>
           </TabsTrigger>
           <TabsTrigger value="agendados" className="gap-1.5">
             <CalendarCheck className="w-3.5 h-3.5" />
             Agendados
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{kpi.agendado}</Badge>
+            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.agendados}</Badge>
           </TabsTrigger>
           <TabsTrigger value="tec-campo" className="gap-1.5">
             <Wrench className="w-3.5 h-3.5" />
             TEC-CAMPO
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{kpi.tecCampo}</Badge>
+            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.tecCampo}</Badge>
           </TabsTrigger>
         </TabsList>
 

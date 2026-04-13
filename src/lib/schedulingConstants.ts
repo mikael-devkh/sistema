@@ -12,6 +12,7 @@ export const CF = {
   TECNICOS:     'customfield_12279',
   NOME_GERENTE: 'customfield_12267',
   TEL_GERENTE:  'customfield_12268',
+  REQ:          'customfield_14886',
 } as const;
 
 export const STATUS = {
@@ -31,7 +32,7 @@ export const SCHED_FIELDS = [
   'summary',
   CF.LOJA, CF.PDV, CF.ATIVO, CF.PROBLEMA,
   CF.ENDERECO, CF.CEP, CF.CIDADE, CF.UF,
-  CF.DATA_AGENDA, CF.TECNICOS,
+  CF.DATA_AGENDA, CF.TECNICOS, CF.REQ,
   'status', 'created', 'resolutiondate', 'updated',
 ].join(',');
 

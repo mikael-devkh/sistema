@@ -567,23 +567,23 @@ export function PlanilhaInterna({ issues }: Props) {
                       </span>
                     </td>
 
-                    {/* Classificação */}
+                    {/* Classificação — native select para não montar ~N portais Radix */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[170px] p-0')}>
-                      <Select
+                      <select
                         value={note.classificacao}
-                        onValueChange={v => updateNote(issue.key, 'classificacao', v)}
+                        onChange={e => updateNote(issue.key, 'classificacao', e.target.value)}
+                        className={cn(
+                          'h-[26px] w-full border-0 bg-transparent shadow-none rounded-sm px-1.5 text-[11px]',
+                          'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]',
+                          'focus:ring-1 focus:ring-primary/40 focus:outline-none',
+                          'cursor-pointer transition-colors appearance-none',
+                          'dark:text-gray-200',
+                        )}
                       >
-                        <SelectTrigger className={cn(cellSelectTrigger, 'w-full')}>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CLASSES.map(c => (
-                            <SelectItem key={c.value} value={c.value} className="text-xs">
-                              {c.value}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {CLASSES.map(c => (
+                          <option key={c.value} value={c.value}>{c.short}</option>
+                        ))}
+                      </select>
                     </td>
 
                     {/* Técnico */}

@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, startTransition } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -386,6 +386,7 @@ export default function AgendamentoPage() {
   const { data, isLoading, isError, error, refresh } = useAgendamentoData();
   const [transitionLoja, setTransitionLoja] = useState<string | null>(null);
   const [transitionOpen, setTransitionOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('chamados');
 
   const openTransition = (loja: string) => {
     setTransitionLoja(loja);
@@ -444,7 +445,10 @@ export default function AgendamentoPage() {
       </div>
 
       {/* ── Main tabs ── */}
-      <Tabs defaultValue="chamados">
+      <Tabs
+        value={activeTab}
+        onValueChange={v => startTransition(() => setActiveTab(v))}
+      >
         <TabsList className="flex-wrap h-auto gap-1 p-1">
           <TabsTrigger value="chamados" className="gap-1.5">
             <CalendarCheck className="w-3.5 h-3.5" />

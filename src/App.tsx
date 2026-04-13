@@ -177,14 +177,8 @@ const ProtectedAdminRoute = ({ children }: { children: ReactElement }) => {
   }
   if (!user) return <Navigate to="/login" replace />;
   
-  // Debug
-  console.log('ProtectedAdminRoute - Profile role:', profile?.role);
-  console.log('ProtectedAdminRoute - User UID:', user.uid);
-  
-  // Permitir acesso mesmo sem role definido temporariamente (para testes)
-  // Em produção, descomente a linha abaixo:
-  // if (profile?.role !== 'admin') return <Navigate to="/" replace />;
-  
+  if (profile?.role !== 'admin') return <Navigate to="/" replace />;
+
   return children;
 };
 
@@ -232,7 +226,9 @@ const ConfigPage = () => {
           <TabsTrigger value="personalizar" className="flex items-center gap-2"><FileText className="w-5 h-5" />Personalizar</TabsTrigger>
         </TabsList>
         <TabsContent value="perfil">
-          <ProfilePage />
+          <React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+            <ProfilePage />
+          </React.Suspense>
         </TabsContent>
         <TabsContent value="personalizar">
           <div className="space-y-6 py-2">

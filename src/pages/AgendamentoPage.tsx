@@ -30,7 +30,10 @@ import { format } from 'date-fns';
 // ─── Terminal detection ────────────────────────────────────────────────────────
 
 function isTerminalIssue(issue: SchedulingIssue): boolean {
-  return issue.ativo.toLowerCase().includes('terminal');
+  return (
+    issue.problema.includes('Projeto Terminal de Consulta') ||
+    issue.ativo === '--'
+  );
 }
 
 /**
@@ -401,6 +404,7 @@ function ChamadosTab({
   onScheduled: () => void;
 }) {
   const [highlightsOpen, setHighlightsOpen] = useState(false);
+  const [subTab, setSubTab] = useState('pendentes');
 
   return (
     <div className="space-y-4">
@@ -423,7 +427,7 @@ function ChamadosTab({
       </Collapsible>
 
       {/* Sub-tabs */}
-      <Tabs defaultValue="pendentes">
+      <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="pendentes" className="gap-1.5">
             <Clock className="w-3.5 h-3.5" />

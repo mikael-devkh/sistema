@@ -8,7 +8,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import {
   RefreshCw, Zap, MapPin, Hash,
   Clock, CalendarCheck, Wrench, AlertTriangle,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Monitor,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
 
@@ -24,8 +24,50 @@ import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
 
-import type { LojaGroup } from '../types/scheduling';
+import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
 import { format } from 'date-fns';
+
+// ─── Terminal detection ────────────────────────────────────────────────────────
+
+function isTerminalIssue(issue: SchedulingIssue): boolean {
+  return issue.ativo.toLowerCase().includes('terminal');
+}
+
+/**
+ * Splits a LojaGroup[] into normal vs terminal sub-groups.
+ * A loja with both types appears in both lists (with filtered issues).
+ */
+function splitByTerminal(groups: LojaGroup[]): { normal: LojaGroup[]; terminal: LojaGroup[] } {
+  const normal: LojaGroup[] = [];
+  const terminal: LojaGroup[] = [];
+  for (const g of groups) {
+    const n = g.issues.filter(i => !isTerminalIssue(i));
+    const t = g.issues.filter(i => isTerminalIssue(i));
+    if (n.length) normal.push({ ...g, issues: n, qtd: n.length });
+    if (t.length) terminal.push({ ...g, issues: t, qtd: t.length });
+  }
+  return { normal, terminal };
+}
+
+function SectionDivider({ label, count, terminal = false }: { label: string; count: number; terminal?: boolean }) {
+  return (
+    <div className="flex items-center gap-2 py-1">
+      {terminal
+        ? <Monitor className="w-3.5 h-3.5 text-violet-400 shrink-0" />
+        : <Hash className="w-3.5 h-3.5 text-primary shrink-0" />}
+      <span className={`text-xs font-semibold uppercase tracking-wider ${terminal ? 'text-violet-400' : 'text-primary'}`}>
+        {label}
+      </span>
+      <Badge
+        variant="secondary"
+        className={`text-[10px] tabular-nums ${terminal ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : ''}`}
+      >
+        {count}
+      </Badge>
+      <div className={`flex-1 h-px ${terminal ? 'bg-violet-500/20' : 'bg-primary/20'}`} />
+    </div>
+  );
+}
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
 
@@ -72,6 +114,34 @@ function PendentesTab({
       )
     : groups;
 
+  const { normal, terminal } = splitByTerminal(filtered);
+
+  const renderGroup = (g: LojaGroup) => {
+    const outras: string[] = [];
+    if (agendadoLojas.has(g.loja)) outras.push('Agendado');
+    if (tecCampoLojas.has(g.loja)) outras.push('TEC-CAMPO');
+    const warning = outras.length
+      ? `Esta loja já possui chamado(s) na fila ${outras.join(' e ')}. Verifique se há técnico designado.`
+      : undefined;
+    return (
+      <LojaExpander
+        key={`${g.loja}-${g.issues[0]?.key}`}
+        group={g}
+        showForm
+        warningText={warning}
+        onScheduled={onScheduled}
+        extra={
+          <button
+            className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium"
+            onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
+          >
+            Transição em massa
+          </button>
+        }
+      />
+    );
+  };
+
   return (
     <div className="space-y-3">
       <Input
@@ -88,32 +158,19 @@ function PendentesTab({
         <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
       )}
 
-      {filtered.map(g => {
-        const outras: string[] = [];
-        if (agendadoLojas.has(g.loja)) outras.push('Agendado');
-        if (tecCampoLojas.has(g.loja)) outras.push('TEC-CAMPO');
-        const warning = outras.length
-          ? `Esta loja já possui chamado(s) na fila ${outras.join(' e ')}. Verifique se há técnico designado.`
-          : undefined;
+      {normal.length > 0 && (
+        <div className="space-y-2">
+          <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
+          {normal.map(renderGroup)}
+        </div>
+      )}
 
-        return (
-          <LojaExpander
-            key={g.loja}
-            group={g}
-            showForm
-            warningText={warning}
-            onScheduled={onScheduled}
-            extra={
-              <button
-                className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium"
-                onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
-              >
-                Transição em massa
-              </button>
-            }
-          />
-        );
-      })}
+      {terminal.length > 0 && (
+        <div className="space-y-2">
+          <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
+          {terminal.map(renderGroup)}
+        </div>
+      )}
     </div>
   );
 }
@@ -147,30 +204,44 @@ function AgendadosTab({ agendados }: { agendados: Map<string, LojaGroup[]> }) {
         const filtered = lojas.filter(filterFn);
         if (!filtered.length) return null;
         const total = filtered.reduce((s, g) => s + g.qtd, 0);
+        const { normal, terminal } = splitByTerminal(filtered);
+
+        const renderGroup = (g: LojaGroup) => {
+          const pdvAtivos = g.issues.map(i => `${i.pdv}||${i.ativo}`);
+          const dupes = pdvAtivos.filter((v, i, a) => a.indexOf(v) !== i);
+          const dupKeys = g.issues
+            .filter(i => dupes.includes(`${i.pdv}||${i.ativo}`))
+            .map(i => i.key);
+          const extra = dupKeys.length ? (
+            <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
+              Dup: {dupKeys.join(', ')}
+            </Badge>
+          ) : undefined;
+          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
+        };
 
         return (
           <div key={date}>
-            <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center gap-2 mb-3">
               <div className="h-px flex-1 bg-border/50" />
               <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-2">
                 {date} · {total} chamado(s)
               </span>
               <div className="h-px flex-1 bg-border/50" />
             </div>
-            <div className="space-y-2">
-              {filtered.map(g => {
-                const pdvAtivos = g.issues.map(i => `${i.pdv}||${i.ativo}`);
-                const dupes = pdvAtivos.filter((v, i, a) => a.indexOf(v) !== i);
-                const dupKeys = g.issues
-                  .filter(i => dupes.includes(`${i.pdv}||${i.ativo}`))
-                  .map(i => i.key);
-                const extra = dupKeys.length ? (
-                  <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
-                    Dup: {dupKeys.join(', ')}
-                  </Badge>
-                ) : undefined;
-                return <LojaExpander key={`${date}-${g.loja}`} group={g} extra={extra} />;
-              })}
+            <div className="space-y-4">
+              {normal.length > 0 && (
+                <div className="space-y-2">
+                  <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
+                  {normal.map(renderGroup)}
+                </div>
+              )}
+              {terminal.length > 0 && (
+                <div className="space-y-2">
+                  <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
+                  {terminal.map(renderGroup)}
+                </div>
+              )}
             </div>
           </div>
         );
@@ -194,6 +265,8 @@ function TecCampoTab({ groups }: { groups: LojaGroup[] }) {
     return <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhum chamado em TEC-CAMPO." />;
   }
 
+  const { normal, terminal } = splitByTerminal(filtered);
+
   return (
     <div className="space-y-3">
       <Input
@@ -202,9 +275,20 @@ function TecCampoTab({ groups }: { groups: LojaGroup[] }) {
         onChange={e => setFilter(e.target.value)}
         className="max-w-sm"
       />
-      {filtered.map(g => <LojaExpander key={g.loja} group={g} />)}
       {filtered.length === 0 && filter && (
         <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
+      )}
+      {normal.length > 0 && (
+        <div className="space-y-2">
+          <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
+          {normal.map(g => <LojaExpander key={`${g.loja}-${g.issues[0]?.key}`} group={g} />)}
+        </div>
+      )}
+      {terminal.length > 0 && (
+        <div className="space-y-2">
+          <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
+          {terminal.map(g => <LojaExpander key={`${g.loja}-${g.issues[0]?.key}`} group={g} />)}
+        </div>
       )}
     </div>
   );

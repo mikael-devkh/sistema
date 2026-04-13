@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -14,7 +14,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../componen
 
 import { useAgendamentoData, useRouteGroups } from '../hooks/use-agendamento';
 import { KpiCards } from '../components/scheduling/KpiCards';
-import { TrendChart } from '../components/scheduling/TrendChart';
+const TrendChart = lazy(() =>
+  import('../components/scheduling/TrendChart').then(m => ({ default: m.TrendChart }))
+);
 import { StoreHighlights } from '../components/scheduling/StoreHighlights';
 import { LojaExpander } from '../components/scheduling/LojaExpander';
 import { TransitionPanel } from '../components/scheduling/TransitionPanel';
@@ -494,7 +496,9 @@ export default function AgendamentoPage() {
               <CardTitle className="text-base font-semibold">Tendência (14 dias)</CardTitle>
             </CardHeader>
             <CardContent>
-              <TrendChart data={trendPoints} />
+              <Suspense fallback={<div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground">Carregando gráfico…</div>}>
+                <TrendChart data={trendPoints} />
+              </Suspense>
             </CardContent>
           </Card>
 

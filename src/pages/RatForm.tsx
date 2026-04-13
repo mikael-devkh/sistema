@@ -26,7 +26,8 @@ import { Switch } from "../components/ui/switch";
 import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { toast } from "sonner";
-import { generateRatPDF, generateRatPDFBlob } from "../utils/ratPdfGenerator";
+// pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
+const getPdfGenerator = () => import("../utils/ratPdfGenerator");
 import { jiraAttach } from "../lib/jira";
 import { RatFormData } from "../types/rat";
 import { searchFsaByNumber } from "../lib/fsa";
@@ -571,6 +572,7 @@ const RatForm = () => {
 
   const handleGeneratePDF = async () => {
     try {
+      const { generateRatPDF } = await getPdfGenerator();
       await generateRatPDF(formData);
       setRatHistory((previous) => {
         const entry: RatHistoryEntry = {
@@ -616,6 +618,7 @@ const RatForm = () => {
   const handleUpdatePreview = async () => {
     try {
       setPreviewLoading(true);
+      const { generateRatPDFBlob } = await getPdfGenerator();
       const { url } = await generateRatPDFBlob(formData);
       setPreviewUrl((old) => {
         if (old) URL.revokeObjectURL(old);
@@ -1599,6 +1602,7 @@ const RatForm = () => {
                               type="button" 
                               onClick={async ()=>{
                                 try {
+                                  const { generateRatPDFBlob } = await getPdfGenerator();
                                   const { blob } = await generateRatPDFBlob(formData);
                                   await jiraAttach(issueKeyToAttach.trim(), `RAT-${formData.fsa || 'sem-fsa'}.pdf`, blob);
                                   toast.success('Anexado no Jira');

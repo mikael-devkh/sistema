@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, startTransition } from 'react';
+import { useState, useMemo, lazy, Suspense, startTransition } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -25,6 +25,7 @@ import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
 
 import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
+import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 
 // ─── Terminal detection ────────────────────────────────────────────────────────
@@ -94,6 +95,60 @@ function PageSkeleton() {
   );
 }
 
+// ─── Filter mode type ─────────────────────────────────────────────────────────
+
+type FilterMode = 'both' | 'normal' | 'terminal';
+
+// ─── Shared render helpers ────────────────────────────────────────────────────
+
+/** Badge shown on a normal group when the same loja also has terminal issues */
+function TerminalAlertBadge() {
+  return (
+    <Badge className="text-[10px] bg-violet-500/15 text-violet-300 border border-violet-500/30 gap-1 shrink-0">
+      <Monitor className="w-3 h-3" /> Terminal nesta loja
+    </Badge>
+  );
+}
+
+function renderSections(
+  normal: LojaGroup[],
+  terminal: LojaGroup[],
+  filterMode: FilterMode,
+  renderGroup: (g: LojaGroup, isTerminal: boolean) => React.ReactNode,
+  emptyIcon: React.ReactNode,
+  emptyText: string,
+) {
+  const showNormal = filterMode !== 'terminal';
+  const showTerminal = filterMode !== 'normal';
+  const visibleNormal = showNormal ? normal : [];
+  const visibleTerminal = showTerminal ? terminal : [];
+
+  if (visibleNormal.length === 0 && visibleTerminal.length === 0) {
+    return <EmptyState icon={emptyIcon} text={emptyText} />;
+  }
+
+  return (
+    <>
+      {visibleNormal.length > 0 && (
+        <div className="space-y-2">
+          {filterMode === 'both' && (
+            <SectionDivider label="Manutenção Regular" count={visibleNormal.reduce((s, g) => s + g.qtd, 0)} />
+          )}
+          {visibleNormal.map(g => renderGroup(g, false))}
+        </div>
+      )}
+      {visibleTerminal.length > 0 && (
+        <div className="space-y-2">
+          {filterMode === 'both' && (
+            <SectionDivider label="Projeto Terminal" count={visibleTerminal.reduce((s, g) => s + g.qtd, 0)} terminal />
+          )}
+          {visibleTerminal.map(g => renderGroup(g, true))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Pending tab ──────────────────────────────────────────────────────────────
 
 function PendentesTab({
@@ -102,12 +157,16 @@ function PendentesTab({
   tecCampoLojas,
   onTransition,
   onScheduled,
+  filterMode,
+  terminalLojas,
 }: {
   groups: LojaGroup[];
   agendadoLojas: Set<string>;
   tecCampoLojas: Set<string>;
   onTransition: (loja: string) => void;
   onScheduled: () => void;
+  filterMode: FilterMode;
+  terminalLojas: Set<string>;
 }) {
   const [filter, setFilter] = useState('');
   const filtered = filter
@@ -119,13 +178,14 @@ function PendentesTab({
 
   const { normal, terminal } = splitByTerminal(filtered);
 
-  const renderGroup = (g: LojaGroup) => {
+  const renderGroup = (g: LojaGroup, isTerminal: boolean) => {
     const outras: string[] = [];
     if (agendadoLojas.has(g.loja)) outras.push('Agendado');
     if (tecCampoLojas.has(g.loja)) outras.push('TEC-CAMPO');
     const warning = outras.length
       ? `Esta loja já possui chamado(s) na fila ${outras.join(' e ')}. Verifique se há técnico designado.`
       : undefined;
+    const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
     return (
       <LojaExpander
         key={`${g.loja}-${g.issues[0]?.key}`}
@@ -134,12 +194,15 @@ function PendentesTab({
         warningText={warning}
         onScheduled={onScheduled}
         extra={
-          <button
-            className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium"
-            onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
-          >
-            Transição em massa
-          </button>
+          <>
+            {hasTerminal && <TerminalAlertBadge />}
+            <button
+              className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium shrink-0"
+              onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
+            >
+              Transição em massa
+            </button>
+          </>
         }
       />
     );
@@ -153,34 +216,26 @@ function PendentesTab({
         onChange={e => setFilter(e.target.value)}
         className="max-w-sm"
       />
-
-      {filtered.length === 0 && !filter && (
-        <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhum chamado em AGENDAMENTO." />
-      )}
-      {filtered.length === 0 && filter && (
-        <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
-      )}
-
-      {normal.length > 0 && (
-        <div className="space-y-2">
-          <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
-          {normal.map(renderGroup)}
-        </div>
-      )}
-
-      {terminal.length > 0 && (
-        <div className="space-y-2">
-          <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
-          {terminal.map(renderGroup)}
-        </div>
-      )}
+      {filtered.length === 0 && filter
+        ? <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
+        : renderSections(normal, terminal, filterMode, renderGroup,
+            <Clock className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em AGENDAMENTO.')
+      }
     </div>
   );
 }
 
 // ─── Agendados tab ────────────────────────────────────────────────────────────
 
-function AgendadosTab({ agendados }: { agendados: Map<string, LojaGroup[]> }) {
+function AgendadosTab({
+  agendados,
+  filterMode,
+  terminalLojas,
+}: {
+  agendados: Map<string, LojaGroup[]>;
+  filterMode: FilterMode;
+  terminalLojas: Set<string>;
+}) {
   const [filter, setFilter] = useState('');
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
 
@@ -206,20 +261,30 @@ function AgendadosTab({ agendados }: { agendados: Map<string, LojaGroup[]> }) {
       {entries.map(([date, lojas]) => {
         const filtered = lojas.filter(filterFn);
         if (!filtered.length) return null;
-        const total = filtered.reduce((s, g) => s + g.qtd, 0);
         const { normal, terminal } = splitByTerminal(filtered);
 
-        const renderGroup = (g: LojaGroup) => {
+        const showNormal = filterMode !== 'terminal' ? normal : [];
+        const showTerminal = filterMode !== 'normal' ? terminal : [];
+        const total = [...showNormal, ...showTerminal].reduce((s, g) => s + g.qtd, 0);
+        if (total === 0) return null;
+
+        const renderGroup = (g: LojaGroup, isTerminal: boolean) => {
           const pdvAtivos = g.issues.map(i => `${i.pdv}||${i.ativo}`);
           const dupes = pdvAtivos.filter((v, i, a) => a.indexOf(v) !== i);
           const dupKeys = g.issues
             .filter(i => dupes.includes(`${i.pdv}||${i.ativo}`))
             .map(i => i.key);
-          const extra = dupKeys.length ? (
-            <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
-              Dup: {dupKeys.join(', ')}
-            </Badge>
-          ) : undefined;
+          const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
+          const extra = (
+            <>
+              {hasTerminal && <TerminalAlertBadge />}
+              {dupKeys.length > 0 && (
+                <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                  Dup: {dupKeys.join(', ')}
+                </Badge>
+              )}
+            </>
+          );
           return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
         };
 
@@ -233,16 +298,16 @@ function AgendadosTab({ agendados }: { agendados: Map<string, LojaGroup[]> }) {
               <div className="h-px flex-1 bg-border/50" />
             </div>
             <div className="space-y-4">
-              {normal.length > 0 && (
+              {showNormal.length > 0 && (
                 <div className="space-y-2">
-                  <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
-                  {normal.map(renderGroup)}
+                  {filterMode === 'both' && <SectionDivider label="Manutenção Regular" count={showNormal.reduce((s, g) => s + g.qtd, 0)} />}
+                  {showNormal.map(g => renderGroup(g, false))}
                 </div>
               )}
-              {terminal.length > 0 && (
+              {showTerminal.length > 0 && (
                 <div className="space-y-2">
-                  <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
-                  {terminal.map(renderGroup)}
+                  {filterMode === 'both' && <SectionDivider label="Projeto Terminal" count={showTerminal.reduce((s, g) => s + g.qtd, 0)} terminal />}
+                  {showTerminal.map(g => renderGroup(g, true))}
                 </div>
               )}
             </div>
@@ -255,7 +320,15 @@ function AgendadosTab({ agendados }: { agendados: Map<string, LojaGroup[]> }) {
 
 // ─── TEC-CAMPO tab ────────────────────────────────────────────────────────────
 
-function TecCampoTab({ groups }: { groups: LojaGroup[] }) {
+function TecCampoTab({
+  groups,
+  filterMode,
+  terminalLojas,
+}: {
+  groups: LojaGroup[];
+  filterMode: FilterMode;
+  terminalLojas: Set<string>;
+}) {
   const [filter, setFilter] = useState('');
   const filtered = filter
     ? groups.filter(g =>
@@ -264,11 +337,18 @@ function TecCampoTab({ groups }: { groups: LojaGroup[] }) {
       )
     : groups;
 
-  if (filtered.length === 0 && !filter) {
-    return <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhum chamado em TEC-CAMPO." />;
-  }
-
   const { normal, terminal } = splitByTerminal(filtered);
+
+  const renderGroup = (g: LojaGroup, isTerminal: boolean) => {
+    const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
+    return (
+      <LojaExpander
+        key={`${g.loja}-${g.issues[0]?.key}`}
+        group={g}
+        extra={hasTerminal ? <TerminalAlertBadge /> : undefined}
+      />
+    );
+  };
 
   return (
     <div className="space-y-3">
@@ -278,21 +358,11 @@ function TecCampoTab({ groups }: { groups: LojaGroup[] }) {
         onChange={e => setFilter(e.target.value)}
         className="max-w-sm"
       />
-      {filtered.length === 0 && filter && (
-        <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
-      )}
-      {normal.length > 0 && (
-        <div className="space-y-2">
-          <SectionDivider label="Chamados Normais" count={normal.reduce((s, g) => s + g.qtd, 0)} />
-          {normal.map(g => <LojaExpander key={`${g.loja}-${g.issues[0]?.key}`} group={g} />)}
-        </div>
-      )}
-      {terminal.length > 0 && (
-        <div className="space-y-2">
-          <SectionDivider label="Chamados de Terminal" count={terminal.reduce((s, g) => s + g.qtd, 0)} terminal />
-          {terminal.map(g => <LojaExpander key={`${g.loja}-${g.issues[0]?.key}`} group={g} />)}
-        </div>
-      )}
+      {filtered.length === 0 && filter
+        ? <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
+        : renderSections(normal, terminal, filterMode, renderGroup,
+            <Wrench className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em TEC-CAMPO.')
+      }
     </div>
   );
 }
@@ -382,6 +452,12 @@ function Top5Lojas({ top5 }: { top5: LojaGroup[] }) {
 
 // ─── Chamados tab wrapper ─────────────────────────────────────────────────────
 
+const FILTER_OPTIONS: { mode: FilterMode; label: string; icon: React.ReactNode }[] = [
+  { mode: 'both',     label: 'Todos',      icon: <Hash className="w-3.5 h-3.5" /> },
+  { mode: 'normal',   label: 'Manutenção', icon: <Wrench className="w-3.5 h-3.5" /> },
+  { mode: 'terminal', label: 'Terminal',   icon: <Monitor className="w-3.5 h-3.5" /> },
+];
+
 function ChamadosTab({
   kpi,
   pendentes,
@@ -405,22 +481,54 @@ function ChamadosTab({
 }) {
   const [highlightsOpen, setHighlightsOpen] = useState(false);
   const [subTab, setSubTab] = useState('pendentes');
+  const [filterMode, setFilterMode] = useState<FilterMode>('both');
+
+  // Lojas with at least one terminal issue (across ALL statuses) — for cross-reference badge
+  const terminalLojas = useMemo(() => {
+    const s = new Set<string>();
+    for (const g of allLojaGroups) {
+      if (g.issues.some(isTerminalIssue)) s.add(g.loja);
+    }
+    return s;
+  }, [allLojaGroups]);
 
   return (
     <div className="space-y-4">
-      {/* Store highlights collapsible */}
+      {/* ── Filter control ───────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 bg-secondary/50 border border-border/50 rounded-lg">
+          {FILTER_OPTIONS.map(({ mode, label, icon }) => (
+            <button
+              key={mode}
+              onClick={() => setFilterMode(mode)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                filterMode === mode
+                  ? mode === 'terminal'
+                    ? 'bg-violet-500/20 text-violet-300 shadow-sm border border-violet-500/30'
+                    : 'bg-card text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-card/50',
+              )}
+            >
+              {icon}{label}
+            </button>
+          ))}
+        </div>
+
+        {/* Store highlights collapsible trigger */}
+        <button
+          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary border border-border/50 rounded-lg transition-colors"
+          onClick={() => setHighlightsOpen(o => !o)}
+        >
+          <Hash className="w-3.5 h-3.5 text-primary" />
+          Lojas com N+ chamados
+          {highlightsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
+      </div>
+
       <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
-        <CollapsibleTrigger asChild>
-          <button className="flex w-full items-center justify-between px-4 py-2.5 bg-secondary/50 hover:bg-secondary border border-border/50 rounded-lg transition text-sm font-medium">
-            <span className="flex items-center gap-2">
-              <Hash className="w-4 h-4 text-primary" />
-              Lojas com N+ chamados
-            </span>
-            {highlightsOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-          </button>
-        </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="border border-border/50 rounded-lg p-4 mt-1 bg-card">
+          <div className="border border-border/50 rounded-lg p-4 bg-card">
             <StoreHighlights lojaGroups={allLojaGroups} />
           </div>
         </CollapsibleContent>
@@ -453,15 +561,17 @@ function ChamadosTab({
             tecCampoLojas={tecCampoLojas}
             onTransition={onTransition}
             onScheduled={onScheduled}
+            filterMode={filterMode}
+            terminalLojas={terminalLojas}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">
-          <TecCampoTab groups={tecCampo} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} />
         </TabsContent>
       </Tabs>
     </div>

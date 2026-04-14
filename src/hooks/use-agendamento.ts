@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { subDays, format, parseISO } from 'date-fns';
 import { searchIssues, parseIssue } from '../lib/jiraScheduling';
@@ -11,7 +12,39 @@ import type {
   RouteGroup,
 } from '../types/scheduling';
 
-const QUERY_KEY = ['agendamento-data'] as const;
+const QUERY_KEY  = ['agendamento-data'] as const;
+const CACHE_KEY  = 'agendamento_cache_v2';
+
+// ─── Serialização (Map → array, Date → ISO string) ────────────────────────────
+
+function replacer(_k: string, v: unknown) {
+  if (v instanceof Date) return { __t: 'D', v: (v as Date).toISOString() };
+  if (v instanceof Map)  return { __t: 'M', v: [...(v as Map<unknown, unknown>).entries()] };
+  return v;
+}
+
+function reviver(_k: string, v: unknown) {
+  if (v && typeof v === 'object') {
+    const o = v as Record<string, unknown>;
+    if (o.__t === 'D') return new Date(o.v as string);
+    if (o.__t === 'M') return new Map(o.v as [unknown, unknown][]);
+  }
+  return v;
+}
+
+function saveCache(data: AgendamentoData) {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ data, ts: Date.now() }, replacer));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function loadCache(): { data: AgendamentoData; ts: number } | null {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw, reviver) as { data: AgendamentoData; ts: number };
+  } catch { return null; }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -73,7 +106,7 @@ function computeRouteGroups(allLojas: LojaGroup[]): RouteGroup[] {
     .map(([cepPrefix, v]) => ({ cepPrefix, cidade: v.cidade, lojas: v.lojas }));
 }
 
-// ─── Main fetch function ──────────────────────────────────────────────────────
+// ─── Main fetch function (salva no cache após sucesso) ───────────────────────
 
 async function fetchAgendamentoData(): Promise<AgendamentoData> {
   const today = new Date();
@@ -145,7 +178,7 @@ async function fetchAgendamentoData(): Promise<AgendamentoData> {
 
   const trendPoints = computeTrend(allIssues, resolvidosIssues, 14);
 
-  return {
+  const result: AgendamentoData = {
     pendentes: [...pendentesMap.values()].sort((a, b) => a.loja.localeCompare(b.loja)),
     agendados: agendadosByDate,
     tecCampo: [...tecCampoMap.values()].sort((a, b) => a.loja.localeCompare(b.loja)),
@@ -155,6 +188,9 @@ async function fetchAgendamentoData(): Promise<AgendamentoData> {
     allIssues,
     allLojaGroups: [...allLojaMap.values()],
   };
+
+  saveCache(result);
+  return result;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -162,17 +198,37 @@ async function fetchAgendamentoData(): Promise<AgendamentoData> {
 export function useAgendamentoData() {
   const qc = useQueryClient();
 
-  const query = useQuery({
+  // Carrega cache uma vez — usado como placeholder e fallback em erros
+  const cachedEntry = useMemo(() => loadCache(), []);
+
+  const q = useQuery({
     queryKey: QUERY_KEY,
     queryFn: fetchAgendamentoData,
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
     refetchOnWindowFocus: false,
+    retry: 1,
+    // Mostra dados do cache imediatamente enquanto busca dados frescos
+    placeholderData: cachedEntry?.data,
   });
+
+  // Fallback: se a requisição falhou mas temos cache, usa os dados do cache
+  const isFromCache = q.isError && !!cachedEntry;
+  const cacheAgeMinutes = cachedEntry
+    ? Math.round((Date.now() - cachedEntry.ts) / 60_000)
+    : null;
 
   const refresh = () => qc.invalidateQueries({ queryKey: QUERY_KEY });
 
-  return { ...query, refresh };
+  return {
+    ...q,
+    data:            isFromCache ? cachedEntry!.data : q.data,
+    isLoading:       q.isLoading && !cachedEntry,
+    isError:         q.isError && !isFromCache,
+    isFromCache,
+    cacheAgeMinutes,
+    refresh,
+  };
 }
 
 export function useRouteGroups(allLojaGroups: LojaGroup[]): RouteGroup[] {

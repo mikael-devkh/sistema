@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Input } from '../ui/input';
 import { Button } from '../ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
@@ -7,6 +8,13 @@ import { toast } from 'sonner';
 import { updateTecnico } from '../../lib/jiraScheduling';
 import type { SchedulingIssue, InternalNote } from '../../types/scheduling';
 import { cn } from '../../lib/utils';
+import { db } from '../../firebase';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  writeBatch,
+} from 'firebase/firestore';
 import {
   Save,
   Upload,
@@ -18,11 +26,12 @@ import {
   FileSpreadsheet,
   TableProperties,
   X,
+  Loader2,
 } from 'lucide-react';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const LS_KEY = 'wt_scheduling_notes_v1';
+const FS_COLLECTION = 'schedulingNotes';
 
 const CLASSES = [
   { value: '⚪ Não Classificado', short: 'Não Classif.', row: '', badge: 'bg-gray-100 text-gray-600 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600' },
@@ -37,12 +46,6 @@ function getClassMeta(val: string) {
   return CLASSES.find(c => c.value === val) ?? CLASSES[0];
 }
 
-/** Estilo da linha baseado na classificação */
-function rowBg(cls: string) {
-  return getClassMeta(cls).row;
-}
-
-/** Estilo do badge de status Jira */
 function statusBadgeStyle(status: string) {
   const s = status.toLowerCase();
   if (s.includes('campo') || s.includes('tec-campo')) return 'bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
@@ -52,28 +55,10 @@ function statusBadgeStyle(status: string) {
   return 'bg-gray-100 text-gray-600 border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600';
 }
 
-/** Estilo do badge de SLA */
 function slaBadgeStyle(sla: string) {
   if (sla.includes('ESTOURADO') || sla.includes('🔴')) return 'text-red-600 dark:text-red-400';
   if (sla.includes('ALERTA') || sla.includes('🟡')) return 'text-amber-500 dark:text-amber-400';
   return 'text-green-600 dark:text-green-400';
-}
-
-// ─── LocalStorage helpers ─────────────────────────────────────────────────────
-
-function loadNotes(): Map<string, InternalNote> {
-  try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return new Map();
-    const arr: InternalNote[] = JSON.parse(raw);
-    return new Map(arr.map(n => [n.fsa, n]));
-  } catch { return new Map(); }
-}
-
-function saveNotes(map: Map<string, InternalNote>) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify([...map.values()]));
-  } catch {}
 }
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -85,7 +70,6 @@ const ALL = '__all__';
 
 // ─── Sub-componentes ──────────────────────────────────────────────────────────
 
-/** Célula transparente — parece célula de planilha */
 const cellInput = cn(
   'h-[26px] w-full border-0 bg-transparent shadow-none rounded-sm px-1.5 text-[11px]',
   'placeholder:text-gray-400 dark:placeholder:text-gray-600',
@@ -95,14 +79,6 @@ const cellInput = cn(
   'transition-colors',
 );
 
-const cellSelectTrigger = cn(
-  'h-[26px] w-full border-0 bg-transparent shadow-none rounded-sm px-1.5 text-[11px]',
-  'hover:bg-black/[0.04] dark:hover:bg-white/[0.04]',
-  'focus:ring-1 focus:ring-primary/40',
-  'transition-colors',
-);
-
-/** Ícone de ordenação */
 function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
   if (!active) return <ChevronsUpDown className="w-3 h-3 shrink-0 opacity-30" />;
   if (dir === 'asc') return <ChevronUp className="w-3 h-3 shrink-0 text-primary" />;
@@ -115,8 +91,10 @@ interface Props { issues: SchedulingIssue[] }
 
 export function PlanilhaInterna({ issues }: Props) {
   // ── Estado ──
-  const [notes, setNotes] = useState<Map<string, InternalNote>>(loadNotes);
+  const [notes, setNotes] = useState<Map<string, InternalNote>>(new Map());
+  const [notesLoading, setNotesLoading] = useState(true);
   const [edited, setEdited] = useState<Map<string, Partial<InternalNote>>>(new Map());
+  const [saving, setSaving] = useState(false);
   const [savingJira, setSavingJira] = useState(false);
 
   // Filtros
@@ -127,6 +105,33 @@ export function PlanilhaInterna({ issues }: Props) {
   // Ordenação
   const [sortKey, setSortKey] = useState<SortKey | null>('loja');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  // Ref para evitar sobrescrever edições locais com updates remotos
+  const editedRef = useRef(edited);
+  useEffect(() => { editedRef.current = edited; }, [edited]);
+
+  // ── Firestore: carrega notas em tempo real ──
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, FS_COLLECTION),
+      snap => {
+        setNotes(prev => {
+          const next = new Map(prev);
+          snap.docs.forEach(d => {
+            const note = d.data() as InternalNote;
+            // Não sobrescreve itens com edições locais não salvas
+            if (!editedRef.current.has(note.fsa)) {
+              next.set(note.fsa, note);
+            }
+          });
+          return next;
+        });
+        setNotesLoading(false);
+      },
+      () => setNotesLoading(false),
+    );
+    return unsub;
+  }, []);
 
   // ── Dados derivados ──
   const statuses = useMemo(
@@ -147,7 +152,6 @@ export function PlanilhaInterna({ issues }: Props) {
       return { issue, note: { ...note } };
     });
 
-    // Filtro de texto (FSA, loja, cidade, técnico)
     if (filterText.trim()) {
       const q = filterText.toLowerCase();
       list = list.filter(r =>
@@ -158,17 +162,14 @@ export function PlanilhaInterna({ issues }: Props) {
       );
     }
 
-    // Filtro de classificação
     if (filterClass !== ALL) {
       list = list.filter(r => r.note.classificacao === filterClass);
     }
 
-    // Filtro de status
     if (filterStatus !== ALL) {
       list = list.filter(r => r.issue.status === filterStatus);
     }
 
-    // Ordenação
     if (sortKey) {
       list.sort((a, b) => {
         let av = '', bv = '';
@@ -213,10 +214,26 @@ export function PlanilhaInterna({ issues }: Props) {
     [],
   );
 
-  const handleSave = () => {
-    saveNotes(notes);
-    toast.success('Planilha salva no navegador!');
-    setEdited(new Map());
+  // ── Salvar no Firestore (apenas itens editados) ──
+  const handleSave = async () => {
+    if (edited.size === 0) return;
+    setSaving(true);
+    try {
+      const batch = writeBatch(db);
+      for (const [fsa] of edited.entries()) {
+        const note = notes.get(fsa);
+        if (note) {
+          batch.set(doc(db, FS_COLLECTION, fsa), note);
+        }
+      }
+      await batch.commit();
+      toast.success(`${edited.size} nota(s) salva(s) com sucesso!`);
+      setEdited(new Map());
+    } catch (e: unknown) {
+      toast.error('Erro ao salvar: ' + (e as Error)?.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSendToJira = async () => {
@@ -236,10 +253,10 @@ export function PlanilhaInterna({ issues }: Props) {
       }
     }
     setSavingJira(false);
-    saveNotes(notes);
+    // Salva no Firestore após envio ao Jira
+    await handleSave();
     if (errors.length) toast.error(errors.join('\n'));
     if (changed) toast.success(`${changed} técnico(s) enviado(s) ao Jira!`);
-    setEdited(new Map());
   };
 
   const handleExportCsv = () => {
@@ -313,11 +330,24 @@ export function PlanilhaInterna({ issues }: Props) {
           {children}
           <SortIcon active={active} dir={active ? sortDir : undefined} />
         </div>
-        {/* Resize handle (visual) */}
         <span className="absolute right-0 top-1 bottom-1 w-[3px] cursor-col-resize hover:bg-primary/60 rounded-sm opacity-0 group-hover:opacity-100 transition-opacity" />
       </th>
     );
   }
+
+  // ── Virtualização ──
+  const tableScrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 32,
+    overscan: 8,
+  });
+  const virtualItems = rowVirtualizer.getVirtualItems();
+  const paddingTop    = virtualItems.length > 0 ? virtualItems[0].start : 0;
+  const paddingBottom = virtualItems.length > 0
+    ? rowVirtualizer.getTotalSize() - virtualItems[virtualItems.length - 1].end
+    : 0;
 
   // ─── Render ───────────────────────────────────────────────────────────────────
   return (
@@ -326,9 +356,8 @@ export function PlanilhaInterna({ issues }: Props) {
       style={{ border: '1px solid #c6c7c8' }}
     >
 
-      {/* ─── Toolbar (barra de ferramentas estilo Excel) ─────────────────────── */}
+      {/* ─── Toolbar ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 px-3 py-2 bg-[#f0f1f2] dark:bg-gray-900/60 border-b border-[#c6c7c8] dark:border-gray-700">
-        {/* Título */}
         <div className="flex items-center gap-1.5 shrink-0">
           <FileSpreadsheet className="w-4 h-4 text-green-600 dark:text-green-500" />
           <span className="text-xs font-bold text-gray-700 dark:text-gray-200">Planilha de Agendamentos</span>
@@ -336,7 +365,6 @@ export function PlanilhaInterna({ issues }: Props) {
 
         <div className="h-4 w-px bg-gray-300 dark:bg-gray-600 mx-1" />
 
-        {/* Filtros */}
         <div className="flex flex-wrap items-center gap-1.5">
           <div className="relative">
             <Filter className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 pointer-events-none" />
@@ -384,16 +412,21 @@ export function PlanilhaInterna({ issues }: Props) {
 
         <div className="flex-1" />
 
-        {/* Ações */}
         <div className="flex items-center gap-1.5 shrink-0">
           {edited.size > 0 && (
             <span className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-md px-2 py-0.5">
               {edited.size} não salvo{edited.size > 1 ? 's' : ''}
             </span>
           )}
-          <Button size="sm" className="h-7 gap-1.5 text-xs px-2.5" onClick={handleSave}>
-            <Save className="w-3 h-3" />
-            Salvar
+          <Button
+            size="sm"
+            className="h-7 gap-1.5 text-xs px-2.5"
+            onClick={handleSave}
+            disabled={saving || edited.size === 0}
+          >
+            {saving
+              ? <><Loader2 className="w-3 h-3 animate-spin" /> Salvando…</>
+              : <><Save className="w-3 h-3" /> Salvar</>}
           </Button>
           <Button
             size="sm"
@@ -419,24 +452,27 @@ export function PlanilhaInterna({ issues }: Props) {
 
       {/* ─── Tabela ──────────────────────────────────────────────────────────── */}
       <div
+        ref={tableScrollRef}
         className="overflow-auto bg-white dark:bg-gray-950"
         style={{ maxHeight: '60vh' }}
       >
+        {notesLoading ? (
+          <div className="flex items-center justify-center py-16 gap-2 text-sm text-gray-400">
+            <Loader2 className="w-4 h-4 animate-spin" /> Carregando notas…
+          </div>
+        ) : (
         <table
           className="border-collapse"
           style={{ minWidth: '1020px', width: '100%' }}
         >
-          {/* ── Cabeçalho fixo ── */}
           <thead className="sticky top-0 z-10 group">
             <tr>
-              {/* # (número da linha) */}
               <th
                 className="border-r border-b px-2 py-[7px] text-center text-[11px] font-bold text-gray-400 dark:text-gray-500 select-none w-8"
                 style={{ borderColor: '#c6c7c8', background: '#e9eaeb' }}
               >
                 #
               </th>
-
               <ColHeader colKey="key"            className="w-[90px]">FSA</ColHeader>
               <ColHeader colKey="loja"           className="w-[80px]">Loja</ColHeader>
               <ColHeader colKey="cidade"         className="w-[130px]">Cidade</ColHeader>
@@ -446,16 +482,12 @@ export function PlanilhaInterna({ issues }: Props) {
               <ColHeader colKey="classificacao"  className="w-[170px]">Classificação</ColHeader>
               <ColHeader colKey="tecnico"        className="w-[130px]">Técnico</ColHeader>
               <ColHeader colKey="data"           className="w-[115px]">Data Visita</ColHeader>
-
-              {/* Obs — não ordenável */}
               <th
                 className="border-r border-b px-2 py-[7px] text-left text-[11px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide whitespace-nowrap select-none"
                 style={{ borderColor: '#c6c7c8', background: '#e9eaeb', minWidth: '150px' }}
               >
                 Observação
               </th>
-
-              {/* Escal. — não ordenável */}
               <th
                 className="border-b px-2 py-[7px] text-center text-[11px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide whitespace-nowrap select-none w-[60px]"
                 style={{ borderColor: '#c6c7c8', background: '#e9eaeb' }}
@@ -465,7 +497,6 @@ export function PlanilhaInterna({ issues }: Props) {
             </tr>
           </thead>
 
-          {/* ── Corpo ── */}
           <tbody>
             {rows.length === 0 ? (
               <tr>
@@ -489,7 +520,13 @@ export function PlanilhaInterna({ issues }: Props) {
                 </td>
               </tr>
             ) : (
-              rows.map(({ issue, note }, idx) => {
+              <>
+                {paddingTop > 0 && (
+                  <tr><td colSpan={12} style={{ height: paddingTop }} /></tr>
+                )}
+                {virtualItems.map(vItem => {
+                const { issue, note } = rows[vItem.index];
+                const idx = vItem.index;
                 const isEdited = edited.has(issue.key);
                 const classMeta = getClassMeta(note.classificacao);
                 const CELL = 'border-r border-b px-2 py-0.5 text-[11px] align-middle';
@@ -498,13 +535,14 @@ export function PlanilhaInterna({ issues }: Props) {
                 return (
                   <tr
                     key={issue.key}
+                    data-index={vItem.index}
+                    ref={rowVirtualizer.measureElement}
                     className={cn(
                       'group/row transition-colors',
                       classMeta.row || 'hover:bg-gray-50 dark:hover:bg-gray-800/40',
                       isEdited && 'outline outline-1 outline-primary/20 outline-offset-[-1px]',
                     )}
                   >
-                    {/* Número da linha */}
                     <td
                       className={cn(CELL, CELL_COLOR, 'text-center text-[10px] text-gray-400 dark:text-gray-600 font-mono select-none w-8')}
                       style={{ background: 'rgba(233,234,235,0.45)' }}
@@ -512,7 +550,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       {idx + 1}
                     </td>
 
-                    {/* FSA */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[90px]')}>
                       <div className="flex items-center gap-1">
                         <span className="font-mono font-semibold text-primary dark:text-primary/90 text-[11px]">
@@ -527,22 +564,18 @@ export function PlanilhaInterna({ issues }: Props) {
                       </div>
                     </td>
 
-                    {/* Loja */}
                     <td className={cn(CELL, CELL_COLOR, 'font-semibold whitespace-nowrap w-[80px]')}>
                       {issue.loja}
                     </td>
 
-                    {/* Cidade */}
                     <td className={cn(CELL, CELL_COLOR, 'text-gray-600 dark:text-gray-400 whitespace-nowrap w-[130px]')}>
                       {issue.cidade}
                     </td>
 
-                    {/* UF */}
                     <td className={cn(CELL, CELL_COLOR, 'text-center text-gray-500 dark:text-gray-500 w-[50px]')}>
                       {issue.uf}
                     </td>
 
-                    {/* Status Jira */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[130px]')}>
                       <span
                         className={cn(
@@ -554,7 +587,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       </span>
                     </td>
 
-                    {/* SLA */}
                     <td className={cn(CELL, CELL_COLOR, 'text-center w-[90px]')}>
                       <span
                         className={cn(
@@ -567,7 +599,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       </span>
                     </td>
 
-                    {/* Classificação — native select para não montar ~N portais Radix */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[170px] p-0')}>
                       <select
                         value={note.classificacao}
@@ -586,7 +617,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       </select>
                     </td>
 
-                    {/* Técnico */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[130px] p-0')}>
                       <Input
                         className={cellInput}
@@ -596,7 +626,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       />
                     </td>
 
-                    {/* Data Visita */}
                     <td className={cn(CELL, CELL_COLOR, 'w-[115px] p-0')}>
                       <Input
                         type="date"
@@ -606,7 +635,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       />
                     </td>
 
-                    {/* Observação */}
                     <td className={cn(CELL, CELL_COLOR, 'p-0')} style={{ minWidth: '150px' }}>
                       <Input
                         className={cellInput}
@@ -616,7 +644,6 @@ export function PlanilhaInterna({ issues }: Props) {
                       />
                     </td>
 
-                    {/* Escalonado */}
                     <td
                       className={cn('border-b px-2 py-0.5 text-center align-middle w-[60px]')}
                       style={{ borderColor: '#e2e3e4' }}
@@ -629,13 +656,18 @@ export function PlanilhaInterna({ issues }: Props) {
                     </td>
                   </tr>
                 );
-              })
+              })}
+                {paddingBottom > 0 && (
+                  <tr><td colSpan={12} style={{ height: paddingBottom }} /></tr>
+                )}
+              </>
             )}
           </tbody>
         </table>
+        )}
       </div>
 
-      {/* ─── Status bar (barra de status estilo Excel) ───────────────────────── */}
+      {/* ─── Status bar ──────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-3 py-[5px] bg-[#f0f1f2] dark:bg-gray-900/60 border-t border-[#c6c7c8] dark:border-gray-700 text-[10.5px] text-gray-500 dark:text-gray-400 select-none">
         <span>
           Exibindo{' '}
@@ -670,7 +702,7 @@ export function PlanilhaInterna({ issues }: Props) {
         </span>
 
         <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 hidden sm:block">
-          Dados salvos no navegador · Técnicos sincronizados via Jira
+          Sincronizado via Firestore · Técnicos enviados ao Jira
         </span>
       </div>
     </div>

@@ -8,7 +8,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import {
   RefreshCw, Zap, MapPin, Hash,
   Clock, CalendarCheck, Wrench, AlertTriangle,
-  ChevronDown, ChevronRight, Monitor,
+  ChevronDown, ChevronRight, Monitor, WifiOff,
 } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
 
@@ -494,11 +494,10 @@ function ChamadosTab({
 
   // Badge counts filtered by current mode
   const filteredCounts = useMemo(() => {
-    const pred = filterMode === 'both'
-      ? () => true
-      : filterMode === 'terminal'
-        ? isTerminalIssue
-        : (i: SchedulingIssue) => !isTerminalIssue(i);
+    const pred: (i: SchedulingIssue) => boolean =
+      filterMode === 'terminal' ? isTerminalIssue
+      : filterMode === 'normal'  ? i => !isTerminalIssue(i)
+      : () => true;
     const countGroups = (groups: LojaGroup[]) =>
       groups.reduce((s, g) => s + g.issues.filter(pred).length, 0);
     return {
@@ -597,7 +596,7 @@ function ChamadosTab({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AgendamentoPage() {
-  const { data, isLoading, isError, error, refresh } = useAgendamentoData();
+  const { data, isLoading, isError, error, refresh, isFromCache, cacheAgeMinutes } = useAgendamentoData();
   const [transitionLoja, setTransitionLoja] = useState<string | null>(null);
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chamados');
@@ -635,6 +634,28 @@ export default function AgendamentoPage() {
 
   return (
     <div className="space-y-5 pb-10">
+
+      {/* ── Banner offline / cache ── */}
+      {isFromCache && (
+        <div className="flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+          <WifiOff className="w-4 h-4 shrink-0" />
+          <span>
+            Sem conexão com o Jira — exibindo dados salvos{' '}
+            <strong>
+              {cacheAgeMinutes === 0
+                ? 'agora há pouco'
+                : `há ${cacheAgeMinutes} minuto${cacheAgeMinutes !== 1 ? 's' : ''}`}
+            </strong>.{' '}
+          </span>
+          <button
+            onClick={refresh}
+            className="ml-auto shrink-0 flex items-center gap-1 font-medium underline underline-offset-2 hover:no-underline"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
+          </button>
+        </div>
+      )}
+
       {/* ── Hero header ── */}
       <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-6 shadow-lg">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-6">

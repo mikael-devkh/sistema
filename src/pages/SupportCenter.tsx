@@ -6,10 +6,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../components/ui/accordion";
 import { Badge } from "../components/ui/badge";
 import { FileText, Layers, Search } from "lucide-react";
-import { Procedure } from "../data/troubleshootingData";
-import { loadEditableProcedures, resetToDefaults } from "../utils/data-editor-utils";
 import { RatTemplatesBrowser } from "../components/RatTemplatesBrowser";
 import { useIsMobile } from "../hooks/use-mobile";
+import { useKnowledgeBase } from "../hooks/use-knowledge-base";
 import { cn } from "../lib/utils";
 import { toast } from "sonner";
 
@@ -59,7 +58,7 @@ const renderProcedureContent = (content: string) =>
 
 const SupportCenter = () => {
   const isMobile = useIsMobile();
-  const [kbData, setKbData] = useState<Procedure[]>(() => loadEditableProcedures());
+  const { procedures } = useKnowledgeBase();
   const [searchTerm, setSearchTerm] = useState("");
   const [templatesResetSignal, setTemplatesResetSignal] = useState(0);
   const [activeDesktopTab, setActiveDesktopTab] = useState<"kb" | "templates">("kb");
@@ -67,23 +66,18 @@ const SupportCenter = () => {
 
   const filteredProcedures = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
-    if (!normalizedSearch) {
-      return kbData;
-    }
-
-    return kbData.filter(
-      (procedure) =>
-        procedure.title.toLowerCase().includes(normalizedSearch) ||
-        procedure.content.toLowerCase().includes(normalizedSearch) ||
-        procedure.tags.some((tag) => tag.toLowerCase().includes(normalizedSearch)),
+    if (!normalizedSearch) return procedures;
+    return procedures.filter(
+      p =>
+        p.title.toLowerCase().includes(normalizedSearch) ||
+        p.content.toLowerCase().includes(normalizedSearch) ||
+        p.tags.some(tag => tag.toLowerCase().includes(normalizedSearch)),
     );
-  }, [kbData, searchTerm]);
+  }, [procedures, searchTerm]);
 
   const handleTemplatesReset = () => {
-    const snapshot = resetToDefaults();
-    setKbData(snapshot.procedures);
-    setTemplatesResetSignal((signal) => signal + 1);
-    toast.info("Biblioteca restaurada para os padrões iniciais.");
+    setTemplatesResetSignal(s => s + 1);
+    toast.info("Templates resetados para os padrões iniciais.");
   };
 
   const proceduresPanel = (
@@ -91,10 +85,10 @@ const SupportCenter = () => {
       <div className="space-y-2 text-center lg:text-left">
         <h2 className="text-lg font-bold text-foreground flex items-center gap-2 justify-center lg:justify-start sm:text-xl">
           <FileText className="h-5 w-5 text-primary" />
-          Base de Conhecimento (Offline)
+          Base de Conhecimento
         </h2>
         <p className="text-sm text-muted-foreground">
-          Consulte procedimentos técnicos validados. Este conteúdo é somente leitura para os técnicos em campo.
+          Consulte procedimentos técnicos validados pelo time. Sincronizado em tempo real via Firestore.
         </p>
       </div>
       <div className="relative">

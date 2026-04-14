@@ -41,11 +41,19 @@ import {
 import { useHapticFeedback } from "../hooks/use-haptic-feedback";
 import { useRatAutofill } from "../context/RatAutofillContext";
 import { useAuth } from "../context/AuthContext";
-import { loadEditableTemplates } from "../utils/data-editor-utils";
 import type { RatTemplate } from "../data/ratTemplatesData";
 import { loadPreferences, savePreferences } from "../utils/settings";
+import { db } from "../firebase";
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+} from "firebase/firestore";
 
-const RAT_HISTORY_STORAGE_KEY = "ratHistory";
 const RAT_DRAFT_STORAGE_KEY = "ratFormDraft";
 
 // LISTAS PARA OS DROPDOWNS NOVOS
@@ -194,15 +202,19 @@ const RatForm = () => {
     const prefs = loadPreferences();
     return prefs.pdfSolutionFont || "auto";
   });
-  // Carrega templates locais/usuário (fallback localStorage -> defaults)
+  // Carrega templates do Firestore (por usuário, real-time)
   useEffect(() => {
-    try {
-      const t = loadEditableTemplates();
-      setTemplates(t);
-    } catch (e) {
-      setTemplates([]);
-    }
-  }, []);
+    if (!user) return;
+    const q = query(
+      collection(db, "ratTemplates"),
+      where("userId", "==", user.uid),
+    );
+    const unsub = onSnapshot(q, snap => {
+      const tpls = snap.docs.map(d => ({ id: d.id, ...d.data() } as RatTemplate));
+      setTemplates(tpls);
+    }, () => setTemplates([]));
+    return unsub;
+  }, [user]);
 
   // Sincroniza mudanças do formulário na sessão ativa
   useEffect(() => {
@@ -537,57 +549,39 @@ const RatForm = () => {
     };
   }, [formData.fsa, formData.codigoLoja]);
 
+  // Carrega histórico de RATs do Firestore (por usuário, real-time)
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      const stored = localStorage.getItem(RAT_HISTORY_STORAGE_KEY);
-      if (stored) {
-        const parsed: RatHistoryEntry[] = JSON.parse(stored);
-        setRatHistory(parsed);
-      }
-    } catch (error) {
-      console.error("Não foi possível carregar o histórico de RAT:", error);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    if (ratHistory.length === 0) {
-      localStorage.removeItem(RAT_HISTORY_STORAGE_KEY);
-      return;
-    }
-
-    try {
-      localStorage.setItem(RAT_HISTORY_STORAGE_KEY, JSON.stringify(ratHistory));
-    } catch (error) {
-      console.error("Não foi possível salvar o histórico de RAT:", error);
-    }
-  }, [ratHistory]);
+    if (!user) return;
+    const q = query(
+      collection(db, "serviceReports"),
+      where("userId", "==", user.uid),
+      orderBy("timestamp", "desc"),
+      limit(30),
+    );
+    const unsub = onSnapshot(q, snap => {
+      const entries = snap.docs.map(d => ({ ...d.data(), id: d.id } as RatHistoryEntry));
+      setRatHistory(entries);
+    }, () => {/* non-critical */});
+    return unsub;
+  }, [user]);
 
   const handleGeneratePDF = async () => {
     try {
       const { generateRatPDF } = await getPdfGenerator();
       await generateRatPDF(formData);
-      setRatHistory((previous) => {
-        const entry: RatHistoryEntry = {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      // Salva no Firestore (histórico compartilhado por usuário)
+      if (user) {
+        const entry = {
           timestamp: Date.now(),
-          fsa: formData.fsa?.trim() || undefined,
-          codigoLoja: formData.codigoLoja?.trim() || undefined,
-          pdv: formData.pdv?.trim() || undefined,
-          defeitoProblema: formData.defeitoProblema?.trim() || undefined,
+          fsa: formData.fsa?.trim() || null,
+          codigoLoja: formData.codigoLoja?.trim() || null,
+          pdv: formData.pdv?.trim() || null,
+          defeitoProblema: formData.defeitoProblema?.trim() || null,
           formData: cloneRatFormData(formData),
+          userId: user.uid,
         };
-
-        const nextHistory = [entry, ...previous];
-        return nextHistory.slice(0, 30);
-      });
+        addDoc(collection(db, "serviceReports"), entry).catch(() => {/* non-critical */});
+      }
       toast.success("PDF gerado com sucesso!");
       triggerHaptic(80);
       // Ao gerar, consideramos que está salvo: atualiza baseline da sessão ativa
@@ -610,10 +604,27 @@ const RatForm = () => {
     triggerHaptic(50);
   };
 
-  const handleRatHistoryClear = () => {
+  const handleRatHistoryClear = async () => {
+    if (!user || ratHistory.length === 0) return;
     setRatHistory([]);
-    toast.info("Histórico de RAT limpo.");
     triggerHaptic(50);
+    try {
+      const { writeBatch: wb, doc: fsDoc } = await import("firebase/firestore");
+      const batch = wb(db);
+      const q = query(
+        collection(db, "serviceReports"),
+        where("userId", "==", user.uid),
+        limit(30),
+      );
+      const snap = await import("firebase/firestore").then(m =>
+        m.getDocs(q),
+      );
+      snap.docs.forEach(d => batch.delete(fsDoc(db, "serviceReports", d.id)));
+      await batch.commit();
+      toast.info("Histórico de RAT limpo.");
+    } catch {
+      toast.info("Histórico de RAT limpo.");
+    }
   };
   const handleUpdatePreview = async () => {
     try {
@@ -779,6 +790,9 @@ const RatForm = () => {
                         );
                       })}
                     </TabsList>
+                    <Button type="button" variant="ghost" size="icon" onClick={() => duplicateSession(activeSessionId)} className="shrink-0 h-8 w-8 rounded-full" title="Duplicar aba atual">
+                      <Copy className="h-3.5 w-3.5" />
+                    </Button>
                     <Button type="button" variant="outline" onClick={addSession} className="shrink-0 rounded-full" aria-label="Nova aba">
                       <Plus className="h-4 w-4" />
                     </Button>

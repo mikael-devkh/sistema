@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Textarea } from '../ui/textarea';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, X, CloudOff } from 'lucide-react';
 import { searchIssues, parseIssue } from '../../lib/jiraScheduling';
 import { CF } from '../../lib/schedulingConstants';
 import type { SchedulingIssue } from '../../types/scheduling';
+import { db } from '../../firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
-const LS_KEY = 'wt_req_tracker_v1';
+const FS_COL = 'sharedData';
+const FS_ID  = 'reqTracker';
 
 interface Match {
   req: string;
@@ -22,13 +25,49 @@ function extractReqs(text: string): string[] {
 }
 
 export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
-  const [text, setText] = useState<string>(() => localStorage.getItem(LS_KEY) || '');
+  const [text, setText] = useState<string>('');
   const [searching, setSearching] = useState(false);
   const [matches, setMatches] = useState<Match[]>([]);
   const [notFound, setNotFound] = useState<string[]>([]);
   const [searched, setSearched] = useState(false);
+  const [syncError, setSyncError] = useState(false);
 
-  useEffect(() => { localStorage.setItem(LS_KEY, text); }, [text]);
+  // Tracks whether we have a pending debounced write (so onSnapshot echo doesn't overwrite)
+  const pendingWrite = useRef(false);
+  const debounceRef = useRef<number | null>(null);
+
+  // ── Firestore sync ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const ref = doc(db, FS_COL, FS_ID);
+    const unsub = onSnapshot(
+      ref,
+      snap => {
+        // Don't overwrite user's active typing with our own echo
+        if (!pendingWrite.current) {
+          setText(snap.data()?.text ?? '');
+        }
+        setSyncError(false);
+      },
+      () => setSyncError(true),
+    );
+    return unsub;
+  }, []);
+
+  const handleTextChange = (newText: string) => {
+    setText(newText);
+    setSearched(false);
+    pendingWrite.current = true;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = window.setTimeout(async () => {
+      try {
+        await setDoc(doc(db, FS_COL, FS_ID), { text: newText }, { merge: true });
+      } catch {
+        setSyncError(true);
+      } finally {
+        pendingWrite.current = false;
+      }
+    }, 1500);
+  };
 
   const reqs = extractReqs(text);
 
@@ -52,23 +91,17 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
     const missing = reqs.filter(r => !foundReqs.has(r));
 
     if (missing.length) {
-      // Each REQ searched as: customfield_14886 ~ "NUMBER*"
-      const jqlParts = missing
-        .map(r => `"${CF.REQ}" ~ "${r}*"`)
-        .join(' OR ');
+      const jqlParts = missing.map(r => `"${CF.REQ}" ~ "${r}*"`).join(' OR ');
       const jql = `project = FSA AND (${jqlParts})`;
-
       try {
         const extras = await searchIssues(jql, 100);
         for (const raw of extras) {
           const issue = parseIssue(raw);
-          // Match against the parsed REQ field first
           if (issue.req && missing.includes(issue.req) && !found.find(m => m.key === issue.key)) {
             found.push({ req: issue.req, key: issue.key, loja: issue.loja, status: issue.status });
             foundReqs.add(issue.req);
             continue;
           }
-          // Fallback: check raw JSON for any missing req number
           const rawStr = JSON.stringify(raw.fields?.[CF.REQ] ?? raw);
           const matchedReq = missing.find(r => rawStr.includes(r));
           if (matchedReq && !foundReqs.has(matchedReq) && !found.find(m => m.key === issue.key)) {
@@ -77,7 +110,7 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
           }
         }
       } catch {
-        // Jira unavailable — results show only in-memory hits
+        // Jira unavailable — show only in-memory hits
       }
     }
 
@@ -89,7 +122,7 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
 
   const clearFound = () => {
     const foundSet = new Set(matches.map(m => m.req));
-    setText(reqs.filter(r => !foundSet.has(r)).join('\n'));
+    handleTextChange(reqs.filter(r => !foundSet.has(r)).join('\n'));
     setMatches([]);
     setNotFound([]);
     setSearched(false);
@@ -106,16 +139,23 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        Cole qualquer texto contendo números de REQ. O sistema detecta os números (5–15 dígitos) e
-        busca no campo <span className="font-mono text-xs bg-secondary px-1 rounded">customfield_14886</span> do Jira.
-      </p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          Cole qualquer texto contendo números de REQ. O sistema detecta os números (5–15 dígitos) e
+          busca no campo <span className="font-mono text-xs bg-secondary px-1 rounded">customfield_14886</span> do Jira.
+        </p>
+        {syncError && (
+          <span className="flex items-center gap-1 text-xs text-destructive shrink-0">
+            <CloudOff className="w-3.5 h-3.5" /> Sem sincronismo
+          </span>
+        )}
+      </div>
 
       <Textarea
         rows={5}
         placeholder="Cole mensagens do WhatsApp, e-mails, planilhas… ex: REQ 3179834, 3180001"
         value={text}
-        onChange={e => { setText(e.target.value); setSearched(false); }}
+        onChange={e => handleTextChange(e.target.value)}
         className="font-mono text-sm"
       />
 
@@ -138,7 +178,12 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
           </Button>
         )}
         {text && (
-          <Button variant="ghost" size="sm" onClick={() => { setText(''); setMatches([]); setNotFound([]); setSearched(false); }}>
+          <Button variant="ghost" size="sm" onClick={() => {
+            handleTextChange('');
+            setMatches([]);
+            setNotFound([]);
+            setSearched(false);
+          }}>
             Limpar tudo
           </Button>
         )}
@@ -146,7 +191,6 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
 
       {searched && (
         <div className="space-y-3">
-          {/* Found */}
           {matches.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-semibold text-green-400">
@@ -169,7 +213,6 @@ export function ReqTracker({ allIssues }: { allIssues: SchedulingIssue[] }) {
             </div>
           )}
 
-          {/* Not found */}
           {notFound.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-semibold text-amber-400">

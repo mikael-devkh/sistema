@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    // Reads the user's own profile to check the role field.
+    // Works because /users/{uid} allows any authenticated read (see below).
+    function isAdmin() {
+      return isAuth() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // ── User profiles ─────────────────────────────────────────────────────────
+    // Any authenticated user can read profiles (needed for team-aware features).
+    // Each user can only write their own profile; admins can write any.
+    match /users/{userId} {
+      allow read:  if isAuth();
+      allow write: if isAuth() && (request.auth.uid == userId || isAdmin());
+    }
+
+    // ── Reference / roster data ───────────────────────────────────────────────
+    match /technicians/{docId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    match /fsas/{docId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    match /assignments/{docId} {
+      allow read:         if isAuth();
+      allow create,update: if isAuth();
+      allow delete:       if isAdmin();
+    }
+
+    match /activity/{docId} {
+      allow read:   if isAuth();
+      allow create: if isAuth();
+      allow update, delete: if isAdmin();
+    }
+
+    // ── Per-user data (RAT history & templates) ───────────────────────────────
+    // Users can only access documents they own; admins can access all.
+    match /serviceReports/{docId} {
+      allow read, delete, update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create:               if isAuth() && request.resource.data.userId == request.auth.uid;
+      // Admin override
+      allow read, write: if isAdmin();
+    }
+
+    match /ratTemplates/{docId} {
+      allow read, delete, update: if isAuth() && resource.data.userId == request.auth.uid;
+      allow create:               if isAuth() && request.resource.data.userId == request.auth.uid;
+      allow read, write: if isAdmin();
+    }
+
+    // ── Shared team collections ───────────────────────────────────────────────
+    // Any authenticated user can read and write (team-shared state).
+    match /schedulingNotes/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /sharedData/{docId} {
+      allow read, write: if isAuth();
+    }
+
+    match /knowledgeBase/{docId} {
+      allow read, write: if isAuth();
+    }
+  }
+}

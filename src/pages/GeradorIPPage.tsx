@@ -11,6 +11,7 @@ import { cn } from "../lib/utils";
 interface ResultData extends IPConfig {
   tipo: string;
   numeroPDV?: string;
+  lojaNum?: string;
 }
 
 const GeradorIPPage = () => {
@@ -37,7 +38,7 @@ const GeradorIPPage = () => {
 
       const ipBase = tipo === "PDV" ? lojaEncontrada.ipPDV : lojaEncontrada.ipDesktop;
       const config = calcularIP(ipBase, tipo, numeroPDV);
-      const resultData: ResultData = { ...config, nomeLoja: lojaEncontrada.nomeLoja, tipo, numeroPDV };
+      const resultData: ResultData = { ...config, nomeLoja: lojaEncontrada.nomeLoja, tipo, numeroPDV, lojaNum: lojaFormatada };
       setResult(resultData);
 
       const newHistory = [{ ...resultData, timestamp: Date.now() }, ...history.slice(0, 9)];
@@ -91,6 +92,7 @@ const GeradorIPPage = () => {
         <div className={cn("transition-all", result ? "animate-slide-up" : "")}>
           <ResultCard
             nomeLoja={result.nomeLoja}
+            lojaNum={result.lojaNum}
             tipo={result.tipo}
             numeroPDV={result.numeroPDV}
             ip={result.ip}

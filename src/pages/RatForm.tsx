@@ -27,6 +27,7 @@ import { Checkbox } from "../components/ui/checkbox";
 import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
+import { OcrPasteZone } from "../components/OcrPasteZone";
 import { toast } from "sonner";
 // pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
 const getPdfGenerator = () => import("../utils/ratPdfGenerator");
@@ -1045,6 +1046,17 @@ const RatForm = () => {
                             id="patrimonio"
                             value={formData.patrimonio}
                             onChange={(e) => setFormData({ ...formData, patrimonio: e.target.value })}
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <OcrPasteZone
+                            onResult={(serial, patrimonio) => {
+                              setFormData(prev => ({
+                                ...prev,
+                                ...(serial !== null ? { serial } : {}),
+                                ...(patrimonio !== null ? { patrimonio } : {}),
+                              }));
+                            }}
                           />
                         </div>
                         <div className="space-y-2">

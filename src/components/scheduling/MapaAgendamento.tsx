@@ -1,49 +1,64 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
+import { useMemo } from 'react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 import { cn } from '../../lib/utils';
 import type { LojaGroup } from '../../types/scheduling';
-import { getCityCoords } from '../../lib/brazilCityCoords';
 
-// ── Fix Leaflet default icon paths broken by Vite ────────────────────────────
-import L from 'leaflet';
-// @ts-ignore
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+// ── Geographic cartogram grid (col = W→E, row = N→S) ─────────────────────────
+const GRID = [
+  { uf: 'RR', row: 0, col: 4 },
+  { uf: 'AP', row: 0, col: 8 },
 
-// ── Recenter map helper ───────────────────────────────────────────────────────
+  { uf: 'AM', row: 1, col: 2 },
+  { uf: 'PA', row: 1, col: 5 },
+  { uf: 'MA', row: 1, col: 7 },
+  { uf: 'CE', row: 1, col: 8 },
+  { uf: 'RN', row: 1, col: 9 },
 
-function FitBounds({ points }: { points: [number, number][] }) {
-  const map = useMap();
-  const prev = useRef('');
-  useEffect(() => {
-    if (points.length === 0) return;
-    const key = points.map(p => p.join(',')).join('|');
-    if (key === prev.current) return;
-    prev.current = key;
-    if (points.length === 1) {
-      map.setView([points[0][0], points[0][1]], 10);
-    } else {
-      map.fitBounds(points.map(p => [p[0], p[1]] as [number, number]), { padding: [40, 40] });
-    }
-  }, [map, points]);
-  return null;
-}
+  { uf: 'AC', row: 2, col: 0 },
+  { uf: 'RO', row: 2, col: 2 },
+  { uf: 'TO', row: 2, col: 5 },
+  { uf: 'PI', row: 2, col: 7 },
+  { uf: 'PB', row: 2, col: 8 },
+  { uf: 'PE', row: 2, col: 9 },
 
-// ── Marker colour ─────────────────────────────────────────────────────────────
+  { uf: 'MT', row: 3, col: 3 },
+  { uf: 'BA', row: 3, col: 7 },
+  { uf: 'AL', row: 3, col: 9 },
+  { uf: 'SE', row: 3, col: 10 },
 
-function markerColor(g: LojaGroup): string {
-  if (g.slaGroupStatus === 'critical' || g.isCritical) return '#ff4d4d';
-  if (g.slaGroupStatus === 'warning') return '#fbbf24';
-  return '#60a5fa';
+  { uf: 'MS', row: 4, col: 3 },
+  { uf: 'GO', row: 4, col: 4 },
+  { uf: 'MG', row: 4, col: 6 },
+  { uf: 'ES', row: 4, col: 8 },
+
+  { uf: 'DF', row: 5, col: 5 },
+  { uf: 'SP', row: 5, col: 5 },   // SP shares col with DF (offset by row)
+  { uf: 'RJ', row: 5, col: 7 },
+
+  { uf: 'PR', row: 6, col: 5 },
+  { uf: 'SC', row: 7, col: 5 },
+  { uf: 'RS', row: 8, col: 4 },
+] as const;
+
+// Fix: SP and DF can't share the same cell — nudge SP east
+const GRID_FIXED = GRID.map(g =>
+  g.uf === 'SP' ? { ...g, col: 6 } : g,
+);
+
+// ── Color scale ───────────────────────────────────────────────────────────────
+function cellColor(count: number, max: number, critical: number) {
+  if (count === 0) return undefined; // use CSS class
+  const ratio = count / max;
+  if (critical > 0) {
+    const alpha = 0.45 + ratio * 0.45;
+    return `rgba(239,68,68,${alpha.toFixed(2)})`;
+  }
+  if (ratio >= 0.65) return 'rgba(245,158,11,0.88)';
+  if (ratio >= 0.3)  return 'rgba(59,130,246,0.80)';
+  return 'rgba(59,130,246,0.45)';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-
 interface Props {
   groups: LojaGroup[];
   onUfClick?: (uf: string | null) => void;
@@ -51,159 +66,209 @@ interface Props {
 }
 
 export function MapaAgendamento({ groups, onUfClick, selectedUf }: Props) {
-  // Resolve coords (instant – local lookup)
-  const markers = useMemo(() => {
-    return groups
-      .map(g => {
-        const c = getCityCoords(g.cidade, g.uf);
-        return c ? { group: g, lat: c[1], lng: c[0] } : null;
-      })
-      .filter(Boolean) as Array<{ group: LojaGroup; lat: number; lng: number }>;
-  }, [groups]);
-
-  const points = useMemo<[number, number][]>(
-    () => markers.map(m => [m.lat, m.lng]),
-    [markers],
-  );
-
-  // State-level totals for ranking table
+  // Per-state aggregation
   const byUf = useMemo(() => {
-    const m = new Map<string, number>();
+    const m = new Map<string, { count: number; critical: number; lojas: string[] }>();
     for (const g of groups) {
-      const uf = g.uf?.toUpperCase() || '';
-      if (uf) m.set(uf, (m.get(uf) ?? 0) + g.qtd);
+      const uf = g.uf?.toUpperCase() ?? '';
+      if (!uf) continue;
+      const prev = m.get(uf) ?? { count: 0, critical: 0, lojas: [] };
+      m.set(uf, {
+        count: prev.count + g.qtd,
+        critical: prev.critical + (g.isCritical ? 1 : 0),
+        lojas: [...prev.lojas, g.loja],
+      });
     }
     return m;
   }, [groups]);
 
-  const maxCount = useMemo(() => Math.max(...byUf.values(), 1), [byUf]);
-  const totalIssues   = useMemo(() => groups.reduce((s, g) => s + g.qtd, 0), [groups]);
+  const maxCount    = useMemo(() => Math.max(...[...byUf.values()].map(v => v.count), 1), [byUf]);
+  const totalIssues = useMemo(() => groups.reduce((s, g) => s + g.qtd, 0), [groups]);
   const criticalCount = useMemo(() => groups.filter(g => g.isCritical).length, [groups]);
 
+  const CELL = 50;
+  const GAP  = 5;
+  const STEP = CELL + GAP;
+  const MAX_COL = Math.max(...GRID_FIXED.map(g => g.col)) + 1;
+  const MAX_ROW = Math.max(...GRID_FIXED.map(g => g.row)) + 1;
+
   return (
-    <div className="space-y-3">
+    <TooltipProvider delayDuration={150}>
+      <div className="space-y-4">
 
-      {/* KPIs */}
-      <div className="flex flex-wrap gap-3">
-        <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
-          <span className="text-2xl font-bold text-primary">{totalIssues}</span>
-          <span className="text-xs text-muted-foreground">Chamados abertos</span>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
-          <span className="text-2xl font-bold">{byUf.size}</span>
-          <span className="text-xs text-muted-foreground">Estados afetados</span>
-        </div>
-        <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
-          <span className="text-2xl font-bold text-red-600 dark:text-red-400">{criticalCount}</span>
-          <span className="text-xs text-muted-foreground">Lojas críticas</span>
-        </div>
-        {selectedUf && (
-          <button onClick={() => onUfClick?.(null)} className="ml-auto self-center text-xs text-primary underline">
-            Limpar filtro ({selectedUf})
-          </button>
-        )}
-      </div>
-
-      {/* Leaflet map */}
-      <div className="rounded-xl border border-border overflow-hidden" style={{ height: 500 }}>
-        <MapContainer
-          center={[-15.7801, -47.9292]}
-          zoom={4}
-          style={{ height: '100%', width: '100%' }}
-          scrollWheelZoom
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            subdomains="abcd"
-            maxZoom={20}
-          />
-
-          <FitBounds points={points} />
-
-          {markers.map(({ group: g, lat, lng }) => {
-            const color = markerColor(g);
-            const r     = Math.max(9, Math.min(26, 7 + g.qtd * 2.5));
-            return (
-              <CircleMarker
-                key={`${g.loja}-${g.issues[0]?.key ?? g.cidade}`}
-                center={[lat, lng]}
-                radius={r}
-                pathOptions={{
-                  color: 'rgba(255,255,255,0.6)',
-                  weight: 1.5,
-                  fillColor: color,
-                  fillOpacity: 0.92,
-                }}
-                eventHandlers={{
-                  click: () => onUfClick?.(selectedUf === g.uf ? null : g.uf),
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -r]} opacity={1}>
-                  <div className="text-sm">
-                    <p className="font-semibold">{g.loja}</p>
-                    <p className="text-muted-foreground text-xs">{g.cidade} · {g.uf}</p>
-                    <p className="font-bold" style={{ color }}>
-                      {g.qtd} chamado{g.qtd !== 1 ? 's' : ''}{g.isCritical ? ' 🚨' : ''}
-                    </p>
-                  </div>
-                </Tooltip>
-              </CircleMarker>
-            );
-          })}
-        </MapContainer>
-      </div>
-
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground px-1">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Normal
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Alerta SLA
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Crítico
-        </span>
-        <span className="ml-auto text-[11px]">Tamanho do círculo = nº de chamados · Clique para filtrar</span>
-      </div>
-
-      {/* State ranking */}
-      {byUf.size > 0 && (
-        <div className="rounded-xl border border-border bg-card overflow-hidden">
-          <div className="px-4 py-2 bg-muted/50 border-b border-border">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Ranking por estado</p>
+        {/* KPIs */}
+        <div className="flex flex-wrap gap-3">
+          <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
+            <span className="text-2xl font-bold text-primary">{totalIssues}</span>
+            <span className="text-xs text-muted-foreground">Chamados abertos</span>
           </div>
-          <div className="divide-y divide-border max-h-48 overflow-auto">
-            {[...byUf.entries()].sort(([, a], [, b]) => b - a).map(([uf, count]) => {
-              const critical = groups.filter(g => g.uf === uf && g.isCritical).length;
-              const cidades  = [...new Set(groups.filter(g => g.uf === uf).map(g => g.cidade))];
+          <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
+            <span className="text-2xl font-bold">{byUf.size}</span>
+            <span className="text-xs text-muted-foreground">Estados afetados</span>
+          </div>
+          <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
+            <span className="text-2xl font-bold text-red-500">{criticalCount}</span>
+            <span className="text-xs text-muted-foreground">Lojas críticas</span>
+          </div>
+          {selectedUf && (
+            <button
+              onClick={() => onUfClick?.(null)}
+              className="ml-auto self-center text-xs text-primary underline underline-offset-2"
+            >
+              Limpar filtro ({selectedUf})
+            </button>
+          )}
+        </div>
+
+        {/* Cartogram */}
+        <div className="rounded-xl border border-border bg-card p-6 overflow-x-auto">
+          <div
+            className="relative mx-auto"
+            style={{ width: MAX_COL * STEP - GAP, height: MAX_ROW * STEP - GAP }}
+          >
+            {GRID_FIXED.map(({ uf, row, col }) => {
+              const data   = byUf.get(uf);
+              const count  = data?.count   ?? 0;
+              const crit   = data?.critical ?? 0;
+              const color  = cellColor(count, maxCount, crit);
+              const active = count > 0;
+              const sel    = selectedUf === uf;
+
               return (
-                <button
-                  key={uf}
-                  onClick={() => onUfClick?.(selectedUf === uf ? null : uf)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-4 py-2 text-sm hover:bg-muted/60 transition-colors text-left',
-                    selectedUf === uf && 'bg-primary/5',
+                <Tooltip key={uf}>
+                  <TooltipTrigger asChild>
+                    <button
+                      disabled={!active}
+                      onClick={() => active && onUfClick?.(sel ? null : uf)}
+                      style={{
+                        position: 'absolute',
+                        left: col * STEP,
+                        top:  row * STEP,
+                        width:  CELL,
+                        height: CELL,
+                        backgroundColor: color,
+                        boxShadow: sel
+                          ? '0 0 0 2px hsl(var(--primary)), 0 0 12px hsl(var(--primary)/0.4)'
+                          : crit > 0 && active
+                          ? '0 0 10px rgba(239,68,68,0.45)'
+                          : undefined,
+                      }}
+                      className={cn(
+                        'rounded-lg flex flex-col items-center justify-center transition-all duration-150 select-none',
+                        active
+                          ? 'cursor-pointer hover:scale-110 hover:z-10'
+                          : 'bg-secondary/40 opacity-35 cursor-default',
+                      )}
+                    >
+                      <span className={cn(
+                        'text-[11px] font-bold leading-none',
+                        active ? 'text-white' : 'text-muted-foreground',
+                      )}>
+                        {uf}
+                      </span>
+                      {active && (
+                        <span className="text-[10px] text-white/75 font-mono tabular-nums mt-0.5">
+                          {count}
+                        </span>
+                      )}
+                    </button>
+                  </TooltipTrigger>
+
+                  {active && (
+                    <TooltipContent side="top" className="max-w-[200px]">
+                      <p className="font-semibold">{uf}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {count} chamado{count !== 1 ? 's' : ''}
+                        {crit > 0 ? ` · 🚨 ${crit} crítica${crit !== 1 ? 's' : ''}` : ''}
+                      </p>
+                      {data && data.lojas.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground mt-1 truncate">
+                          {data.lojas.slice(0, 3).join(', ')}
+                          {data.lojas.length > 3 ? ` +${data.lojas.length - 3}` : ''}
+                        </p>
+                      )}
+                    </TooltipContent>
                   )}
-                >
-                  <span className="font-mono font-bold w-8 text-primary">{uf}</span>
-                  <span className="flex-1 min-w-0 text-muted-foreground text-xs truncate">
-                    {cidades.slice(0, 3).join(', ')}{cidades.length > 3 ? ` +${cidades.length - 3}` : ''}
-                  </span>
-                  {critical > 0 && (
-                    <span className="text-[10px] font-semibold text-red-600 dark:text-red-400">🚨 {critical}</span>
-                  )}
-                  <span className={cn('shrink-0 font-bold tabular-nums',
-                    count >= maxCount * 0.7 ? 'text-red-600 dark:text-red-400' :
-                    count >= maxCount * 0.4 ? 'text-amber-600 dark:text-amber-400' : 'text-foreground',
-                  )}>{count}</span>
-                </button>
+                </Tooltip>
               );
             })}
           </div>
         </div>
-      )}
-    </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded bg-blue-500/45 border border-blue-500/30 inline-block" />
+            Poucos chamados
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded bg-blue-500/80 inline-block" />
+            Moderado
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded bg-amber-500/88 inline-block" />
+            Alto volume
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded bg-red-500/80 inline-block" />
+            Crítico
+          </span>
+          <span className="ml-auto text-[11px]">Clique num estado para filtrar · Hover para detalhes</span>
+        </div>
+
+        {/* State ranking */}
+        {byUf.size > 0 && (
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-4 py-2 bg-muted/50 border-b border-border">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Ranking por estado
+              </p>
+            </div>
+            <div className="divide-y divide-border max-h-52 overflow-auto">
+              {[...byUf.entries()]
+                .sort(([, a], [, b]) => b.count - a.count)
+                .map(([uf, data]) => {
+                  const ratio = data.count / maxCount;
+                  const barColor = data.critical > 0
+                    ? '#ef4444'
+                    : ratio >= 0.65
+                    ? '#f59e0b'
+                    : '#3b82f6';
+                  return (
+                    <button
+                      key={uf}
+                      onClick={() => onUfClick?.(selectedUf === uf ? null : uf)}
+                      className={cn(
+                        'w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/60 transition-colors text-left',
+                        selectedUf === uf && 'bg-primary/5',
+                      )}
+                    >
+                      <span className="font-mono font-bold w-8 text-primary shrink-0">{uf}</span>
+                      <div className="flex-1 h-1.5 bg-border rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full transition-all duration-300"
+                          style={{ width: `${ratio * 100}%`, backgroundColor: barColor }}
+                        />
+                      </div>
+                      {data.critical > 0 && (
+                        <span className="text-[10px] font-semibold text-red-500 shrink-0">
+                          🚨 {data.critical}
+                        </span>
+                      )}
+                      <span
+                        className="shrink-0 font-bold tabular-nums"
+                        style={{ color: barColor }}
+                      >
+                        {data.count}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
+
+      </div>
+    </TooltipProvider>
   );
 }

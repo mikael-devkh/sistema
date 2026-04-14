@@ -607,7 +607,9 @@ const RatForm = () => {
               `\n\nTESTES FEITOS: ${formData.diagnosticoTestes || ''}`;
             fields = {
               customfield_14811: textToAdf(texto14811),
-              ...(formData.solucao?.trim() ? { customfield_12351: formData.solucao.trim() } : {}),
+              ...(formData.solucao?.trim()
+                ? { customfield_12351: textToAdf(formData.solucao.trim()) }
+                : {}),
             };
           } else {
             // Não resolvido (ou com retorno) → tudo em 14811

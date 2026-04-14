@@ -31,42 +31,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const base = getBase(cloudId, site);
   const url = `${base}/issue/${encodeURIComponent(issueKey)}`;
 
-  /** Extracts plain text from a field value (ADF doc or plain string). */
-  function adfToPlain(val: any): string {
-    if (typeof val === 'string') return val;
-    if (val?.type === 'doc') {
-      return (val.content || [])
-        .flatMap((p: any) => (p.content || []).map((n: any) => n.text || ''))
-        .join('\n\n');
-    }
-    return String(val ?? '');
-  }
-
-  /** Try a PUT with given body; return the Response. */
-  async function tryPut(body: object): Promise<Response> {
-    return fetch(url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'Authorization': authHeader(email, token),
-      },
-      body: JSON.stringify(body),
-    });
-  }
-
   console.log('atualizar-fsa: updating', issueKey, 'fields:', Object.keys(fields));
 
-  // First attempt: send as-is (ADF for rich-text fields)
-  let response = await tryPut({ fields });
-
-  // If Jira rejects the format (400), retry with plain strings
-  if (response.status === 400) {
-    const plainFields: Record<string, string> = {};
-    for (const [k, v] of Object.entries(fields)) plainFields[k] = adfToPlain(v);
-    console.log('atualizar-fsa: ADF rejected, retrying with plain text');
-    response = await tryPut({ fields: plainFields });
-  }
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Authorization': authHeader(email, token),
+    },
+    body: JSON.stringify({ fields }),
+  });
 
   if (!response.ok) {
     const text = await response.text();

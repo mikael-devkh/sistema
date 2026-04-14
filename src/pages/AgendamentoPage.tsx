@@ -294,22 +294,17 @@ function AgendadosTab({
                   Dup: {dupKeys.join(', ')}
                 </Badge>
               )}
-            </>
-          );
-          return (
-            <div key={`${date}-${g.loja}-${g.issues[0]?.key}`} className="relative group/wrap">
-              <LojaExpander group={g} extra={extra} />
               {onTransition && (
                 <button
-                  type="button"
-                  onClick={() => onTransition(g.loja)}
-                  className="absolute top-2 right-8 z-10 opacity-0 group-hover/wrap:opacity-100 transition-opacity h-6 px-2 text-[10px] font-medium rounded-md border border-orange-500/50 text-orange-600 dark:text-orange-400 bg-card hover:bg-orange-500/10 flex items-center gap-1"
+                  className="text-[10px] px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 transition-colors font-medium shrink-0"
+                  onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
                 >
-                  <Wrench className="w-3 h-3" /> → TEC-CAMPO
+                  Virar para TEC-CAMPO
                 </button>
               )}
-            </div>
+            </>
           );
+          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
         };
 
         return (

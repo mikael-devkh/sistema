@@ -609,8 +609,9 @@ const RatForm = () => {
       // ── Subir ao Jira ──────────────────────────────────────────────────────
       if (subirAoJira && formData.fsa?.trim()) {
         const raw = formData.fsa.trim();
-        // Se o usuário digitou só o número, monta a chave completa (ex: "123456" → "FSA-123456")
-        const fsaKey = /^\d+$/.test(raw) ? `FSA-${raw}` : raw;
+        // Normaliza FSA: aceita "123456", "FSA123456", "FSA-123456", "fsa 123456" → sempre "FSA-123456"
+        const numMatch = raw.match(/^(?:fsa[-\s]?)?(\d+)$/i);
+        const fsaKey = numMatch ? `FSA-${numMatch[1]}` : raw.toUpperCase();
         const resolvido = formData.problemaResolvido === 'sim';
         const temRetorno = formData.haveraRetorno === 'sim';
 

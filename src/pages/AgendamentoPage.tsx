@@ -23,7 +23,9 @@ import { TransitionPanel } from '../components/scheduling/TransitionPanel';
 import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
-import { MapaAgendamento } from '../components/scheduling/MapaAgendamento';
+const MapaAgendamento = lazy(() =>
+  import('../components/scheduling/MapaAgendamento').then(m => ({ default: m.MapaAgendamento }))
+);
 
 import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
 import { cn } from '../lib/utils';
@@ -493,7 +495,6 @@ function ChamadosTab({
   const [subTab, setSubTab] = useState('pendentes');
   const [filterMode, setFilterMode] = useState<FilterMode>('both');
   const [ufFilter, setUfFilter] = useState('');
-  const [mapUfFilter, setMapUfFilter] = useState<string | null>(null);
 
   const allUfs = useMemo(() => {
     const ufs = new Set<string>();
@@ -652,6 +653,7 @@ export default function AgendamentoPage() {
   const [transitionLoja, setTransitionLoja] = useState<string | null>(null);
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chamados');
+  const [mapUfFilter, setMapUfFilter] = useState<string | null>(null);
 
   const openTransition = (loja: string) => {
     setTransitionLoja(loja);
@@ -827,11 +829,17 @@ export default function AgendamentoPage() {
 
         {/* ── Mapa ── */}
         <TabsContent value="mapa" className="mt-4">
-          <MapaAgendamento
-            groups={allLojaGroups}
-            selectedUf={mapUfFilter}
-            onUfClick={uf => setMapUfFilter(uf)}
-          />
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-80 gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="w-4 h-4 animate-spin" /> Carregando mapa…
+            </div>
+          }>
+            <MapaAgendamento
+              groups={allLojaGroups}
+              selectedUf={mapUfFilter}
+              onUfClick={uf => setMapUfFilter(uf)}
+            />
+          </Suspense>
         </TabsContent>
       </Tabs>
 

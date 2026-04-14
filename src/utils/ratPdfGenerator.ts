@@ -276,7 +276,7 @@ const getOptionCode = (value?: string) => {
   return (codigo || "").trim();
 };
 
-export const generateRatPDF = async (formData: RatFormData) => {
+export const generateRatPDF = async (formData: RatFormData, options?: { skipDownload?: boolean }): Promise<{ url: string; bytes?: Uint8Array }> => {
   try {
     log("Carregando template RAT...");
     const pdfBytes = await fetch(ratTemplateUrl).then((res) => res.arrayBuffer());
@@ -509,25 +509,28 @@ export const generateRatPDF = async (formData: RatFormData) => {
     }
 
     // Salvar e fazer download do PDF com nome personalizado
-    const bytes = await pdfDoc.save();
-    const blob = new Blob([new Uint8Array(Array.from(bytes)).buffer], { type: "application/pdf" });
+    const savedBytes = await pdfDoc.save();
+    const uint8 = new Uint8Array(Array.from(savedBytes));
+    const blob = new Blob([uint8.buffer], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
-    
-    // Nome do arquivo baseado no FSA se disponível
-    const fsaNumber = formData.fsa?.trim();
-    const fileName = fsaNumber ? `FSA-${fsaNumber}.pdf` : `FSA-${Date.now()}.pdf`;
-    
-    // Criar link de download e clicar
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    
+
+    if (!options?.skipDownload) {
+      // Nome do arquivo baseado no FSA se disponível
+      const fsaNumber = formData.fsa?.trim();
+      const fileName = fsaNumber ? `FSA-${fsaNumber}.pdf` : `FSA-${Date.now()}.pdf`;
+
+      // Criar link de download e clicar
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+
     log("PDF gerado com sucesso!");
-    return { url };
+    return { url, bytes: uint8 };
   } catch (error) {
     console.error("[RAT] Erro ao gerar PDF:", error);
     throw error;

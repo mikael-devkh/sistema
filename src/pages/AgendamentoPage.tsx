@@ -238,11 +238,13 @@ function AgendadosTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  onTransition,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  onTransition?: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -291,6 +293,16 @@ function AgendadosTab({
                 <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
                   Dup: {dupKeys.join(', ')}
                 </Badge>
+              )}
+              {onTransition && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px] gap-1 border-orange-500/40 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10"
+                  onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
+                >
+                  <Wrench className="w-3 h-3" /> → TEC-CAMPO
+                </Button>
               )}
             </>
           );
@@ -635,7 +647,7 @@ function ChamadosTab({
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onTransition={onTransition} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">

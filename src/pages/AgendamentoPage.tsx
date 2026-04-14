@@ -23,6 +23,7 @@ import { TransitionPanel } from '../components/scheduling/TransitionPanel';
 import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
+import { TecCampoSheet } from '../components/scheduling/TecCampoSheet';
 const MapaAgendamento = lazy(() =>
   import('../components/scheduling/MapaAgendamento').then(m => ({ default: m.MapaAgendamento }))
 );
@@ -238,15 +239,17 @@ function AgendadosTab({
   filterMode,
   terminalLojas,
   ufFilter,
-  onTransition,
+  onSuccess,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
-  onTransition?: (loja: string) => void;
+  onSuccess?: () => void;
 }) {
   const [filter, setFilter] = useState('');
+  const [tecCampoGroup, setTecCampoGroup] = useState<LojaGroup | null>(null);
+  const [tecCampoOpen, setTecCampoOpen] = useState(false);
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
 
   const filterFn = (g: LojaGroup) => {
@@ -294,14 +297,12 @@ function AgendadosTab({
                   Dup: {dupKeys.join(', ')}
                 </Badge>
               )}
-              {onTransition && (
-                <button
-                  className="text-[10px] px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 transition-colors font-medium shrink-0"
-                  onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
-                >
-                  Virar para TEC-CAMPO
-                </button>
-              )}
+              <button
+                className="text-[10px] px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 transition-colors font-medium shrink-0"
+                onClick={e => { e.stopPropagation(); setTecCampoGroup(g); setTecCampoOpen(true); }}
+              >
+                Virar para TEC-CAMPO
+              </button>
             </>
           );
           return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
@@ -333,6 +334,13 @@ function AgendadosTab({
           </div>
         );
       })}
+
+      <TecCampoSheet
+        group={tecCampoGroup}
+        open={tecCampoOpen}
+        onClose={() => setTecCampoOpen(false)}
+        onSuccess={() => { onSuccess?.(); setTecCampoOpen(false); }}
+      />
     </div>
   );
 }
@@ -645,7 +653,7 @@ function ChamadosTab({
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onTransition={onTransition} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">

@@ -37,9 +37,9 @@ function FitBounds({ points }: { points: [number, number][] }) {
 // ── Marker colour ─────────────────────────────────────────────────────────────
 
 function markerColor(g: LojaGroup): string {
-  if (g.slaGroupStatus === 'critical' || g.isCritical) return '#ef4444';
-  if (g.slaGroupStatus === 'warning') return '#f59e0b';
-  return '#3b82f6';
+  if (g.slaGroupStatus === 'critical' || g.isCritical) return '#ff4d4d';
+  if (g.slaGroupStatus === 'warning') return '#fbbf24';
+  return '#60a5fa';
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -113,25 +113,27 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf }: Props) {
           scrollWheelZoom
         >
           <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+            subdomains="abcd"
+            maxZoom={20}
           />
 
           <FitBounds points={points} />
 
           {markers.map(({ group: g, lat, lng }) => {
             const color = markerColor(g);
-            const r     = Math.max(8, Math.min(22, 6 + g.qtd * 2));
+            const r     = Math.max(9, Math.min(26, 7 + g.qtd * 2.5));
             return (
               <CircleMarker
                 key={`${g.loja}-${g.issues[0]?.key ?? g.cidade}`}
                 center={[lat, lng]}
                 radius={r}
                 pathOptions={{
-                  color: '#fff',
-                  weight: 2,
+                  color: 'rgba(255,255,255,0.6)',
+                  weight: 1.5,
                   fillColor: color,
-                  fillOpacity: 0.88,
+                  fillOpacity: 0.92,
                 }}
                 eventHandlers={{
                   click: () => onUfClick?.(selectedUf === g.uf ? null : g.uf),

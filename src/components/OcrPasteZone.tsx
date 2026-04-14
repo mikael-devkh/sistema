@@ -1,70 +1,59 @@
 import { useRef, useState, useCallback } from 'react';
-import { ScanLine, Upload, X, Check, Loader2 } from 'lucide-react';
+import { ScanLine, Upload, X, Hash, Cpu } from 'lucide-react';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { cn } from '../lib/utils';
 import { toast } from 'sonner';
-
-interface OcrResult {
-  serial: string | null;
-  patrimonio: string | null;
-  raw: string;
-}
 
 interface Props {
   onResult: (serial: string | null, patrimonio: string | null) => void;
 }
 
-// ── Pattern detection ─────────────────────────────────────────────────────────
+// ── Extract all candidate tokens from OCR text ────────────────────────────────
+// Returns every alphanumeric token that looks like a serial or patrimônio
 
-function extractFromText(text: string): OcrResult {
-  const clean = text.replace(/\s+/g, ' ').trim();
+function extractCandidates(raw: string): string[] {
+  const seen = new Set<string>();
+  const results: string[] = [];
 
-  // Patrimônio: "LA" seguido de dígitos (padrão Americanas), ou label explícita
-  const patrimonioPatterns = [
-    /LA\s*(\d{5,})/i,
-    /patrim[oô]nio[:\s]+([A-Z]{0,3}\d{5,})/i,
-    /\bLA(\d{5,})\b/i,
-  ];
-  let patrimonio: string | null = null;
-  for (const p of patrimonioPatterns) {
-    const m = clean.match(p);
-    if (m) { patrimonio = m[1] ? `LA${m[1]}` : m[0].replace(/\s/g, ''); break; }
+  // 1. "LA" + digits (patrimônio padrão Americanas)
+  for (const m of raw.matchAll(/LA\s*\d{4,}/gi)) {
+    const v = m[0].replace(/\s/g, '').toUpperCase();
+    if (!seen.has(v)) { seen.add(v); results.push(v); }
   }
 
-  // Serial: sequência de 8–20 dígitos (ou alfanum) que não seja o patrimônio
-  const serialPatterns = [
-    /S[\/\-]?N[:\s]+([A-Z0-9]{8,20})/i,
-    /serial[:\s]+([A-Z0-9]{8,20})/i,
-    /\b(\d{10,20})\b/,        // número longo puro (ex: 863673300064)
-    /\b([A-Z]{2}\d{8,16})\b/, // alfanum como CN1234567890
-  ];
-  let serial: string | null = null;
-  for (const p of serialPatterns) {
-    const m = clean.match(p);
-    if (m) {
-      const candidate = m[1] || m[0];
-      // Evitar capturar o patrimônio de novo
-      if (!patrimonio || !candidate.includes(patrimonio.replace('LA', ''))) {
-        serial = candidate.replace(/\s/g, '');
-        break;
-      }
-    }
+  // 2. Linhas com "SERIAL" ou "S/N" → capturar o valor na mesma linha
+  for (const m of raw.matchAll(/(?:S\/N|SERIAL\s*N[UÚ]MERO?|N[UÚ]MERO?\s*S[ÉE]RIE)[:\s]+([A-Z0-9]{6,})/gi)) {
+    const v = m[1].replace(/\s/g, '').toUpperCase();
+    if (!seen.has(v)) { seen.add(v); results.push(v); }
   }
 
-  return { serial, patrimonio, raw: clean };
+  // 3. Sequências puras de dígitos ≥ 8 caracteres
+  for (const m of raw.matchAll(/\b\d{8,}\b/g)) {
+    const v = m[0];
+    if (!seen.has(v)) { seen.add(v); results.push(v); }
+  }
+
+  // 4. Tokens alfanuméricos ≥ 6 chars com pelo menos 4 dígitos (ex: MP3000, R1234567)
+  for (const m of raw.matchAll(/\b[A-Z0-9]{6,}\b/g)) {
+    const v = m[0];
+    if (!/^[A-Z]+$/.test(v) && !seen.has(v)) { seen.add(v); results.push(v); }
+  }
+
+  return results;
 }
 
-// ── OCR runner (lazy-loads tesseract.js) ──────────────────────────────────────
+// ── OCR runner ────────────────────────────────────────────────────────────────
 
 async function runOcr(file: File | Blob): Promise<string> {
   const { createWorker } = await import('tesseract.js');
+  // PSM 11 = sparse text (melhor para etiquetas com texto espalhado)
   const worker = await createWorker('por+eng', 1, {
     workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7/dist/worker.min.js',
     langPath: 'https://tessdata.projectnaptha.com/4.0.0',
     corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd-lstm.wasm.js',
   });
   try {
+    await worker.setParameters({ tessedit_pageseg_mode: '11' as any });
     const { data: { text } } = await worker.recognize(file);
     return text;
   } finally {
@@ -74,154 +63,173 @@ async function runOcr(file: File | Blob): Promise<string> {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
+type AssignMode = 'serial' | 'patrimonio' | null;
+
 export function OcrPasteZone({ onResult }: Props) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<OcrResult | null>(null);
+  const [candidates, setCandidates] = useState<string[]>([]);
+  const [rawText, setRawText] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [assignMode, setAssignMode] = useState<AssignMode>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const zoneRef = useRef<HTMLDivElement>(null);
 
   const processFile = useCallback(async (file: File | Blob) => {
     setLoading(true);
-    setResult(null);
+    setCandidates([]);
+    setRawText('');
+    setAssignMode(null);
     try {
       const text = await runOcr(file);
-      const extracted = extractFromText(text);
-      setResult(extracted);
-      if (!extracted.serial && !extracted.patrimonio) {
-        toast.warning('Nenhum serial ou patrimônio detectado. Tente uma foto mais nítida.');
+      const found = extractCandidates(text);
+      setRawText(text.trim());
+      setCandidates(found);
+      if (found.length === 0) {
+        toast.warning('Nenhum número detectado. Tente uma foto mais nítida e de frente.');
       }
     } catch {
-      toast.error('Erro ao ler a imagem. Tente novamente.');
+      toast.error('Erro ao ler imagem. Tente novamente.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Ctrl+V paste on this zone
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
+    for (const item of Array.from(e.clipboardData?.items ?? [])) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
-        if (file) { e.preventDefault(); processFile(file); }
+        if (file) { e.preventDefault(); processFile(file); return; }
       }
     }
   }, [processFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
+    e.preventDefault(); setDragging(false);
     const file = e.dataTransfer.files[0];
     if (file?.type.startsWith('image/')) processFile(file);
   }, [processFile]);
 
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
-    e.target.value = '';
-  };
-
-  const applyField = (field: 'serial' | 'patrimonio', value: string) => {
+  const pickCandidate = (value: string) => {
+    if (!assignMode) return;
     onResult(
-      field === 'serial' ? value : null,
-      field === 'patrimonio' ? value : null,
+      assignMode === 'serial' ? value : null,
+      assignMode === 'patrimonio' ? value : null,
     );
-    toast.success(`${field === 'serial' ? 'Serial' : 'Patrimônio'} preenchido!`);
-    setResult(prev => prev ? { ...prev, [field]: null } : null);
+    toast.success(`${assignMode === 'serial' ? 'Serial' : 'Patrimônio'} preenchido: ${value}`);
+    setCandidates(prev => prev.filter(c => c !== value));
+    setAssignMode(null);
   };
 
-  const applyAll = () => {
-    if (!result) return;
-    onResult(result.serial, result.patrimonio);
-    toast.success('Serial e Patrimônio preenchidos!');
-    setResult(null);
-  };
+  const reset = () => { setCandidates([]); setRawText(''); setAssignMode(null); };
 
-  const close = () => setResult(null);
+  const hasResults = candidates.length > 0;
 
   return (
     <div className="space-y-2">
-      {/* Drop / paste zone */}
+      {/* Drop zone */}
       <div
-        ref={zoneRef}
         tabIndex={0}
         onPaste={handlePaste}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
-        className={cn(
-          'flex items-center gap-3 rounded-lg border-2 border-dashed px-4 py-3 text-sm transition-colors cursor-pointer select-none outline-none',
-          'focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1',
-          dragging
-            ? 'border-primary bg-primary/10 text-primary'
-            : 'border-border/60 text-muted-foreground hover:border-primary/40 hover:text-foreground',
-          loading && 'pointer-events-none opacity-60',
-        )}
         onClick={() => fileRef.current?.click()}
         role="button"
-        aria-label="Colar ou soltar imagem da etiqueta"
+        aria-label="Colar, arrastar ou abrir imagem da etiqueta"
+        className={cn(
+          'flex items-center gap-3 rounded-lg border-2 border-dashed px-4 py-2.5 text-sm transition-colors cursor-pointer select-none outline-none',
+          'focus-visible:ring-2 focus-visible:ring-primary',
+          dragging ? 'border-primary bg-primary/10 text-primary'
+            : 'border-border/50 text-muted-foreground hover:border-primary/40 hover:text-foreground',
+          loading && 'pointer-events-none opacity-60',
+        )}
       >
         {loading
-          ? <><Loader2 className="w-4 h-4 animate-spin shrink-0 text-primary" /><span>Lendo imagem…</span></>
-          : <><ScanLine className="w-4 h-4 shrink-0" /><span>Cole (<kbd className="font-mono text-xs bg-secondary px-1 rounded">Ctrl+V</kbd>), arraste ou clique para ler etiqueta</span><Upload className="w-3.5 h-3.5 shrink-0 ml-auto" /></>
+          ? <><span className="animate-spin text-primary">⏳</span><span className="text-sm">Lendo etiqueta…</span></>
+          : <><ScanLine className="w-4 h-4 shrink-0" />
+              <span>
+                <kbd className="font-mono text-[11px] bg-secondary px-1 rounded">Ctrl+V</kbd>
+                {' '}cole, arraste ou clique para ler etiqueta por OCR
+              </span>
+              <Upload className="w-3.5 h-3.5 shrink-0 ml-auto opacity-50" />
+            </>
         }
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="hidden"
-          onChange={handleFileInput}
-        />
+        <input ref={fileRef} type="file" accept="image/*" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
       </div>
 
       {/* Results */}
-      {result && (result.serial || result.patrimonio) && (
-        <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 space-y-2 animate-fade-in">
+      {hasResults && (
+        <div className="rounded-lg border border-border/60 bg-card p-3 space-y-3 animate-fade-in text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-primary uppercase tracking-wide">Detectado na imagem</span>
-            <button onClick={close} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {candidates.length} número(s) detectado(s)
+            </span>
+            <button onClick={reset} className="text-muted-foreground hover:text-foreground">
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            {result.serial && (
-              <button
-                onClick={() => applyField('serial', result.serial!)}
-                className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-card px-2.5 py-1.5 text-xs font-mono hover:bg-primary/10 transition-colors"
-              >
-                <span className="text-muted-foreground">Serial:</span>
-                <span className="font-semibold">{result.serial}</span>
-                <Check className="w-3 h-3 text-primary ml-0.5" />
-              </button>
-            )}
-            {result.patrimonio && (
-              <button
-                onClick={() => applyField('patrimonio', result.patrimonio!)}
-                className="flex items-center gap-1.5 rounded-md border border-primary/30 bg-card px-2.5 py-1.5 text-xs font-mono hover:bg-primary/10 transition-colors"
-              >
-                <span className="text-muted-foreground">Patrimônio:</span>
-                <span className="font-semibold">{result.patrimonio}</span>
-                <Check className="w-3 h-3 text-primary ml-0.5" />
-              </button>
-            )}
-          </div>
-
-          {result.serial && result.patrimonio && (
-            <Button size="sm" variant="default" className="w-full gap-1.5 h-7 text-xs" onClick={applyAll}>
-              <Check className="w-3.5 h-3.5" /> Usar os dois
+          {/* Mode selector */}
+          <div className="flex gap-2">
+            <Button
+              size="sm" type="button"
+              variant={assignMode === 'serial' ? 'default' : 'outline'}
+              className="h-7 text-xs gap-1.5 flex-1"
+              onClick={() => setAssignMode(m => m === 'serial' ? null : 'serial')}
+            >
+              <Cpu className="w-3 h-3" />
+              {assignMode === 'serial' ? '← Clique no serial' : 'Definir Serial'}
             </Button>
-          )}
+            <Button
+              size="sm" type="button"
+              variant={assignMode === 'patrimonio' ? 'default' : 'outline'}
+              className="h-7 text-xs gap-1.5 flex-1"
+              onClick={() => setAssignMode(m => m === 'patrimonio' ? null : 'patrimonio')}
+            >
+              <Hash className="w-3 h-3" />
+              {assignMode === 'patrimonio' ? '← Clique no patrimônio' : 'Definir Patrimônio'}
+            </Button>
+          </div>
 
-          <p className="text-[10px] text-muted-foreground">Toque para preencher o campo. Se errado, edite manualmente.</p>
+          {/* Candidate chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {candidates.map(c => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => pickCandidate(c)}
+                className={cn(
+                  'font-mono text-xs px-2.5 py-1 rounded-md border transition-all',
+                  assignMode
+                    ? 'border-primary bg-primary/10 text-primary hover:bg-primary/20 cursor-pointer scale-100 hover:scale-105'
+                    : 'border-border/60 bg-secondary/50 text-foreground/70 cursor-default',
+                )}
+              >
+                {c}
+              </button>
+            ))}
+          </div>
+
+          {!assignMode && (
+            <p className="text-[11px] text-muted-foreground">
+              Clique em "Definir Serial" ou "Definir Patrimônio" e depois toque no número correto.
+            </p>
+          )}
         </div>
       )}
 
-      {result && !result.serial && !result.patrimonio && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-          <span className="text-xs text-amber-600 dark:text-amber-300">Texto extraído mas sem padrão reconhecido.</span>
-          <Badge variant="outline" className="text-[10px] font-mono max-w-[180px] truncate">{result.raw.slice(0, 60)}</Badge>
-          <button onClick={close} className="ml-auto text-muted-foreground"><X className="w-3 h-3" /></button>
+      {/* No candidates but has raw text */}
+      {!hasResults && rawText && !loading && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-1">
+          <p className="text-xs text-amber-700 dark:text-amber-300 font-medium">
+            OCR leu a imagem mas não encontrou padrões numéricos. Texto bruto:
+          </p>
+          <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap font-mono max-h-20 overflow-auto">
+            {rawText.slice(0, 300)}
+          </pre>
+          <p className="text-[10px] text-muted-foreground">
+            Tente uma foto de frente, bem iluminada e sem inclinação.
+          </p>
         </div>
       )}
     </div>

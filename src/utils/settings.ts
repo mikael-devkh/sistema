@@ -13,6 +13,7 @@ export interface UserPreferences {
   jiraStateField?: string;
   jiraStoreField?: string;
   jiraPdvField?: string;
+  subirAoJira?: boolean; // checkbox padrão na geração de RAT
 }
 
 const PREFS_KEY = "wt_user_preferences_v1";

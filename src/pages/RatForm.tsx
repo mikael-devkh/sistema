@@ -23,13 +23,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
+import { Checkbox } from "../components/ui/checkbox";
 import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
 // pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
 const getPdfGenerator = () => import("../utils/ratPdfGenerator");
-import { jiraAttach } from "../lib/jira";
+import { jiraAttach, jiraUpdateFields, textToAdf } from "../lib/jira";
 import { RatFormData } from "../types/rat";
 import { searchFsaByNumber } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
@@ -202,6 +203,10 @@ const RatForm = () => {
   const [pdfFontSize, setPdfFontSize] = useState<string>(() => {
     const prefs = loadPreferences();
     return prefs.pdfSolutionFont || "auto";
+  });
+  const [subirAoJira, setSubirAoJira] = useState<boolean>(() => {
+    const prefs = loadPreferences();
+    return prefs.subirAoJira !== false; // default true
   });
   // Carrega templates do Firestore (por usuário, real-time)
   useEffect(() => {
@@ -583,6 +588,45 @@ const RatForm = () => {
         };
         addDoc(collection(db, "serviceReports"), entry).catch(() => {/* non-critical */});
       }
+
+      // ── Subir ao Jira ──────────────────────────────────────────────────────
+      if (subirAoJira && formData.fsa?.trim()) {
+        const fsaKey = formData.fsa.trim();
+        const resolvido = formData.problemaResolvido === 'sim';
+        const temRetorno = formData.haveraRetorno === 'sim';
+
+        try {
+          let fields: Record<string, unknown>;
+
+          if (resolvido && !temRetorno) {
+            // Problema resolvido, sem retorno → 14811 = problema + testes / 12351 = solução
+            const texto14811 =
+              `PROBLEMA IDENTIFICADO: ${formData.defeitoProblema || ''}` +
+              `\n\nTESTES FEITOS: ${formData.diagnosticoTestes || ''}`;
+            fields = {
+              customfield_14811: textToAdf(texto14811),
+              ...(formData.solucao?.trim() ? { customfield_12351: formData.solucao.trim() } : {}),
+            };
+          } else {
+            // Não resolvido (ou com retorno) → tudo em 14811
+            const partes = [
+              `PROBLEMA IDENTIFICADO: ${formData.defeitoProblema || ''}`,
+              `TESTES FEITOS: ${formData.diagnosticoTestes || ''}`,
+            ];
+            if (formData.solucao?.trim()) {
+              partes.push(`PEÇA A SER TROCADA: ${formData.solucao.trim()}`);
+            }
+            fields = { customfield_14811: textToAdf(partes.join('\n\n')) };
+          }
+
+          await jiraUpdateFields(fsaKey, fields);
+          toast.success(`FSA ${fsaKey} atualizado no Jira!`);
+        } catch (err: any) {
+          toast.error(`Erro ao subir ao Jira: ${err?.message ?? 'falha desconhecida'}`);
+        }
+      }
+      // ───────────────────────────────────────────────────────────────────────
+
       toast.success("PDF gerado com sucesso!");
       triggerHaptic(80);
       // Ao gerar, consideramos que está salvo: atualiza baseline da sessão ativa
@@ -1432,7 +1476,19 @@ const RatForm = () => {
                 </>
               )}
 
-                <div className="flex justify-center pt-2">
+                <div className="flex flex-col items-center gap-3 pt-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer select-none text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    <Checkbox
+                      id="subir-jira"
+                      checked={subirAoJira}
+                      onCheckedChange={(v) => {
+                        const next = !!v;
+                        setSubirAoJira(next);
+                        savePreferences({ subirAoJira: next });
+                      }}
+                    />
+                    <span>Subir ao Jira ao gerar</span>
+                  </label>
                   <Button onClick={handleGeneratePDF} size="lg" className="gap-2">
                     <Printer className="h-5 w-5" />
                     Gerar e Imprimir RAT

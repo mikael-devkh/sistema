@@ -101,6 +101,45 @@ export async function jiraTransition(issueIdOrKey: string, toName: 'in_progress'
   if (!res.ok) throw new Error(`Jira transition POST failed: ${res.status}`);
 }
 
+/**
+ * Converts a plain text block (with \n line-breaks) to Jira ADF (Atlassian Document Format).
+ * Sections separated by a blank line become separate paragraphs.
+ */
+export function textToAdf(text: string) {
+  const paragraphs = text
+    .split('\n')
+    .reduce<string[][]>((acc, line) => {
+      if (line.trim() === '') { acc.push([]); } else { acc[acc.length - 1].push(line); }
+      return acc;
+    }, [[]])
+    .filter(p => p.length > 0)
+    .map(lines => ({
+      type: 'paragraph' as const,
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+    }));
+  return {
+    version: 1 as const,
+    type: 'doc' as const,
+    content: paragraphs.length > 0 ? paragraphs : [{ type: 'paragraph' as const, content: [] }],
+  };
+}
+
+/**
+ * Updates arbitrary fields on a Jira issue via the /api/atualizar-fsa Vercel function.
+ * `fields` should be an object like { customfield_14811: adfDoc, customfield_12351: "text" }.
+ */
+export async function jiraUpdateFields(issueKey: string, fields: Record<string, unknown>): Promise<void> {
+  const res = await fetch('/api/atualizar-fsa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ issueKey, fields }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Jira update failed: ${res.status}`);
+  }
+}
+
 export async function jiraAttach(issueKey: string, fileName: string, blob: Blob) {
   if (!PROXY_BASE) throw new Error('Attachment requires proxy base (VITE_JIRA_PROXY_BASE)');
   const arrayBuf = await blob.arrayBuffer();

@@ -591,7 +591,9 @@ const RatForm = () => {
 
       // ── Subir ao Jira ──────────────────────────────────────────────────────
       if (subirAoJira && formData.fsa?.trim()) {
-        const fsaKey = formData.fsa.trim();
+        const raw = formData.fsa.trim();
+        // Se o usuário digitou só o número, monta a chave completa (ex: "123456" → "FSA-123456")
+        const fsaKey = /^\d+$/.test(raw) ? `FSA-${raw}` : raw;
         const resolvido = formData.problemaResolvido === 'sim';
         const temRetorno = formData.haveraRetorno === 'sim';
 

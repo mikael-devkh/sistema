@@ -159,6 +159,7 @@ function PendentesTab({
   onScheduled,
   filterMode,
   terminalLojas,
+  ufFilter,
 }: {
   groups: LojaGroup[];
   agendadoLojas: Set<string>;
@@ -167,14 +168,16 @@ function PendentesTab({
   onScheduled: () => void;
   filterMode: FilterMode;
   terminalLojas: Set<string>;
+  ufFilter: string;
 }) {
   const [filter, setFilter] = useState('');
+  const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = filter
-    ? groups.filter(g =>
+    ? byUf.filter(g =>
         g.loja.toLowerCase().includes(filter.toLowerCase()) ||
         g.cidade.toLowerCase().includes(filter.toLowerCase()),
       )
-    : groups;
+    : byUf;
 
   const { normal, terminal } = splitByTerminal(filtered);
 
@@ -231,15 +234,18 @@ function AgendadosTab({
   agendados,
   filterMode,
   terminalLojas,
+  ufFilter,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
   terminalLojas: Set<string>;
+  ufFilter: string;
 }) {
   const [filter, setFilter] = useState('');
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
 
   const filterFn = (g: LojaGroup) => {
+    if (ufFilter && g.uf !== ufFilter) return false;
     if (!filter) return true;
     const q = filter.toLowerCase();
     return g.loja.toLowerCase().includes(q) || g.cidade.toLowerCase().includes(q);
@@ -324,18 +330,21 @@ function TecCampoTab({
   groups,
   filterMode,
   terminalLojas,
+  ufFilter,
 }: {
   groups: LojaGroup[];
   filterMode: FilterMode;
   terminalLojas: Set<string>;
+  ufFilter: string;
 }) {
   const [filter, setFilter] = useState('');
+  const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = filter
-    ? groups.filter(g =>
+    ? byUf.filter(g =>
         g.loja.toLowerCase().includes(filter.toLowerCase()) ||
         g.cidade.toLowerCase().includes(filter.toLowerCase()),
       )
-    : groups;
+    : byUf;
 
   const { normal, terminal } = splitByTerminal(filtered);
 
@@ -482,6 +491,14 @@ function ChamadosTab({
   const [highlightsOpen, setHighlightsOpen] = useState(false);
   const [subTab, setSubTab] = useState('pendentes');
   const [filterMode, setFilterMode] = useState<FilterMode>('both');
+  const [ufFilter, setUfFilter] = useState('');
+
+  const allUfs = useMemo(() => {
+    const ufs = new Set<string>();
+    for (const g of [...pendentes, ...tecCampo, ...[...agendados.values()].flat()])
+      if (g.uf) ufs.add(g.uf);
+    return [...ufs].sort();
+  }, [pendentes, tecCampo, agendados]);
 
   // Lojas with at least one terminal issue (across ALL statuses) — for cross-reference badge
   const terminalLojas = useMemo(() => {
@@ -549,6 +566,38 @@ function ChamadosTab({
         </CollapsibleContent>
       </Collapsible>
 
+      {/* ── UF filter ───────────────────────────────────────────────────────── */}
+      {allUfs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-muted-foreground font-medium mr-1">Estado:</span>
+          <button
+            onClick={() => setUfFilter('')}
+            className={cn(
+              'px-2.5 py-1 rounded-md text-xs font-medium transition-all border',
+              ufFilter === ''
+                ? 'bg-primary/15 text-primary border-primary/30'
+                : 'text-muted-foreground border-transparent hover:border-border/50 hover:text-foreground',
+            )}
+          >
+            Todos
+          </button>
+          {allUfs.map(uf => (
+            <button
+              key={uf}
+              onClick={() => setUfFilter(uf === ufFilter ? '' : uf)}
+              className={cn(
+                'px-2.5 py-1 rounded-md text-xs font-medium transition-all border',
+                ufFilter === uf
+                  ? 'bg-primary/15 text-primary border-primary/30'
+                  : 'text-muted-foreground border-transparent hover:border-border/50 hover:text-foreground',
+              )}
+            >
+              {uf}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Sub-tabs */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
         <TabsList className="w-full sm:w-auto">
@@ -578,15 +627,16 @@ function ChamadosTab({
             onScheduled={onScheduled}
             filterMode={filterMode}
             terminalLojas={terminalLojas}
+            ufFilter={ufFilter}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">
-          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} />
         </TabsContent>
       </Tabs>
     </div>
@@ -633,7 +683,7 @@ export default function AgendamentoPage() {
   const totalAtivos = kpi.agendamento + kpi.agendado + kpi.tecCampo;
 
   return (
-    <div className="space-y-5 pb-10">
+    <div className="space-y-5 pb-10 animate-page-in">
 
       {/* ── Banner offline / cache ── */}
       {isFromCache && (

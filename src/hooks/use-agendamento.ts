@@ -66,12 +66,13 @@ function buildLojaGroups(issues: SchedulingIssue[]): Map<string, LojaGroup> {
     if (updated && (!g.lastUpdated || updated > g.lastUpdated)) g.lastUpdated = updated;
   }
 
-  // Compute isCritical
+  // Compute isCritical and slaGroupStatus
   for (const g of map.values()) {
-    const stale = g.lastUpdated
-      ? (Date.now() - g.lastUpdated.getTime()) > 7 * 86_400_000
-      : false;
-    g.isCritical = g.qtd >= 5 || stale;
+    const daysSince = g.lastUpdated
+      ? (Date.now() - g.lastUpdated.getTime()) / 86_400_000
+      : 0;
+    g.isCritical = g.qtd >= 5 || daysSince > 7;
+    g.slaGroupStatus = daysSince > 7 ? 'critical' : daysSince > 3 ? 'warning' : 'ok';
   }
 
   return map;

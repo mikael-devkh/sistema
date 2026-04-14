@@ -6,8 +6,9 @@ import { Badge } from "../components/ui/badge";
 import { Skeleton } from "../components/ui/skeleton";
 import {
   Network, FileText, ArrowLeft, Store,
-  Calendar, Wrench, Clock, ExternalLink,
+  Calendar, Wrench, Clock, ExternalLink, MapPin,
 } from "lucide-react";
+import { Skeleton } from "../components/ui/skeleton";
 import { getStoreData } from "../data/storesData";
 import { db } from "../firebase";
 import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
@@ -53,6 +54,29 @@ export default function Loja360() {
       .finally(() => setLoading(false));
   }, [user, lojaId]);
 
+  if (loading) {
+    return (
+      <div className="max-w-4xl mx-auto space-y-6 pb-10 animate-page-in">
+        <div className="rounded-2xl border border-border/50 bg-card p-6 space-y-4">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-24" />
+          <div className="flex gap-2 mt-4">
+            <Skeleton className="h-8 w-24 rounded-lg" />
+            <Skeleton className="h-8 w-20 rounded-lg" />
+            <Skeleton className="h-8 w-24 rounded-lg" />
+          </div>
+        </div>
+        <div className="grid md:grid-cols-2 gap-6">
+          <Skeleton className="h-52 rounded-xl" />
+          <Skeleton className="h-52 rounded-xl" />
+        </div>
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+        </div>
+      </div>
+    );
+  }
+
   if (!store) {
     return (
       <div className="max-w-3xl mx-auto pt-10 space-y-4 text-center animate-page-in">
@@ -97,6 +121,20 @@ export default function Loja360() {
                 onClick={() => navigate("/gerador-ip", { state: { loja: lojaId } })}
               >
                 <Network className="w-3.5 h-3.5" /> Gerar IP
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                asChild
+              >
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=Lojas+Americanas+${lojaId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MapPin className="w-3.5 h-3.5" /> Maps
+                </a>
               </Button>
               <Button
                 size="sm"

@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
-import { ChevronDown, Copy, Check, MapPin, Hash, AlertCircle, AlertTriangle } from 'lucide-react';
+import { ChevronDown, Copy, Check, MapPin, Hash, AlertCircle, AlertTriangle, Clock } from 'lucide-react';
 import { AgendamentoForm } from './AgendamentoForm';
 import { gerarMensagem } from '../../lib/jiraScheduling';
 import type { LojaGroup } from '../../types/scheduling';
@@ -24,6 +25,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const copy = () => {
     navigator.clipboard.writeText(msg);
     setCopied(true);
+    toast.success(`Mensagem da ${group.loja} copiada!`);
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -31,9 +33,9 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const hasCriticalSla = slaStatuses.some(s => s?.startsWith('🔴'));
   const hasWarnSla = slaStatuses.some(s => s?.startsWith('🟡'));
 
-  const borderColor = hasCriticalSla
+  const borderColor = hasCriticalSla || group.slaGroupStatus === 'critical'
     ? 'border-l-rose-500'
-    : hasWarnSla
+    : hasWarnSla || group.slaGroupStatus === 'warning'
     ? 'border-l-amber-500'
     : group.isCritical
     ? 'border-l-rose-500'
@@ -76,6 +78,18 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
             {!hasCriticalSla && hasWarnSla && (
               <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 gap-1">
                 <AlertTriangle className="w-3 h-3" /> Alerta SLA
+              </Badge>
+            )}
+
+            {/* Staleness badges (only when no issue-level SLA badge) */}
+            {!hasCriticalSla && !hasWarnSla && group.slaGroupStatus === 'critical' && (
+              <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 gap-1">
+                <Clock className="w-3 h-3" /> +7d sem update
+              </Badge>
+            )}
+            {!hasCriticalSla && !hasWarnSla && group.slaGroupStatus === 'warning' && (
+              <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 gap-1">
+                <Clock className="w-3 h-3" /> +3d sem update
               </Badge>
             )}
 

@@ -180,7 +180,7 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6 pb-6">
+    <div className="space-y-6 pb-6 animate-page-in">
       {/* ── Hero ── */}
       <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
         <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/40" />

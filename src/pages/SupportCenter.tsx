@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "../components/ui/accordion";
 import { Badge } from "../components/ui/badge";
 import { FileText, Layers, Search } from "lucide-react";
+import { Skeleton } from "../components/ui/skeleton";
 import { RatTemplatesBrowser } from "../components/RatTemplatesBrowser";
 import { useIsMobile } from "../hooks/use-mobile";
 import { useKnowledgeBase } from "../hooks/use-knowledge-base";
@@ -58,7 +59,7 @@ const renderProcedureContent = (content: string) =>
 
 const SupportCenter = () => {
   const isMobile = useIsMobile();
-  const { procedures } = useKnowledgeBase();
+  const { procedures, loading } = useKnowledgeBase();
   const [searchTerm, setSearchTerm] = useState("");
   const [templatesResetSignal, setTemplatesResetSignal] = useState(0);
   const [activeDesktopTab, setActiveDesktopTab] = useState<"kb" | "templates">("kb");
@@ -106,7 +107,19 @@ const SupportCenter = () => {
           : "Nenhum procedimento corresponde à pesquisa atual."}
       </p>
       <ScrollArea className="h-[520px] rounded-md border bg-background p-3 sm:p-4">
-        {filteredProcedures.length ? (
+        {loading ? (
+          <div className="space-y-3">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="space-y-2 p-3 rounded-lg border border-border/50">
+                <Skeleton className="h-5 w-2/3" />
+                <div className="flex gap-1">
+                  <Skeleton className="h-4 w-16 rounded-full" />
+                  <Skeleton className="h-4 w-20 rounded-full" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredProcedures.length ? (
           <Accordion type="single" collapsible className="space-y-3">
             {filteredProcedures.map((procedure) => (
               <AccordionItem key={procedure.id} value={procedure.id} className="border-border rounded-lg">
@@ -133,6 +146,7 @@ const SupportCenter = () => {
             Ajuste os filtros para visualizar os procedimentos.
           </div>
         )}
+
       </ScrollArea>
     </Card>
   );

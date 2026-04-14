@@ -25,6 +25,7 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
 import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
 import { toast } from "sonner";
 // pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
 const getPdfGenerator = () => import("../utils/ratPdfGenerator");
@@ -148,7 +149,7 @@ type RatSession = {
 };
 
 const RatForm = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const getInitialFormData = useCallback(() => {
     const base = createEmptyRatFormData();
     if (profile?.nome) {
@@ -816,10 +817,26 @@ const RatForm = () => {
                 >
                   <History className="mr-2 h-4 w-4" /> Recuperar rascunho
                 </Button>
-                <Button type="button" variant="outline" onClick={handleResetForm}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  Limpar formulário
-                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="outline">
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Limpar formulário
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Limpar formulário?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Todos os campos desta aba serão apagados. Esta ação não pode ser desfeita.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={handleResetForm}>Limpar</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </div>
 
               {uiLoading ? (

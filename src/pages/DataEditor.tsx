@@ -60,7 +60,7 @@ const DataEditor = () => {
     <>
       <Navigation />
       <div className="min-h-screen bg-gradient-primary px-4 py-8 pt-24">
-        <div className="max-w-7xl mx-auto space-y-8">
+        <div className="max-w-7xl mx-auto space-y-8 animate-page-in">
           <header className="text-center space-y-3">
             <div className="flex justify-center">
               <div className="p-3 bg-secondary rounded-2xl shadow-glow">

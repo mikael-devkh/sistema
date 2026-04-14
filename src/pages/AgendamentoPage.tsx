@@ -294,19 +294,22 @@ function AgendadosTab({
                   Dup: {dupKeys.join(', ')}
                 </Badge>
               )}
-              {onTransition && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[10px] gap-1 border-orange-500/40 text-orange-600 dark:text-orange-400 hover:bg-orange-500/10"
-                  onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
-                >
-                  <Wrench className="w-3 h-3" /> → TEC-CAMPO
-                </Button>
-              )}
             </>
           );
-          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
+          return (
+            <div key={`${date}-${g.loja}-${g.issues[0]?.key}`} className="relative group/wrap">
+              <LojaExpander group={g} extra={extra} />
+              {onTransition && (
+                <button
+                  type="button"
+                  onClick={() => onTransition(g.loja)}
+                  className="absolute top-2 right-8 z-10 opacity-0 group-hover/wrap:opacity-100 transition-opacity h-6 px-2 text-[10px] font-medium rounded-md border border-orange-500/50 text-orange-600 dark:text-orange-400 bg-card hover:bg-orange-500/10 flex items-center gap-1"
+                >
+                  <Wrench className="w-3 h-3" /> → TEC-CAMPO
+                </button>
+              )}
+            </div>
+          );
         };
 
         return (

@@ -18,6 +18,7 @@ import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { LogOut, Menu, ChevronLeft, PanelLeft } from "lucide-react";
 import { cn } from "../lib/utils";
+import { useFocusMode } from "../context/FocusModeContext";
 
 const ROUTE_MAP: Record<string, string> = {
   "/": "Dashboard",
@@ -44,6 +45,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { focusMode } = useFocusMode();
 
   const handleToggleCollapse = () => {
     setSidebarCollapsed(c => {
@@ -79,6 +81,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [location.pathname]);
 
   const pageTitle = crumbs[crumbs.length - 1]?.label ?? "Dashboard";
+
+  if (focusMode) {
+    return (
+      <div className="min-h-screen bg-background">
+        <main className="px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
+          {children}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen bg-background">

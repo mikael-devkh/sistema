@@ -19,15 +19,15 @@ import {
   SelectValue,
 } from "../components/ui/select";
 import { RatHistoryList, RatHistoryEntry } from "../components/RatHistoryList";
+import { AutocompleteTextarea } from "../components/AutocompleteTextarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { ScrollArea } from "../components/ui/scroll-area";
 import { Skeleton } from "../components/ui/skeleton";
 import { Switch } from "../components/ui/switch";
 import { Checkbox } from "../components/ui/checkbox";
-import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search } from "lucide-react";
+import { FileText, History, Printer, RotateCcw, Wand2, Plus, X, Pin, PinOff, Copy, Edit3, Loader2, Search, Maximize2, Minimize2 } from "lucide-react";
 import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from "../components/ui/context-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "../components/ui/alert-dialog";
-import { OcrPasteZone } from "../components/OcrPasteZone";
 import { toast } from "sonner";
 // pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
 const getPdfGenerator = () => import("../utils/ratPdfGenerator");
@@ -46,6 +46,7 @@ import { useRatAutofill } from "../context/RatAutofillContext";
 import { useAuth } from "../context/AuthContext";
 import type { RatTemplate } from "../data/ratTemplatesData";
 import { loadPreferences, savePreferences } from "../utils/settings";
+import { useFocusMode } from "../context/FocusModeContext";
 import { db } from "../firebase";
 import {
   collection,
@@ -181,8 +182,23 @@ const RatForm = () => {
   const [applyDiag, setApplyDiag] = useState(true);
   const [applySolucao, setApplySolucao] = useState(true);
   const [ratHistory, setRatHistory] = useState<RatHistoryEntry[]>([]);
+
+  // Sugestões de autocomplete derivadas do histórico de RATs
+  const problemaSuggestions = [...new Set(
+    ratHistory.map(h => h.defeitoProblema).filter(Boolean) as string[]
+  )];
+  const solucaoSuggestions = [...new Set(
+    ratHistory.map(h => h.formData?.solucao).filter(Boolean) as string[]
+  )];
+  const diagnosticoSuggestions = [...new Set(
+    ratHistory.map(h => h.formData?.diagnosticoTestes).filter(Boolean) as string[]
+  )];
   const { trigger: triggerHaptic } = useHapticFeedback();
   const { autofillData, clearAutofillData } = useRatAutofill();
+  const { focusMode, toggle: toggleFocusMode, exit: exitFocusMode } = useFocusMode();
+
+  // Sai do modo foco ao desmontar a página
+  useEffect(() => { return () => exitFocusMode(); }, [exitFocusMode]);
   const [draftAvailable, setDraftAvailable] = useState(false);
   const draftLoadedRef = useRef(false);
   const skipDraftSaveRef = useRef(false);
@@ -774,12 +790,24 @@ const RatForm = () => {
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <FileText className="w-5 h-5 text-primary" />
             </div>
-            <div>
+            <div className="flex-1">
               <h1 className="text-xl font-bold">Nova RAT</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
                 Relatório de Atendimento Técnico — preencha e gere o PDF
               </p>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={toggleFocusMode}
+              className="shrink-0 h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+              title={focusMode ? "Sair do modo foco (Esc)" : "Modo foco — oculta menu e cabeçalho"}
+            >
+              {focusMode
+                ? <><Minimize2 className="w-3.5 h-3.5" /> Sair do foco</>
+                : <><Maximize2 className="w-3.5 h-3.5" /> Modo foco</>}
+            </Button>
           </div>
         </div>
         <div className="space-y-6">
@@ -1048,17 +1076,6 @@ const RatForm = () => {
                             onChange={(e) => setFormData({ ...formData, patrimonio: e.target.value })}
                           />
                         </div>
-                        <div className="sm:col-span-2">
-                          <OcrPasteZone
-                            onResult={(serial, patrimonio) => {
-                              setFormData(prev => ({
-                                ...prev,
-                                ...(serial !== null ? { serial } : {}),
-                                ...(patrimonio !== null ? { patrimonio } : {}),
-                              }));
-                            }}
-                          />
-                        </div>
                         <div className="space-y-2">
                           <Label htmlFor="marca">Marca</Label>
                           <Input
@@ -1282,33 +1299,36 @@ const RatForm = () => {
                       <div className="space-y-6 pt-2">
                         <div className="space-y-2">
                           <Label htmlFor="defeitoProblema">Defeito/Problema</Label>
-                          <Textarea
+                          <AutocompleteTextarea
                             id="defeitoProblema"
                             value={formData.defeitoProblema}
                             onChange={(e) => setFormData({ ...formData, defeitoProblema: e.target.value })}
+                            suggestions={problemaSuggestions}
                             rows={3}
                           />
                         </div>
 
                         <div className="space-y-2">
                           <Label htmlFor="diagnosticoTestes">Diagnóstico/Testes realizados</Label>
-                          <Textarea
+                          <AutocompleteTextarea
                             id="diagnosticoTestes"
                             value={formData.diagnosticoTestes}
                             onChange={(e) => setFormData({ ...formData, diagnosticoTestes: e.target.value })}
+                            suggestions={diagnosticoSuggestions}
                             rows={3}
                           />
                         </div>
 
                         <div className="space-y-2">
                           <Label htmlFor="solucao">Solução</Label>
-                          <Textarea
+                          <AutocompleteTextarea
                             id="solucao"
                             value={formData.solucao.length > SOLUCAO_MAX ? formData.solucao.slice(0, SOLUCAO_MAX) : formData.solucao}
                             onChange={e => {
                               const v = e.target.value;
                               setFormData({ ...formData, solucao: v.slice(0, SOLUCAO_MAX) });
                             }}
+                            suggestions={solucaoSuggestions}
                             rows={3}
                             maxLength={SOLUCAO_MAX}
                           />

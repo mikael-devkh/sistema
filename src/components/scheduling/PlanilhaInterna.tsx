@@ -101,6 +101,10 @@ export function PlanilhaInterna({ issues }: Props) {
   const [filterText, setFilterText] = useState('');
   const [filterClass, setFilterClass] = useState(ALL);
   const [filterStatus, setFilterStatus] = useState(ALL);
+  const [filterUf, setFilterUf] = useState(ALL);
+  const [filterSla, setFilterSla] = useState(ALL); // ALL | ok | warning | critical
+  const [onlyEscalonado, setOnlyEscalonado] = useState(false);
+  const [onlySemTec, setOnlySemTec] = useState(false);
 
   // Ordenação
   const [sortKey, setSortKey] = useState<SortKey | null>('loja');
@@ -139,6 +143,11 @@ export function PlanilhaInterna({ issues }: Props) {
     [issues],
   );
 
+  const ufs = useMemo(
+    () => [...new Set(issues.map(i => i.uf).filter(Boolean))].sort(),
+    [issues],
+  );
+
   const rows = useMemo(() => {
     let list = issues.map(issue => {
       const note = notes.get(issue.key) ?? {
@@ -170,6 +179,28 @@ export function PlanilhaInterna({ issues }: Props) {
       list = list.filter(r => r.issue.status === filterStatus);
     }
 
+    if (filterUf !== ALL) {
+      list = list.filter(r => r.issue.uf === filterUf);
+    }
+
+    if (filterSla !== ALL) {
+      list = list.filter(r => {
+        const sla = (r.issue.slaBadge || '').toLowerCase();
+        if (filterSla === 'critical') return sla.includes('estourado') || sla.includes('🔴');
+        if (filterSla === 'warning')  return sla.includes('alerta')    || sla.includes('🟡');
+        if (filterSla === 'ok')       return !sla.includes('alerta') && !sla.includes('estourado') && !sla.includes('🔴') && !sla.includes('🟡');
+        return true;
+      });
+    }
+
+    if (onlyEscalonado) {
+      list = list.filter(r => r.note.escalonado);
+    }
+
+    if (onlySemTec) {
+      list = list.filter(r => !r.note.tecnico?.trim());
+    }
+
     if (sortKey) {
       list.sort((a, b) => {
         let av = '', bv = '';
@@ -187,7 +218,7 @@ export function PlanilhaInterna({ issues }: Props) {
     }
 
     return list;
-  }, [issues, notes, filterText, filterClass, filterStatus, sortKey, sortDir]);
+  }, [issues, notes, filterText, filterClass, filterStatus, filterUf, filterSla, onlyEscalonado, onlySemTec, sortKey, sortDir]);
 
   // ── Sumário ──
   const summary = useMemo(() => ({
@@ -290,12 +321,17 @@ export function PlanilhaInterna({ issues }: Props) {
     }
   };
 
-  const hasFilters = filterText.trim() || filterClass !== ALL || filterStatus !== ALL;
+  const hasFilters = filterText.trim() || filterClass !== ALL || filterStatus !== ALL
+    || filterUf !== ALL || filterSla !== ALL || onlyEscalonado || onlySemTec;
 
   const clearFilters = () => {
     setFilterText('');
     setFilterClass(ALL);
     setFilterStatus(ALL);
+    setFilterUf(ALL);
+    setFilterSla(ALL);
+    setOnlyEscalonado(false);
+    setOnlySemTec(false);
   };
 
   // ── Cabeçalho de coluna ordenável ──
@@ -399,6 +435,54 @@ export function PlanilhaInterna({ issues }: Props) {
               ))}
             </SelectContent>
           </Select>
+
+          <Select value={filterUf} onValueChange={setFilterUf}>
+            <SelectTrigger className="h-7 w-24 text-xs bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600">
+              <SelectValue placeholder="UF" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL} className="text-xs font-medium">Todas UFs</SelectItem>
+              {ufs.map(u => (
+                <SelectItem key={u} value={u} className="text-xs font-mono">{u}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filterSla} onValueChange={setFilterSla}>
+            <SelectTrigger className="h-7 w-28 text-xs bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600">
+              <SelectValue placeholder="SLA" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}        className="text-xs font-medium">Todos SLAs</SelectItem>
+              <SelectItem value="ok"         className="text-xs text-green-700 dark:text-green-400">🟢 OK</SelectItem>
+              <SelectItem value="warning"    className="text-xs text-amber-700 dark:text-amber-400">🟡 Alerta</SelectItem>
+              <SelectItem value="critical"   className="text-xs text-red-700 dark:text-red-400">🔴 Estourado</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <button
+            onClick={() => setOnlyEscalonado(v => !v)}
+            className={cn(
+              'h-7 px-2.5 rounded-md border text-[11px] font-medium transition-colors whitespace-nowrap',
+              onlyEscalonado
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-primary/60',
+            )}
+          >
+            Escalonados
+          </button>
+
+          <button
+            onClick={() => setOnlySemTec(v => !v)}
+            className={cn(
+              'h-7 px-2.5 rounded-md border text-[11px] font-medium transition-colors whitespace-nowrap',
+              onlySemTec
+                ? 'bg-red-600 text-white border-red-600'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-red-400',
+            )}
+          >
+            Sem técnico
+          </button>
 
           {hasFilters && (
             <button

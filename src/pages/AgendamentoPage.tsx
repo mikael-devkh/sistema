@@ -23,6 +23,7 @@ import { TransitionPanel } from '../components/scheduling/TransitionPanel';
 import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
+import { MapaAgendamento } from '../components/scheduling/MapaAgendamento';
 
 import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
 import { cn } from '../lib/utils';
@@ -492,6 +493,7 @@ function ChamadosTab({
   const [subTab, setSubTab] = useState('pendentes');
   const [filterMode, setFilterMode] = useState<FilterMode>('both');
   const [ufFilter, setUfFilter] = useState('');
+  const [mapUfFilter, setMapUfFilter] = useState<string | null>(null);
 
   const allUfs = useMemo(() => {
     const ufs = new Set<string>();
@@ -752,6 +754,10 @@ export default function AgendamentoPage() {
           <TabsTrigger value="planilha" className="gap-1.5">
             Planilha
           </TabsTrigger>
+          <TabsTrigger value="mapa" className="gap-1.5">
+            <MapPin className="w-3.5 h-3.5" />
+            Mapa
+          </TabsTrigger>
         </TabsList>
 
         {/* ── Chamados (default) ── */}
@@ -817,6 +823,15 @@ export default function AgendamentoPage() {
         {/* ── Planilha ── */}
         <TabsContent value="planilha" className="mt-4">
           <PlanilhaInterna issues={allIssues} />
+        </TabsContent>
+
+        {/* ── Mapa ── */}
+        <TabsContent value="mapa" className="mt-4">
+          <MapaAgendamento
+            groups={allLojaGroups}
+            selectedUf={mapUfFilter}
+            onUfClick={uf => setMapUfFilter(uf)}
+          />
         </TabsContent>
       </Tabs>
 

@@ -63,6 +63,7 @@ const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
 const TechnicianRegisterPage = lazyWithRetry(() => import("./pages/TechnicianRegisterPage"));
 const TechniciansManagementPage = lazyWithRetry(() => import("./pages/TechniciansManagementPage"));
 import { RatAutofillProvider } from "./context/RatAutofillContext";
+import { FocusModeProvider } from "./context/FocusModeContext";
 import { useAuth } from "./context/AuthContext";
 import { GlobalSearch } from "./components/GlobalSearch";
 import { Loader2 } from "lucide-react";
@@ -347,6 +348,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <FocusModeProvider>
         <RatAutofillProvider>
             <GlobalSearch />
             <Routes>
@@ -519,6 +521,7 @@ const App = () => (
               <Route path="*" element={<React.Suspense fallback={<div className="flex min-h-[40vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}><NotFound /></React.Suspense>} />
             </Routes>
           </RatAutofillProvider>
+        </FocusModeProvider>
         </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

@@ -30,6 +30,8 @@ export interface LojaGroup {
   cep: string;
   /** true if qtd >= 5 OR last update > 7 days ago */
   isCritical: boolean;
+  /** Staleness based on lastUpdated age */
+  slaGroupStatus: 'ok' | 'warning' | 'critical';
   issues: SchedulingIssue[];
 }
 

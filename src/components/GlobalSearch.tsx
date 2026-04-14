@@ -153,9 +153,9 @@ export function GlobalSearch() {
           storeResult = {
             id: `store-${numQ}`,
             title: `Loja ${numQ}`,
-            description: 'Abrir Gerador de IP',
+            description: store.nomeLoja,
             type: 'store',
-            action: () => { navigate('/gerador-ip', { state: { loja: String(numQ) } }); setOpen(false); },
+            action: () => { navigate(`/loja/${numQ}`); setOpen(false); },
             icon: Store,
           };
         }

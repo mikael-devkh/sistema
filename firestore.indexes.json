@@ -1,6 +1,33 @@
 {
   "indexes": [
     {
+      "collectionGroup": "technicians",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uf",            "order": "ASCENDING"  },
+        { "fieldPath": "status",        "order": "ASCENDING"  },
+        { "fieldPath": "dataCadastro",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "technicians",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",        "order": "ASCENDING"  },
+        { "fieldPath": "disponivel",    "order": "ASCENDING"  },
+        { "fieldPath": "dataCadastro",  "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "technicians",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "cargo",         "order": "ASCENDING"  },
+        { "fieldPath": "status",        "order": "ASCENDING"  },
+        { "fieldPath": "dataCadastro",  "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "serviceReports",
       "queryScope": "COLLECTION",
       "fields": [

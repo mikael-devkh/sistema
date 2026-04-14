@@ -31,7 +31,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const base = getBase(cloudId, site);
   const url = `${base}/issue/${encodeURIComponent(issueKey)}`;
 
-  console.log('atualizar-fsa: updating', issueKey, 'fields:', Object.keys(fields));
+  // Build update payload: wrap each field in { set: value } under "update"
+  // This uses the Jira "update operations" approach instead of the "fields" shorthand,
+  // which is more compatible with paragraph/ADF custom fields.
+  const update: Record<string, [{ set: unknown }]> = {};
+  for (const [k, v] of Object.entries(fields)) {
+    update[k] = [{ set: v }];
+  }
+
+  const bodyToSend = JSON.stringify({ update });
+  console.log('atualizar-fsa: updating', issueKey);
+  console.log('atualizar-fsa: body sent to Jira =>', bodyToSend.substring(0, 2000));
 
   const response = await fetch(url, {
     method: 'PUT',
@@ -40,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'Accept': 'application/json',
       'Authorization': authHeader(email, token),
     },
-    body: JSON.stringify({ fields }),
+    body: bodyToSend,
   });
 
   if (!response.ok) {

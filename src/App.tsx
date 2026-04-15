@@ -16,6 +16,7 @@ const BaseConhecimentoPage = React.lazy(() => import("./pages/BaseConhecimentoPa
 const TemplatesRatPage = React.lazy(() => import("./pages/TemplatesRatPage"));
 const AgendamentoPage = React.lazy(() => import("./pages/AgendamentoPage"));
 const Loja360 = React.lazy(() => import("./pages/Loja360"));
+const DiarioBordoPage = React.lazy(() => import("./pages/DiarioBordoPage"));
 // Função helper para retry em caso de erro de carregamento (404, cache antigo, etc)
 const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
   return React.lazy(async () => {
@@ -456,6 +457,18 @@ const App = () => (
                     <AppLayout>
                       <React.Suspense fallback={<div className="flex min-h-[50vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
                         <AgendamentoPage />
+                      </React.Suspense>
+                    </AppLayout>
+                  </ProtectedRoute>
+                )}
+              />
+              <Route
+                path="/diario-bordo"
+                element={(
+                  <ProtectedRoute>
+                    <AppLayout>
+                      <React.Suspense fallback={<div className="flex min-h-[60vh] items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>}>
+                        <DiarioBordoPage />
                       </React.Suspense>
                     </AppLayout>
                   </ProtectedRoute>

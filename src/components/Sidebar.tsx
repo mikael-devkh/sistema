@@ -6,6 +6,7 @@ import {
   CalendarClock,
   LayoutTemplate,
   BookOpen,
+  ClipboardList,
   CircleUser,
   Settings,
   UserCog,
@@ -52,8 +53,9 @@ function buildGroups(isAdmin: boolean): NavGroupDef[] {
     {
       label: "Recursos",
       items: [
-        { to: "/templates-rat",     icon: LayoutTemplate, label: "Templates de RAT"     },
-        { to: "/base-conhecimento", icon: BookOpen,       label: "Base de Conhecimento" },
+        { to: "/templates-rat",     icon: LayoutTemplate,  label: "Templates de RAT"     },
+        { to: "/base-conhecimento", icon: BookOpen,        label: "Base de Conhecimento" },
+        { to: "/diario-bordo",      icon: ClipboardList,   label: "Diário de Bordo"      },
       ],
     },
     {

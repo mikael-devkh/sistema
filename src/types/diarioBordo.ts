@@ -5,7 +5,7 @@ export interface DiarioEntry {
   timestamp: number;
   data: string;              // YYYY-MM-DD
   tecnico: string;
-  loja: string;
+  cidade: string;
   descricaoProblema: string;
   gravidade: Gravidade;
   criadoPor: string;         // uid

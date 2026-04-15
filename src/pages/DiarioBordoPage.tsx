@@ -29,7 +29,7 @@ import {
   Filter,
   Plus,
   RefreshCw,
-  Store,
+  MapPin,
   Trash2,
   TrendingUp,
   User,
@@ -71,7 +71,7 @@ interface EntryFormProps {
   onSave: (fields: {
     data: string;
     tecnico: string;
-    loja: string;
+    cidade: string;
     descricaoProblema: string;
     gravidade: Gravidade;
   }) => Promise<void>;
@@ -82,18 +82,18 @@ function EntryForm({ onSave, onClose }: EntryFormProps) {
   const today = new Date().toISOString().slice(0, 10);
   const [data,    setData]    = useState(today);
   const [tecnico, setTecnico] = useState('');
-  const [loja,    setLoja]    = useState('');
+  const [cidade,  setCidade]  = useState('');
   const [desc,    setDesc]    = useState('');
   const [grav,    setGrav]    = useState<Gravidade>('media');
   const [saving,  setSaving]  = useState(false);
 
-  const valid = tecnico.trim() && loja.trim() && desc.trim();
+  const valid = tecnico.trim() && cidade.trim() && desc.trim();
 
   const handleSubmit = async () => {
     if (!valid) return;
     setSaving(true);
     try {
-      await onSave({ data, tecnico: tecnico.trim(), loja: loja.trim(), descricaoProblema: desc.trim(), gravidade: grav });
+      await onSave({ data, tecnico: tecnico.trim(), cidade: cidade.trim(), descricaoProblema: desc.trim(), gravidade: grav });
       onClose();
     } finally {
       setSaving(false);
@@ -133,11 +133,11 @@ function EntryForm({ onSave, onClose }: EntryFormProps) {
       </div>
 
       <div className="space-y-1.5">
-        <Label className="text-xs">Loja</Label>
+        <Label className="text-xs">Cidade</Label>
         <Input
-          placeholder="Nome ou código da loja…"
-          value={loja}
-          onChange={e => setLoja(e.target.value)}
+          placeholder="Nome da cidade…"
+          value={cidade}
+          onChange={e => setCidade(e.target.value)}
           className="h-9"
         />
       </div>
@@ -168,16 +168,16 @@ function EntryForm({ onSave, onClose }: EntryFormProps) {
 
 function RecurrencePanel({
   entries,
-  onFilterLoja,
+  onFilterCidade,
 }: {
   entries: DiarioEntry[];
-  onFilterLoja: (loja: string) => void;
+  onFilterCidade: (cidade: string) => void;
 }) {
-  const byLoja = useMemo(() => {
+  const byCidade = useMemo(() => {
     const m = new Map<string, { count: number; alta: number; last: string }>();
     for (const e of entries) {
-      const prev = m.get(e.loja) ?? { count: 0, alta: 0, last: '' };
-      m.set(e.loja, {
+      const prev = m.get(e.cidade) ?? { count: 0, alta: 0, last: '' };
+      m.set(e.cidade, {
         count: prev.count + 1,
         alta:  prev.alta + (e.gravidade === 'alta' ? 1 : 0),
         last:  prev.last < e.data ? e.data : prev.last,
@@ -188,25 +188,25 @@ function RecurrencePanel({
       .sort(([, a], [, b]) => b.count - a.count);
   }, [entries]);
 
-  if (byLoja.length === 0) return null;
+  if (byCidade.length === 0) return null;
 
   return (
     <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
       <div className="flex items-center gap-2">
         <TrendingUp className="w-4 h-4 text-amber-500 shrink-0" />
         <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
-          Lojas com ocorrências recorrentes
+          Cidades com ocorrências recorrentes
         </p>
       </div>
       <div className="space-y-2">
-        {byLoja.map(([loja, data]) => (
+        {byCidade.map(([cidade, data]) => (
           <button
-            key={loja}
-            onClick={() => onFilterLoja(loja)}
+            key={cidade}
+            onClick={() => onFilterCidade(cidade)}
             className="w-full flex items-center gap-3 rounded-lg bg-card border border-border px-3 py-2.5 text-sm hover:bg-muted/50 transition-colors text-left"
           >
-            <Store className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <span className="flex-1 font-medium truncate">{loja}</span>
+            <MapPin className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <span className="flex-1 font-medium truncate">{cidade}</span>
             {data.alta > 0 && (
               <Badge className="text-[10px] bg-red-500/15 text-red-500 border-red-500/30 border">
                 🔴 {data.alta} alta{data.alta !== 1 ? 's' : ''}
@@ -252,8 +252,8 @@ function EntryCard({
             {entry.tecnico}
           </span>
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Store className="w-3 h-3" />
-            {entry.loja}
+            <MapPin className="w-3 h-3" />
+            {entry.cidade}
           </span>
         </div>
         {currentUid === entry.criadoPor && (
@@ -304,7 +304,7 @@ export default function DiarioBordoPage() {
 
   const [sheetOpen,    setSheetOpen]    = useState(false);
   const [filterTec,    setFilterTec]    = useState('');
-  const [filterLoja,   setFilterLoja]   = useState('');
+  const [filterCidade,   setFilterCidade]   = useState('');
   const [filterGrav,   setFilterGrav]   = useState<Gravidade | 'todas'>('todas');
   const [filterDataDe, setFilterDataDe] = useState('');
   const [filterDataAte, setFilterDataAte] = useState('');
@@ -312,37 +312,37 @@ export default function DiarioBordoPage() {
 
   // Unique options for selects
   const tecnicos = useMemo(() => [...new Set(entries.map(e => e.tecnico))].sort(), [entries]);
-  const lojas    = useMemo(() => [...new Set(entries.map(e => e.loja))].sort(), [entries]);
+  const cidades  = useMemo(() => [...new Set(entries.map(e => e.cidade))].sort(),  [entries]);
 
   // Filtered list
   const filtered = useMemo(() => {
     return entries.filter(e => {
-      if (filterTec  && e.tecnico !== filterTec) return false;
-      if (filterLoja && !e.loja.toLowerCase().includes(filterLoja.toLowerCase())) return false;
+      if (filterTec    && e.tecnico !== filterTec) return false;
+      if (filterCidade && !e.cidade.toLowerCase().includes(filterCidade.toLowerCase())) return false;
       if (filterGrav !== 'todas' && e.gravidade !== filterGrav) return false;
       if (filterDataDe  && e.data < filterDataDe)  return false;
       if (filterDataAte && e.data > filterDataAte) return false;
       return true;
     });
-  }, [entries, filterTec, filterLoja, filterGrav, filterDataDe, filterDataAte]);
+  }, [entries, filterTec, filterCidade, filterGrav, filterDataDe, filterDataAte]);
 
-  const hasFilters = filterTec || filterLoja || filterGrav !== 'todas' || filterDataDe || filterDataAte;
+  const hasFilters = filterTec || filterCidade || filterGrav !== 'todas' || filterDataDe || filterDataAte;
 
   const clearFilters = () => {
     setFilterTec('');
-    setFilterLoja('');
+    setFilterCidade('');
     setFilterGrav('todas');
     setFilterDataDe('');
     setFilterDataAte('');
   };
 
-  const handleSave = async (fields: Parameters<typeof addEntry>[0] extends infer T ? Omit<T, 'timestamp' | 'criadoPor' | 'criadoPorEmail'> : never) => {
+  const handleSave = async (fields: { data: string; tecnico: string; cidade: string; descricaoProblema: string; gravidade: Gravidade }) => {
     await addEntry({
       ...fields,
       timestamp:      Date.now(),
       criadoPor:      user?.uid ?? '',
       criadoPorEmail: user?.email ?? 'desconhecido',
-    } as Parameters<typeof addEntry>[0]);
+    });
   };
 
   return (
@@ -401,11 +401,11 @@ export default function DiarioBordoPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-xs">Loja</Label>
+              <Label className="text-xs">Cidade</Label>
               <Input
-                placeholder="Buscar loja…"
-                value={filterLoja}
-                onChange={e => setFilterLoja(e.target.value)}
+                placeholder="Buscar cidade…"
+                value={filterCidade}
+                onChange={e => setFilterCidade(e.target.value)}
                 className="h-8 text-xs"
               />
             </div>
@@ -454,8 +454,8 @@ export default function DiarioBordoPage() {
             <span className="text-xs text-muted-foreground">Total de registros</span>
           </div>
           <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
-            <span className="text-2xl font-bold">{lojas.length}</span>
-            <span className="text-xs text-muted-foreground">Lojas envolvidas</span>
+            <span className="text-2xl font-bold">{cidades.length}</span>
+            <span className="text-xs text-muted-foreground">Cidades envolvidas</span>
           </div>
           <div className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
             <span className="text-2xl font-bold text-red-500">
@@ -474,7 +474,7 @@ export default function DiarioBordoPage() {
       {!loading && (
         <RecurrencePanel
           entries={entries}
-          onFilterLoja={loja => { setFilterLoja(loja); setShowFilters(true); }}
+          onFilterCidade={cidade => { setFilterCidade(cidade); setShowFilters(true); }}
         />
       )}
 

@@ -73,5 +73,9 @@ service cloud.firestore {
     match /knowledgeBase/{docId} {
       allow read, write: if isAuth();
     }
+
+    match /diarioBordo/{docId} {
+      allow read, write: if isAuth();
+    }
   }
 }

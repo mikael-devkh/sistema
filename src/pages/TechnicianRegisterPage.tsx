@@ -1,13 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase';
 import { generateTechnicianCode } from '../lib/technician-code-generator';
-import { createOrUpdateTechnician } from '../lib/technician-firestore';
+import { createTechnician, listParentTechnicians } from '../lib/technician-firestore';
+import { getCityCoords } from '../lib/brazilCityCoords';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '../components/ui/button';
@@ -16,12 +14,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '../components/ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Checkbox } from '../components/ui/checkbox';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Wand2 } from 'lucide-react';
 import type { TechnicianProfile } from '../types/technician';
+import { TECNICOS_EXEMPLO } from '../lib/seed-data';
 
 const technicianSchema = z.object({
-  email: z.string().email('E-mail inválido'),
-  password: z.string().min(6, 'Senha deve ter pelo menos 6 caracteres'),
   nome: z.string().min(2, 'Nome é obrigatório'),
   nomeCompleto: z.string().min(5, 'Nome completo é obrigatório'),
   cpf: z.string().optional(),
@@ -33,6 +30,13 @@ const technicianSchema = z.object({
   cidade: z.string().optional(),
   uf: z.string().length(2, 'UF deve ter 2 caracteres').optional(),
   endereco: z.string().optional(),
+  // Hierarquia pai/filho
+  tecnicoPaiId: z.string().optional(), // uid do técnico pai, '' = nenhum
+  pagamentoPara: z.enum(['self', 'parent']).default('self'),
+  // Área de atendimento
+  atendeArredores: z.boolean().default(false),
+  raioKm: z.string().optional(), // string no form; convertido para number no submit
+  // Pagamento
   banco: z.string().optional(),
   agencia: z.string().optional(),
   conta: z.string().optional(),
@@ -69,15 +73,54 @@ export default function TechnicianRegisterPage() {
       cargo: 'tecnico',
       especialidades: [],
       regiaoAtuacao: [],
+      tecnicoPaiId: '',
+      pagamentoPara: 'self',
+      atendeArredores: false,
+      raioKm: '',
     },
   });
 
-  // Debug
-  
+  // Técnicos pais disponíveis para seleção
+  const [parents, setParents] = useState<TechnicianProfile[]>([]);
+  const [loadingParents, setLoadingParents] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    setLoadingParents(true);
+    listParentTechnicians()
+      .then(list => { if (mounted) setParents(list); })
+      .catch(err => console.error('Erro ao carregar técnicos pais:', err))
+      .finally(() => { if (mounted) setLoadingParents(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const preencherExemplo = () => {
+    const ex = TECNICOS_EXEMPLO[Math.floor(Math.random() * TECNICOS_EXEMPLO.length)];
+    form.reset({
+      nome: ex.nome,
+      nomeCompleto: ex.nomeCompleto,
+      cpf: ex.cpf,
+      telefone: ex.telefone,
+      cargo: ex.cargo as any,
+      especialidades: ex.especialidades,
+      cidade: ex.cidade,
+      uf: ex.uf,
+      atendeArredores: ex.atendeArredores,
+      raioKm: ex.raioKm,
+      pagamentoPara: 'self',
+      tecnicoPaiId: '',
+      banco: ex.banco,
+      agencia: ex.agencia,
+      conta: ex.conta,
+      tipoConta: ex.tipoConta as any,
+      pix: ex.pix,
+    });
+  };
+
   if (!currentUser) {
     return <Navigate to="/" replace />;
   }
-  
+
   if (profile?.role !== 'admin') {
     return (
       <div className="max-w-4xl mx-auto py-8 px-4">
@@ -107,17 +150,29 @@ export default function TechnicianRegisterPage() {
       const codigoTecnico = await generateTechnicianCode();
       setGeneratedCode(codigoTecnico);
 
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        values.email,
-        values.password
-      );
-      const newUser = userCredential.user;
+      // Resolve dados do técnico pai (se selecionado)
+      const parent = values.tecnicoPaiId
+        ? parents.find(p => p.uid === values.tecnicoPaiId)
+        : undefined;
 
-      const technicianData: TechnicianProfile = {
-        uid: newUser.uid,
+      // Monta a área de atendimento se cidade/UF foram informados
+      let areaAtendimento: TechnicianProfile['areaAtendimento'] | undefined;
+      if (values.cidade && values.uf) {
+        const coords = getCityCoords(values.cidade, values.uf);
+        areaAtendimento = {
+          cidadeBase: values.cidade,
+          ufBase: values.uf,
+          coordenadas: coords ? { lat: coords[1], lng: coords[0] } : undefined,
+          atendeArredores: !!values.atendeArredores,
+          raioKm: values.atendeArredores && values.raioKm
+            ? Number(values.raioKm) || undefined
+            : undefined,
+          cidadesAdicionais: [],
+        };
+      }
+
+      const technicianData: Omit<TechnicianProfile, 'uid'> = {
         codigoTecnico,
-        email: values.email,
         nome: values.nome,
         nomeCompleto: values.nomeCompleto,
         cpf: values.cpf,
@@ -129,6 +184,12 @@ export default function TechnicianRegisterPage() {
         cidade: values.cidade,
         uf: values.uf,
         endereco: values.endereco,
+        areaAtendimento,
+        // Hierarquia
+        tecnicoPaiId: parent?.uid,
+        tecnicoPaiCodigo: parent?.codigoTecnico,
+        tecnicoPaiNome: parent?.nome,
+        pagamentoPara: values.pagamentoPara,
         pagamento: values.banco || values.agencia || values.conta || values.pix ? {
           banco: values.banco,
           agencia: values.agencia,
@@ -147,41 +208,20 @@ export default function TechnicianRegisterPage() {
         chamadosEmAndamento: 0,
       };
 
-      await createOrUpdateTechnician(technicianData);
+      await createTechnician(technicianData);
 
-      await setDoc(doc(db, 'users', newUser.uid), {
-        nome: values.nome,
-        matricula: codigoTecnico,
-        role: 'tecnico',
-        email: values.email,
-        createdAt: serverTimestamp(),
-      });
-      
       toast.success(`Técnico cadastrado com sucesso! Código: ${codigoTecnico}`, {
         duration: 5000,
       });
-      
-      // NÃO limpar o código gerado - manter visível
-      // form.reset(); // Comentar para não limpar o formulário imediatamente
-      // setGeneratedCode(null); // Manter o código visível
-      
-      // Aguardar um pouco para garantir que o Firestore salvou e o usuário veja o código
+
+      // Aguardar um pouco para o usuário ver o código gerado
       await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Redirecionar para a página de gestão
+
       navigate('/tecnicos');
 
     } catch (error: any) {
       console.error('Erro ao cadastrar técnico:', error);
-      let errorMessage = 'Erro ao cadastrar técnico';
-      
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Este e-mail já está cadastrado';
-      } else if (error.code === 'auth/weak-password') {
-        errorMessage = 'A senha é muito fraca';
-      }
-      
-      toast.error(errorMessage);
+      toast.error('Erro ao cadastrar técnico. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -191,46 +231,21 @@ export default function TechnicianRegisterPage() {
     <div className="max-w-4xl mx-auto py-8 px-4 animate-page-in">
       <Card>
         <CardHeader>
-          <CardTitle>Cadastrar Novo Técnico</CardTitle>
-          <CardDescription>
-            Preencha os dados para registrar um novo técnico na frota
-          </CardDescription>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle>Cadastrar Novo Técnico</CardTitle>
+              <CardDescription>
+                Preencha os dados para registrar um novo técnico na frota
+              </CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={preencherExemplo}>
+              <Wand2 className="w-3.5 h-3.5" /> Preencher exemplo
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              {/* Dados de Acesso */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Dados de Acesso</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>E-mail</FormLabel>
-                        <FormControl>
-                          <Input type="email" placeholder="tecnico@empresa.com" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="password"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Senha</FormLabel>
-                        <FormControl>
-                          <Input type="password" placeholder="Mínimo 6 caracteres" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              </div>
 
               {/* Dados Pessoais */}
               <div className="space-y-4">
@@ -329,7 +344,7 @@ export default function TechnicianRegisterPage() {
                     )}
                   />
                 </div>
-                
+
                 <FormField
                   control={form.control}
                   name="especialidades"
@@ -368,16 +383,16 @@ export default function TechnicianRegisterPage() {
                 />
               </div>
 
-              {/* Dados de Localização */}
+              {/* Dados de Localização e Área de Atendimento */}
               <div className="space-y-4">
-                <h3 className="text-lg font-semibold">Localização</h3>
+                <h3 className="text-lg font-semibold">Localização e Área de Atendimento</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="cidade"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Cidade</FormLabel>
+                        <FormLabel>Cidade base</FormLabel>
                         <FormControl>
                           <Input placeholder="São Paulo" {...field} />
                         </FormControl>
@@ -414,6 +429,110 @@ export default function TechnicianRegisterPage() {
                         <FormControl>
                           <Input placeholder="Rua, número" {...field} />
                         </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <FormField
+                    control={form.control}
+                    name="atendeArredores"
+                    render={({ field }) => (
+                      <FormItem className="flex items-start gap-3 space-y-0 rounded-md border p-3 md:col-span-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel className="font-medium">Atende arredores</FormLabel>
+                          <p className="text-xs text-muted-foreground">
+                            Marque se este técnico cobre cidades próximas dentro de um raio
+                          </p>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="raioKm"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Raio (km)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step={5}
+                            placeholder="Ex: 50"
+                            disabled={!form.watch('atendeArredores')}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+
+              {/* Hierarquia Pai/Filho */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-semibold">Hierarquia (Opcional)</h3>
+                <p className="text-xs text-muted-foreground">
+                  Use quando este técnico atende em nome de outro (subcontratado).
+                  O técnico pai pode receber o pagamento pelos chamados.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="tecnicoPaiId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Técnico pai</FormLabel>
+                        <Select
+                          onValueChange={v => field.onChange(v === 'none' ? '' : v)}
+                          value={field.value || 'none'}
+                          disabled={loadingParents}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Nenhum (técnico independente)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">Nenhum (técnico independente)</SelectItem>
+                            {parents.map(p => (
+                              <SelectItem key={p.uid} value={p.uid}>
+                                {p.codigoTecnico} — {p.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="pagamentoPara"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Pagamento vai para</FormLabel>
+                        <Select
+                          onValueChange={field.onChange}
+                          value={field.value}
+                          disabled={!form.watch('tecnicoPaiId')}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="self">O próprio técnico</SelectItem>
+                            <SelectItem value="parent">Técnico pai</SelectItem>
+                          </SelectContent>
+                        </Select>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -521,7 +640,7 @@ export default function TechnicianRegisterPage() {
                         Código do Técnico Gerado
                       </p>
                       <p className="text-xs text-green-700 dark:text-green-300 mt-1">
-                        Anote este código - ele será usado para identificar o técnico
+                        Anote este código — ele identifica o técnico no sistema
                       </p>
                     </div>
                   </div>
@@ -531,9 +650,6 @@ export default function TechnicianRegisterPage() {
                         {generatedCode}
                       </span>
                     </p>
-                  </div>
-                  <div className="mt-3 text-xs text-green-700 dark:text-green-300 text-center">
-                    📝 Verifique o console do navegador (F12) para ver os logs detalhados
                   </div>
                 </div>
               )}
@@ -558,4 +674,3 @@ export default function TechnicianRegisterPage() {
     </div>
   );
 }
-

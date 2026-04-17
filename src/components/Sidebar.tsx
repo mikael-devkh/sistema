@@ -12,6 +12,12 @@ import {
   UserCog,
   LogOut,
   Wrench,
+  BookMarked,
+  DollarSign,
+  ShieldCheck,
+  Package,
+  Map as MapIcon,
+  FlaskConical,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { signOut } from "firebase/auth";
@@ -24,6 +30,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
+import { usePendingCounts } from "../hooks/use-pending-counts";
 
 // ─── Estrutura de navegação ────────────────────────────────────────────────────
 
@@ -32,6 +39,8 @@ interface NavItemDef {
   icon: React.ElementType;
   label: string;
   adminOnly?: boolean;
+  badge?: number;
+  badgeTone?: 'blue' | 'amber' | 'red' | 'emerald' | 'primary';
 }
 
 interface NavGroupDef {
@@ -39,7 +48,22 @@ interface NavGroupDef {
   items: NavItemDef[];
 }
 
-function buildGroups(isAdmin: boolean): NavGroupDef[] {
+function buildGroups(
+  isAdmin: boolean,
+  role: string,
+  counts: {
+    chamadosValidacaoOp: number;
+    chamadosValidacaoFin: number;
+    chamadosRejeitados: number;
+    chamadosAprovados: number;
+    pagamentosPendentes: number;
+    estoqueBaixo: number;
+  },
+): NavGroupDef[] {
+  const canSeeChamados = role === 'admin' || role === 'operador' || role === 'financeiro';
+  const canSeeValidacao = role === 'admin' || role === 'operador' || role === 'financeiro';
+  const validacaoTotal = counts.chamadosValidacaoOp + counts.chamadosValidacaoFin;
+
   return [
     {
       label: "Principal",
@@ -51,11 +75,40 @@ function buildGroups(isAdmin: boolean): NavGroupDef[] {
       ],
     },
     {
+      label: "Chamados",
+      items: [
+        ...(canSeeChamados
+          ? [{
+              to: "/chamados", icon: ClipboardList, label: "Chamados",
+              badge: counts.chamadosRejeitados, badgeTone: 'red' as const,
+            }]
+          : []),
+        ...(canSeeValidacao
+          ? [{
+              to: "/validacao", icon: ShieldCheck, label: "Fila de Validação",
+              badge: validacaoTotal, badgeTone: 'blue' as const,
+            }]
+          : []),
+        {
+          to: "/pagamentos", icon: DollarSign, label: "Pagamentos",
+          badge: counts.chamadosAprovados + counts.pagamentosPendentes,
+          badgeTone: 'emerald' as const,
+        },
+        ...(canSeeChamados
+          ? [{
+              to: "/estoque", icon: Package, label: "Estoque",
+              badge: counts.estoqueBaixo, badgeTone: 'amber' as const,
+            }]
+          : []),
+      ],
+    },
+    {
       label: "Recursos",
       items: [
         { to: "/templates-rat",     icon: LayoutTemplate,  label: "Templates de RAT"     },
         { to: "/base-conhecimento", icon: BookOpen,        label: "Base de Conhecimento" },
         { to: "/diario-bordo",      icon: ClipboardList,   label: "Diário de Bordo"      },
+        { to: "/relatorios",        icon: FileText,        label: "Relatórios"           },
       ],
     },
     {
@@ -64,7 +117,12 @@ function buildGroups(isAdmin: boolean): NavGroupDef[] {
         { to: "/perfil",        icon: CircleUser, label: "Perfil"        },
         { to: "/configuracoes", icon: Settings,   label: "Configurações" },
         ...(isAdmin
-          ? [{ to: "/tecnicos", icon: UserCog, label: "Técnicos", adminOnly: true }]
+          ? [
+              { to: "/tecnicos",           icon: UserCog,       label: "Técnicos",             adminOnly: true },
+              { to: "/tecnicos/mapa",      icon: MapIcon,       label: "Mapa de Técnicos",     adminOnly: true },
+              { to: "/catalogo-servicos",  icon: BookMarked,    label: "Catálogo de Serviços", adminOnly: true },
+              { to: "/seed",               icon: FlaskConical,  label: "Dados de Teste",       adminOnly: true },
+            ]
           : []),
       ],
     },
@@ -73,12 +131,25 @@ function buildGroups(isAdmin: boolean): NavGroupDef[] {
 
 // ─── NavItem ──────────────────────────────────────────────────────────────────
 
+const BADGE_TONE_CLASS: Record<NonNullable<NavItemDef['badgeTone']>, string> = {
+  blue:    'bg-blue-500 text-white',
+  amber:   'bg-amber-500 text-white',
+  red:     'bg-red-500 text-white',
+  emerald: 'bg-emerald-500 text-white',
+  primary: 'bg-primary text-primary-foreground',
+};
+
 function NavItem({
   to,
   icon: Icon,
   label,
   collapsed,
+  badge,
+  badgeTone = 'primary',
 }: NavItemDef & { collapsed: boolean }) {
+  const showBadge = typeof badge === 'number' && badge > 0;
+  const badgeClass = BADGE_TONE_CLASS[badgeTone];
+
   const link = (
     <NavLink
       to={to}
@@ -95,8 +166,26 @@ function NavItem({
         )
       }
     >
-      <Icon className={cn("shrink-0 transition-colors", collapsed ? "w-[18px] h-[18px]" : "w-4 h-4")} />
+      <div className="relative shrink-0">
+        <Icon className={cn("transition-colors", collapsed ? "w-[18px] h-[18px]" : "w-4 h-4")} />
+        {collapsed && showBadge && (
+          <span className={cn(
+            "absolute -top-1 -right-1 min-w-[14px] h-[14px] rounded-full flex items-center justify-center text-[9px] font-bold px-1 leading-none ring-2 ring-card",
+            badgeClass,
+          )}>
+            {badge! > 99 ? '99+' : badge}
+          </span>
+        )}
+      </div>
       {!collapsed && <span className="flex-1 truncate leading-none">{label}</span>}
+      {!collapsed && showBadge && (
+        <span className={cn(
+          "shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold px-1.5 leading-none",
+          badgeClass,
+        )}>
+          {badge! > 99 ? '99+' : badge}
+        </span>
+      )}
     </NavLink>
   );
 
@@ -105,7 +194,10 @@ function NavItem({
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{label}</TooltipContent>
+      <TooltipContent side="right">
+        {label}
+        {showBadge && <span className="ml-1 opacity-70">({badge})</span>}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -116,7 +208,14 @@ function NavGroup({ label, items, collapsed }: NavGroupDef & { collapsed: boolea
   if (collapsed) {
     return (
       <div className="space-y-0.5">
-        <div className="mx-2 my-1.5 h-px bg-border/50" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="mx-2 my-1.5 h-px bg-border/50 cursor-default" />
+          </TooltipTrigger>
+          <TooltipContent side="right" className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            {label}
+          </TooltipContent>
+        </Tooltip>
         {items.map(item => <NavItem key={item.to} {...item} collapsed />)}
       </div>
     );
@@ -147,7 +246,9 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
   })();
 
   const isAdmin = profile?.role === "admin";
-  const groups  = buildGroups(isAdmin);
+  const role    = profile?.role ?? 'tecnico';
+  const pendingCounts = usePendingCounts(!!user);
+  const groups  = buildGroups(isAdmin, role, pendingCounts);
 
   const handleLogout = async () => {
     try {
@@ -162,10 +263,14 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
   };
 
   const initials  = user?.email ? user.email.slice(0, 2).toUpperCase() : "WT";
-  const roleLabel = profile?.role === "admin" ? "Admin" : "Técnico";
+  const ROLE_LABEL: Record<string, string> = {
+    admin: "Admin", operador: "Operador", financeiro: "Financeiro",
+    tecnico: "Técnico", visualizador: "Visualizador",
+  };
+  const roleLabel = ROLE_LABEL[profile?.role ?? ""] ?? "Técnico";
 
   return (
-    <TooltipProvider delayDuration={200}>
+    <TooltipProvider delayDuration={0}>
       <aside
         style={{ width: collapsed ? "56px" : "240px" }}
         className={cn(
@@ -221,7 +326,7 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
                 </TooltipContent>
               </Tooltip>
             ) : (
-              <div className="flex items-center gap-2.5 group/footer">
+              <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-primary/15 border border-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
                   {initials}
                 </div>
@@ -233,7 +338,8 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
                   <TooltipTrigger asChild>
                     <button
                       onClick={handleLogout}
-                      className="p-1.5 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover/footer:opacity-100"
+                      aria-label="Sair"
+                      className="p-1.5 rounded-md text-muted-foreground/50 hover:text-destructive hover:bg-destructive/10 transition-colors"
                     >
                       <LogOut className="w-[14px] h-[14px]" />
                     </button>

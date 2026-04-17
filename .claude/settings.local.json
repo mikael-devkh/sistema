@@ -5,7 +5,13 @@
       "Bash(ls -1 /c/Users/Outro/Documents/sistema-main/src/components/*.tsx)",
       "Bash(npm run:*)",
       "Bash(npx tsc:*)",
-      "Bash(./node_modules/.bin/tsc --noEmit)"
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(grep -E \"\\\\.\\(py\\)$\")",
+      "Bash(echo \"EXITCODE=$?\")",
+      "Read(//tmp/**)",
+      "Bash(firebase deploy *)",
+      "Bash(npx firebase *)",
+      "Bash(xargs grep *)"
     ]
   }
 }

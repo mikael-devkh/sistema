@@ -74,7 +74,7 @@ const ProfilePage = () => {
         },
         { merge: true },
       );
-      updateProfileLocally({ nome: nome.trim(), matricula: matricula.trim(), avatarUrl });
+      updateProfileLocally({ ...profile, nome: nome.trim(), matricula: matricula.trim(), avatarUrl });
       toast.success("Perfil salvo! Suas RATs usarão estes dados automaticamente.");
       await refreshProfile();
     } catch {
@@ -91,7 +91,11 @@ const ProfilePage = () => {
       .map(s => s[0]?.toUpperCase() ?? "")
       .join("") || "U";
 
-  const roleLabel = profile?.role === "admin" ? "Administrador" : "Técnico";
+  const roleLabelMap: Record<string, string> = {
+    admin: 'Administrador', operador: 'Operador', financeiro: 'Financeiro',
+    tecnico: 'Técnico', visualizador: 'Visualizador',
+  };
+  const roleLabel = profile?.role ? (roleLabelMap[profile.role] ?? 'Técnico') : 'Técnico';
 
   return (
     <div className="max-w-2xl mx-auto py-6 space-y-5 pb-10 animate-page-in">

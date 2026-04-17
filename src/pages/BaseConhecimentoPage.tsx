@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
 import { ScrollArea } from "../components/ui/scroll-area";
@@ -10,6 +10,8 @@ import { ProcedureEditorDialog } from "../components/ProcedureEditorDialog";
 import { useKnowledgeBase, type ProcedureWithVotes } from "../hooks/use-knowledge-base";
 import { Skeleton } from "../components/ui/skeleton";
 import { Button } from "../components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../components/ui/dialog";
+import { Label } from "../components/ui/label";
 import { toast } from "sonner";
 
 const renderProcedureContent = (content: string) =>
@@ -45,6 +47,10 @@ export default function BaseConhecimentoPage() {
   const { procedures, loading, addProcedure, updateProcedure, deleteProcedure, voteProcedure, resetToDefaults } = useKnowledgeBase();
   const [searchTerm, setSearchTerm] = useState("");
   const [editingEnabled, setEditingEnabled] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const renamingProc = useRef<ProcedureWithVotes | null>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
 
   const filteredProcedures = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -67,11 +73,19 @@ export default function BaseConhecimentoPage() {
     toast.success("Procedimento criado.");
   };
 
-  const handleRename = async (proc: ProcedureWithVotes) => {
+  const handleRename = (proc: ProcedureWithVotes) => {
     if (!editingEnabled) { toast.info("Ative o modo de edição para renomear."); return; }
-    const name = window.prompt("Novo título", proc.title);
-    if (!name) return;
-    await updateProcedure({ ...proc, title: name });
+    renamingProc.current = proc;
+    setRenameValue(proc.title);
+    setRenameOpen(true);
+    setTimeout(() => renameInputRef.current?.select(), 50);
+  };
+
+  const handleRenameConfirm = async () => {
+    const proc = renamingProc.current;
+    if (!proc || !renameValue.trim()) return;
+    setRenameOpen(false);
+    await updateProcedure({ ...proc, title: renameValue.trim() });
   };
 
   const handleDelete = async (proc: ProcedureWithVotes) => {
@@ -88,6 +102,27 @@ export default function BaseConhecimentoPage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-page-in">
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear procedimento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 py-2">
+            <Label htmlFor="rename-input">Novo título</Label>
+            <Input
+              id="rename-input"
+              ref={renameInputRef}
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleRenameConfirm()}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRenameOpen(false)}>Cancelar</Button>
+            <Button onClick={handleRenameConfirm} disabled={!renameValue.trim()}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Header */}
       <div className="rounded-xl border border-border bg-card overflow-hidden">
         <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />

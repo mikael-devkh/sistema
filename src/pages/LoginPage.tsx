@@ -107,7 +107,8 @@ const LoginPage = () => {
 
       const loggedUser = userCredential.user;
 
-      if (!loggedUser.emailVerified) {
+      // Em produção, exige verificação de e-mail. Em dev, pula para facilitar testes.
+      if (!import.meta.env.DEV && !loggedUser.emailVerified) {
         await signOut(auth);
         toast.error(
           "Seu e-mail ainda não foi verificado. Confira sua caixa de entrada antes de acessar."

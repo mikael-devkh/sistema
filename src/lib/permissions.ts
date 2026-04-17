@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'tecnico' | 'visualizador';
+export type Role = 'admin' | 'operador' | 'financeiro' | 'tecnico' | 'visualizador';
 
 export interface Permissions {
   canCreateRat: boolean;
@@ -7,6 +7,16 @@ export interface Permissions {
   canViewReports: boolean;
   canManageTemplates: boolean;
   canManageUsers: boolean;
+  // Chamados
+  canRegisterChamado: boolean;
+  canValidateOperador: boolean;
+  canValidateFinanceiro: boolean;
+  canGeneratePayment: boolean;
+  canManageCatalogo: boolean;
+  // Estoque
+  canManageEstoque: boolean;
+  // Financeiro
+  canViewFinancialValues: boolean;
 }
 
 const rolePermissions: Record<Role, Permissions> = {
@@ -17,6 +27,43 @@ const rolePermissions: Record<Role, Permissions> = {
     canViewReports: true,
     canManageTemplates: true,
     canManageUsers: true,
+    canRegisterChamado: true,
+    canValidateOperador: true,
+    canValidateFinanceiro: true,
+    canGeneratePayment: true,
+    canManageCatalogo: true,
+    canManageEstoque: true,
+    canViewFinancialValues: true,
+  },
+  operador: {
+    canCreateRat: false,
+    canEditRat: false,
+    canDeleteRat: false,
+    canViewReports: true,
+    canManageTemplates: false,
+    canManageUsers: false,
+    canRegisterChamado: true,
+    canValidateOperador: true,
+    canValidateFinanceiro: false,
+    canGeneratePayment: false,
+    canManageCatalogo: false,
+    canManageEstoque: true,
+    canViewFinancialValues: false,
+  },
+  financeiro: {
+    canCreateRat: false,
+    canEditRat: false,
+    canDeleteRat: false,
+    canViewReports: true,
+    canManageTemplates: false,
+    canManageUsers: false,
+    canRegisterChamado: true,
+    canValidateOperador: true,
+    canValidateFinanceiro: true,
+    canGeneratePayment: true,
+    canManageCatalogo: true,
+    canManageEstoque: true,
+    canViewFinancialValues: true,
   },
   tecnico: {
     canCreateRat: true,
@@ -25,6 +72,13 @@ const rolePermissions: Record<Role, Permissions> = {
     canViewReports: true,
     canManageTemplates: false,
     canManageUsers: false,
+    canRegisterChamado: false,
+    canValidateOperador: false,
+    canValidateFinanceiro: false,
+    canGeneratePayment: false,
+    canManageCatalogo: false,
+    canManageEstoque: false,
+    canViewFinancialValues: false,
   },
   visualizador: {
     canCreateRat: false,
@@ -33,22 +87,21 @@ const rolePermissions: Record<Role, Permissions> = {
     canViewReports: true,
     canManageTemplates: false,
     canManageUsers: false,
+    canRegisterChamado: false,
+    canValidateOperador: false,
+    canValidateFinanceiro: false,
+    canGeneratePayment: false,
+    canManageCatalogo: false,
+    canManageEstoque: false,
+    canViewFinancialValues: false,
   },
 };
 
-export function getUserRole(userId: string, profileRole?: string): Role {
-  // Priorizar role do profile (Firestore)
-  if (profileRole === 'admin' || profileRole === 'tecnico' || profileRole === 'visualizador') {
+export function getUserRole(_userId: string, profileRole?: string): Role {
+  if (profileRole === 'admin' || profileRole === 'operador' || profileRole === 'financeiro' || profileRole === 'tecnico' || profileRole === 'visualizador') {
     return profileRole;
   }
-  
-  // Buscar do localStorage como fallback
-  const stored = localStorage.getItem(`user_role_${userId}`);
-  if (stored === 'admin' || stored === 'tecnico' || stored === 'visualizador') {
-    return stored;
-  }
-  
-  return 'tecnico'; // Default
+  return 'visualizador';
 }
 
 export function getUserPermissions(role: Role): Permissions {

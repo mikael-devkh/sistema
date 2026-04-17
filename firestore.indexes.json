@@ -1,6 +1,41 @@
 {
   "indexes": [
     {
+      "collectionGroup": "chamados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",       "order": "ASCENDING"  },
+        { "fieldPath": "registradoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chamados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tecnicoId",    "order": "ASCENDING"  },
+        { "fieldPath": "registradoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chamados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",          "order": "ASCENDING"  },
+        { "fieldPath": "pagamentoId",     "order": "ASCENDING"  },
+        { "fieldPath": "dataAtendimento", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "chamados",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tecnicoId",       "order": "ASCENDING"  },
+        { "fieldPath": "status",          "order": "ASCENDING"  },
+        { "fieldPath": "pagamentoId",     "order": "ASCENDING"  },
+        { "fieldPath": "dataAtendimento", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "technicians",
       "queryScope": "COLLECTION",
       "fields": [

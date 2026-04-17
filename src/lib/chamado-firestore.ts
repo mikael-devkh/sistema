@@ -1,0 +1,301 @@
+import {
+  collection,
+  doc,
+  addDoc,
+  updateDoc,
+  getDocs,
+  getDoc,
+  query,
+  orderBy,
+  where,
+  serverTimestamp,
+  Timestamp,
+  limit,
+} from 'firebase/firestore';
+import { db } from '../firebase';
+import type { Chamado, ChamadoStatus, HistoricoEntry } from '../types/chamado';
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function tsToMs(val: unknown): number {
+  if (!val) return Date.now();
+  if (val instanceof Timestamp) return val.toMillis();
+  if (typeof val === 'number') return val;
+  return Date.now();
+}
+
+function mapDoc(d: any): Chamado {
+  const data = d.data();
+  return {
+    id: d.id,
+    fsa: data.fsa ?? '',
+    codigoLoja: data.codigoLoja ?? '',
+    tecnicoId: data.tecnicoId ?? '',
+    tecnicoNome: data.tecnicoNome ?? '',
+    tecnicoCodigo: data.tecnicoCodigo ?? undefined,
+    tecnicoPaiId: data.tecnicoPaiId ?? undefined,
+    tecnicoPaiCodigo: data.tecnicoPaiCodigo ?? undefined,
+    pagamentoDestino: data.pagamentoDestino ?? undefined,
+    catalogoServicoId: data.catalogoServicoId ?? undefined,
+    catalogoServicoNome: data.catalogoServicoNome ?? undefined,
+    dataAtendimento: data.dataAtendimento ?? '',
+    horaInicio: data.horaInicio ?? undefined,
+    horaFim: data.horaFim ?? undefined,
+    durationMinutes: data.durationMinutes ?? undefined,
+    itensAdicionais: data.itensAdicionais ?? undefined,
+    pecaUsada: data.pecaUsada ?? undefined,
+    custoPeca: data.custoPeca ?? undefined,
+    fornecedorPeca: data.fornecedorPeca ?? undefined,
+    linkPlataforma: data.linkPlataforma ?? undefined,
+    observacoes: data.observacoes ?? undefined,
+    status: data.status ?? 'rascunho',
+    historico: data.historico ?? [],
+    motivoRejeicao: data.motivoRejeicao ?? undefined,
+    pagamentoId: data.pagamentoId ?? null,
+    registradoPor: data.registradoPor ?? '',
+    registradoPorNome: data.registradoPorNome ?? '',
+    registradoEm: tsToMs(data.registradoEm),
+    atualizadoEm: tsToMs(data.atualizadoEm),
+  };
+}
+
+const COL = 'chamados';
+
+// ─── CRUD ─────────────────────────────────────────────────────────────────────
+
+export type NovoChamadoPayload = Omit<
+  Chamado,
+  'id' | 'status' | 'historico' | 'pagamentoId' | 'registradoEm' | 'atualizadoEm' | 'motivoRejeicao'
+>;
+
+export async function createChamado(
+  payload: NovoChamadoPayload,
+  submitImediato = false,
+): Promise<Chamado> {
+  const status: ChamadoStatus = submitImediato ? 'submetido' : 'rascunho';
+  const entrada: HistoricoEntry = {
+    status,
+    por: payload.registradoPor,
+    porNome: payload.registradoPorNome,
+    em: Date.now(),
+    observacao: submitImediato ? 'Chamado registrado e submetido' : 'Rascunho criado',
+  };
+
+  const ref = await addDoc(collection(db, COL), {
+    ...payload,
+    status,
+    historico: [entrada],
+    pagamentoId: null,
+    motivoRejeicao: null,
+    registradoEm: serverTimestamp(),
+    atualizadoEm: serverTimestamp(),
+  });
+
+  const snap = await getDoc(ref);
+  return mapDoc(snap);
+}
+
+export async function updateChamado(
+  id: string,
+  payload: Partial<Omit<Chamado, 'id' | 'historico' | 'registradoEm'>>,
+): Promise<void> {
+  await updateDoc(doc(db, COL, id), {
+    ...payload,
+    atualizadoEm: serverTimestamp(),
+  });
+}
+
+export async function listChamados(filters?: {
+  status?: ChamadoStatus;
+  tecnicoId?: string;
+  de?: string;
+  ate?: string;
+  limitCount?: number;
+}): Promise<Chamado[]> {
+  const hasFilter = filters?.status || filters?.tecnicoId;
+
+  // Quando há filtros (where) + orderBy no mesmo campo diferente, o Firestore
+  // exige índice composto. Para evitar erro enquanto o índice não está criado,
+  // fazemos a ordenação no cliente.
+  const constraints: any[] = [];
+
+  if (filters?.status)   constraints.push(where('status',    '==', filters.status));
+  if (filters?.tecnicoId) constraints.push(where('tecnicoId', '==', filters.tecnicoId));
+
+  // Só adiciona orderBy se não há filtros (índice simples, sempre disponível)
+  if (!hasFilter) constraints.push(orderBy('registradoEm', 'desc'));
+
+  if (filters?.limitCount && !hasFilter) constraints.push(limit(filters.limitCount));
+
+  try {
+    const snap = await getDocs(query(collection(db, COL), ...constraints));
+    let results = snap.docs.map(mapDoc);
+
+    // Ordenação e filtros client-side
+    results.sort((a, b) => b.registradoEm - a.registradoEm);
+
+    if (filters?.limitCount) results = results.slice(0, filters.limitCount);
+
+    if (filters?.de || filters?.ate) {
+      results = results.filter(c => {
+        if (filters.de && c.dataAtendimento < filters.de) return false;
+        if (filters.ate && c.dataAtendimento > filters.ate) return false;
+        return true;
+      });
+    }
+
+    return results;
+  } catch (err: any) {
+    // Fallback: se ainda houver erro de índice, busca tudo e filtra no cliente
+    if (err.code === 'failed-precondition' || err.message?.includes('index')) {
+      console.warn('⚠️ Índice Firestore ausente, buscando todos e filtrando no cliente…');
+      const snap = await getDocs(collection(db, COL));
+      let results = snap.docs.map(mapDoc);
+
+      if (filters?.status)    results = results.filter(c => c.status === filters.status);
+      if (filters?.tecnicoId) results = results.filter(c => c.tecnicoId === filters.tecnicoId);
+      if (filters?.de)        results = results.filter(c => c.dataAtendimento >= filters.de!);
+      if (filters?.ate)       results = results.filter(c => c.dataAtendimento <= filters.ate!);
+
+      results.sort((a, b) => b.registradoEm - a.registradoEm);
+      if (filters?.limitCount) results = results.slice(0, filters.limitCount);
+      return results;
+    }
+    throw err;
+  }
+}
+
+export async function getChamado(id: string): Promise<Chamado | null> {
+  const snap = await getDoc(doc(db, COL, id));
+  if (!snap.exists()) return null;
+  return mapDoc(snap);
+}
+
+// ─── Transições de status ─────────────────────────────────────────────────────
+
+async function transicionar(
+  id: string,
+  novoStatus: ChamadoStatus,
+  entrada: HistoricoEntry,
+  extraFields?: Record<string, unknown>,
+): Promise<void> {
+  const chamado = await getChamado(id);
+  if (!chamado) throw new Error('Chamado não encontrado');
+
+  await updateDoc(doc(db, COL, id), {
+    status: novoStatus,
+    historico: [...chamado.historico, entrada],
+    motivoRejeicao: extraFields?.motivoRejeicao ?? chamado.motivoRejeicao ?? null,
+    ...extraFields,
+    atualizadoEm: serverTimestamp(),
+  });
+}
+
+/** Operador/Admin: submeter rascunho para fila de validação */
+export async function submeterChamado(
+  id: string,
+  por: string,
+  porNome: string,
+): Promise<void> {
+  await transicionar(id, 'submetido', {
+    status: 'submetido',
+    por,
+    porNome,
+    em: Date.now(),
+    observacao: 'Submetido para validação de upload',
+  });
+}
+
+/** Operador/Admin: validar upload (1ª etapa) */
+export async function validarOperador(
+  id: string,
+  por: string,
+  porNome: string,
+  observacao?: string,
+): Promise<void> {
+  await transicionar(id, 'validado_operador', {
+    status: 'validado_operador',
+    por,
+    porNome,
+    em: Date.now(),
+    observacao: observacao || 'Upload validado pelo operador',
+  });
+}
+
+/** Financeiro/Admin: validar valores (2ª etapa) */
+export async function validarFinanceiro(
+  id: string,
+  por: string,
+  porNome: string,
+  observacao?: string,
+): Promise<void> {
+  await transicionar(id, 'validado_financeiro', {
+    status: 'validado_financeiro',
+    por,
+    porNome,
+    em: Date.now(),
+    observacao: observacao || 'Valores validados pelo financeiro',
+  });
+}
+
+/** Qualquer validador: rejeitar */
+export async function rejeitarChamado(
+  id: string,
+  por: string,
+  porNome: string,
+  motivo: string,
+): Promise<void> {
+  await transicionar(
+    id,
+    'rejeitado',
+    { status: 'rejeitado', por, porNome, em: Date.now(), observacao: motivo },
+    { motivoRejeicao: motivo },
+  );
+}
+
+/** Operador: resubmeter chamado rejeitado após correção */
+export async function resubmeterChamado(
+  id: string,
+  por: string,
+  porNome: string,
+  atualizacoes: Partial<Omit<Chamado, 'id' | 'historico' | 'status' | 'registradoEm'>>,
+): Promise<void> {
+  const chamado = await getChamado(id);
+  if (!chamado) throw new Error('Chamado não encontrado');
+
+  const entrada: HistoricoEntry = {
+    status: 'submetido',
+    por,
+    porNome,
+    em: Date.now(),
+    observacao: 'Corrigido e resubmetido',
+  };
+
+  await updateDoc(doc(db, COL, id), {
+    ...atualizacoes,
+    status: 'submetido',
+    motivoRejeicao: null,
+    historico: [...chamado.historico, entrada],
+    atualizadoEm: serverTimestamp(),
+  });
+}
+
+/** Busca chamados prontos para pagamento (validado_financeiro, sem pagamentoId) */
+export async function fetchChamadosParaPagamento(
+  de: string,
+  ate: string,
+  tecnicoId?: string,
+): Promise<Chamado[]> {
+  const constraints: any[] = [
+    where('status', '==', 'validado_financeiro'),
+    where('pagamentoId', '==', null),
+    orderBy('dataAtendimento', 'desc'),
+    limit(500),
+  ];
+  if (tecnicoId) constraints.unshift(where('tecnicoId', '==', tecnicoId));
+
+  const snap = await getDocs(query(collection(db, COL), ...constraints));
+  return snap.docs
+    .map(mapDoc)
+    .filter(c => c.dataAtendimento >= de && c.dataAtendimento <= ate);
+}

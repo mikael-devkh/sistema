@@ -44,6 +44,12 @@ export interface ActiveCall {
   openedAt: string;
   timeStarted: number | null;
   timeTotalServiceMinutes: number;
+  // Campos do catálogo de serviços
+  catalogoServicoId?: string;
+  catalogoServicoNome?: string;
+  pecaUsada?: string;
+  custoPeca?: number;
+  fornecedorPeca?: "Tecnico" | "Empresa";
 }
 
 interface NewCallPayload {
@@ -51,6 +57,11 @@ interface NewCallPayload {
   fsa: string;
   codigoLoja: string;
   pdv?: string;
+  catalogoServicoId?: string;
+  catalogoServicoNome?: string;
+  pecaUsada?: string;
+  custoPeca?: number;
+  fornecedorPeca?: "Tecnico" | "Empresa";
 }
 
 export interface GroupedCallBucket {
@@ -288,6 +299,11 @@ export const ServiceManagerProvider = ({
         openedAt: new Date().toISOString(),
         timeStarted: null,
         timeTotalServiceMinutes: 0,
+        catalogoServicoId: payload.catalogoServicoId,
+        catalogoServicoNome: payload.catalogoServicoNome,
+        pecaUsada: payload.pecaUsada,
+        custoPeca: payload.custoPeca,
+        fornecedorPeca: payload.fornecedorPeca,
       };
 
       return [newCall, ...prev];

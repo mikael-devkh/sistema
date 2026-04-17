@@ -1,19 +1,17 @@
 export type PdfSolutionFontPref = "auto" | "10" | "9" | "8";
 
 export interface UserPreferences {
-  pdfSolutionFont?: PdfSolutionFontPref; // tamanho de fonte preferido para Solução
-  defaultTemplateKey?: string; // chave curta (ex.: cpu, zebra, none)
-  palette?: string; // tema/paleta
-  reduceMotion?: boolean; // reduzir animações
-  webhookUrl?: string;
-  externalApiKey?: string;
+  pdfSolutionFont?: PdfSolutionFontPref;
+  defaultTemplateKey?: string;
+  palette?: string;
+  reduceMotion?: boolean;
   // Jira custom fields mapping (names or IDs, e.g., customfield_12345)
   jiraAddressField?: string;
   jiraCityField?: string;
   jiraStateField?: string;
   jiraStoreField?: string;
   jiraPdvField?: string;
-  subirAoJira?: boolean; // checkbox padrão na geração de RAT
+  subirAoJira?: boolean;
 }
 
 const PREFS_KEY = "wt_user_preferences_v1";

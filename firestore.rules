@@ -14,39 +14,92 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function userRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isFinanceiroOrAbove() {
+      return isAuth() && userRole() in ['admin', 'financeiro'];
+    }
+
+    function isAnyStaff() {
+      return isAuth() && userRole() in ['admin', 'operador', 'financeiro'];
+    }
+
     // ── User profiles ─────────────────────────────────────────────────────────
-    // Any authenticated user can read profiles (needed for team-aware features).
-    // Each user can only write their own profile; admins can write any.
     match /users/{userId} {
       allow read:  if isAuth();
       allow write: if isAuth() && (request.auth.uid == userId || isAdmin());
     }
 
-    // ── Reference / roster data ───────────────────────────────────────────────
+    // ── Técnicos ──────────────────────────────────────────────────────────────
     match /technicians/{docId} {
       allow read:  if isAuth();
       allow write: if isAdmin();
     }
 
+    // ── Clientes e Catálogo de Serviços ──────────────────────────────────────
+    // Somente admin cria/edita clientes e serviços do catálogo.
+    match /clientes/{docId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    match /catalogoServicos/{docId} {
+      allow read:  if isAuth();
+      allow write: if isAdmin();
+    }
+
+    // ── Chamados ──────────────────────────────────────────────────────────────
+    // Qualquer usuário da equipe pode ler chamados.
+    // Criação/edição: operador, admin.
+    // Transições de status (validação/rejeição): operador ou financeiro, conforme etapa.
+    match /chamados/{docId} {
+      allow read:   if isAuth();
+      allow create: if isAnyStaff();
+      allow update: if isAnyStaff();
+      allow delete: if isAdmin();
+    }
+
+    // ── Pagamentos ────────────────────────────────────────────────────────────
+    match /pagamentos/{docId} {
+      allow read:   if isAuth();
+      allow create: if isFinanceiroOrAbove();
+      allow update: if isFinanceiroOrAbove();
+      allow delete: if isAdmin();
+    }
+
+    // ── Estoque ───────────────────────────────────────────────────────────────
+    match /estoqueItens/{docId} {
+      allow read:   if isAuth();
+      allow write:  if isAnyStaff();
+    }
+
+    match /movimentosEstoque/{docId} {
+      allow read:   if isAuth();
+      allow create: if isAnyStaff();
+      allow update, delete: if isAdmin();
+    }
+
+    // ── FSAs e Atribuições ────────────────────────────────────────────────────
     match /fsas/{docId} {
       allow read:  if isAuth();
       allow write: if isAdmin();
     }
 
     match /assignments/{docId} {
-      allow read:         if isAuth();
-      allow create,update: if isAuth();
-      allow delete:       if isAdmin();
+      allow read:           if isAuth();
+      allow create, update: if isAnyStaff();
+      allow delete:         if isAdmin();
     }
 
     match /activity/{docId} {
-      allow read:   if isAuth();
-      allow create: if isAuth();
+      allow read:           if isAuth();
+      allow create:         if isAuth();
       allow update, delete: if isAdmin();
     }
 
     // ── Per-user data (RAT history & templates) ───────────────────────────────
-    // Users can only access documents they own; admins can access all.
     match /serviceReports/{docId} {
       allow read, delete, update: if isAuth() && resource.data.userId == request.auth.uid;
       allow create:               if isAuth() && request.resource.data.userId == request.auth.uid;
@@ -61,17 +114,18 @@ service cloud.firestore {
     }
 
     // ── Shared team collections ───────────────────────────────────────────────
-    // Any authenticated user can read and write (team-shared state).
     match /schedulingNotes/{docId} {
       allow read, write: if isAuth();
     }
 
     match /sharedData/{docId} {
-      allow read, write: if isAuth();
+      allow read:  if isAuth();
+      allow write: if isAnyStaff();
     }
 
     match /knowledgeBase/{docId} {
-      allow read, write: if isAuth();
+      allow read:  if isAuth();
+      allow write: if isAdmin();
     }
 
     match /diarioBordo/{docId} {

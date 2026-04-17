@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
 } from '../components/ui/alert-dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Plus, Search, Download } from 'lucide-react';
+import { Plus, Search, Download, Map as MapIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import type { TechnicianProfile } from '../types/technician';
 
@@ -297,6 +297,14 @@ export default function TechniciansManagementPage() {
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate('/tecnicos/mapa')}
+            >
+              <MapIcon className="mr-1.5 h-4 w-4" />
+              Mapa
+            </Button>
             <Button
               variant="outline"
               size="sm"

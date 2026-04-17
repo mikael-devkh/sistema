@@ -18,7 +18,7 @@ const TrendChart = lazy(() =>
   import('../components/scheduling/TrendChart').then(m => ({ default: m.TrendChart }))
 );
 import { StoreHighlights } from '../components/scheduling/StoreHighlights';
-import { LojaExpander } from '../components/scheduling/LojaExpander';
+import { LojaExpander, type RelatedGroup } from '../components/scheduling/LojaExpander';
 import { TransitionPanel } from '../components/scheduling/TransitionPanel';
 import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
@@ -31,6 +31,96 @@ const MapaAgendamento = lazy(() =>
 import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+
+// ─── Sort ─────────────────────────────────────────────────────────────────────
+
+type SortOption =
+  | 'cidade-asc' | 'cidade-desc'
+  | 'loja-asc'   | 'loja-desc'
+  | 'qtd-desc'   | 'qtd-asc'
+  | 'sla-worst'  | 'sla-best'
+  | 'updated-oldest' | 'updated-newest'
+  | 'agenda-asc' | 'agenda-desc';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'cidade-asc',      label: 'Cidade A → Z' },
+  { value: 'cidade-desc',     label: 'Cidade Z → A' },
+  { value: 'loja-asc',        label: 'Loja A → Z' },
+  { value: 'loja-desc',       label: 'Loja Z → A' },
+  { value: 'qtd-desc',        label: 'Mais chamados' },
+  { value: 'qtd-asc',         label: 'Menos chamados' },
+  { value: 'sla-worst',       label: 'SLA mais crítico' },
+  { value: 'sla-best',        label: 'SLA ok primeiro' },
+  { value: 'updated-oldest',  label: 'Sem update há mais tempo' },
+  { value: 'updated-newest',  label: 'Atualizado recentemente' },
+];
+
+const SORT_OPTIONS_AGENDA: { value: SortOption; label: string }[] = [
+  { value: 'agenda-asc',  label: 'Data agendada ↑ (mais próxima)' },
+  { value: 'agenda-desc', label: 'Data agendada ↓ (mais distante)' },
+  ...SORT_OPTIONS,
+];
+
+function slaRank(g: LojaGroup): number {
+  const issueRank = Math.max(0, ...g.issues.map(i => {
+    if (i.slaBadge?.startsWith('🔴')) return 3;
+    if (i.slaBadge?.startsWith('🟡')) return 2;
+    if (i.slaBadge?.startsWith('🟢')) return 1;
+    return 0;
+  }));
+  const groupRank = g.slaGroupStatus === 'critical' ? 3 : g.slaGroupStatus === 'warning' ? 2 : 1;
+  return Math.max(issueRank, groupRank);
+}
+
+function earliestAgenda(g: LojaGroup): number {
+  const dates = g.issues.map(i => i.dataAgenda ? new Date(i.dataAgenda).getTime() : Infinity);
+  return Math.min(...dates);
+}
+
+function sortGroups(groups: LojaGroup[], sort: SortOption): LojaGroup[] {
+  return [...groups].sort((a, b) => {
+    switch (sort) {
+      case 'cidade-asc':     return a.cidade.localeCompare(b.cidade);
+      case 'cidade-desc':    return b.cidade.localeCompare(a.cidade);
+      case 'loja-asc':       return a.loja.localeCompare(b.loja);
+      case 'loja-desc':      return b.loja.localeCompare(a.loja);
+      case 'qtd-desc':       return b.qtd - a.qtd;
+      case 'qtd-asc':        return a.qtd - b.qtd;
+      case 'sla-worst':      return slaRank(b) - slaRank(a);
+      case 'sla-best':       return slaRank(a) - slaRank(b);
+      case 'updated-oldest': return (a.lastUpdated?.getTime() ?? 0) - (b.lastUpdated?.getTime() ?? 0);
+      case 'updated-newest': return (b.lastUpdated?.getTime() ?? 0) - (a.lastUpdated?.getTime() ?? 0);
+      case 'agenda-asc':     return earliestAgenda(a) - earliestAgenda(b);
+      case 'agenda-desc':    return earliestAgenda(b) - earliestAgenda(a);
+      default:               return 0;
+    }
+  });
+}
+
+function SortBar({
+  value,
+  onChange,
+  options = SORT_OPTIONS,
+}: {
+  value: SortOption;
+  onChange: (v: SortOption) => void;
+  options?: { value: SortOption; label: string }[];
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground shrink-0">Ordenar:</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value as SortOption)}
+        className="text-xs bg-secondary border border-border/50 rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+      >
+        {options.map(o => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 // ─── Terminal detection ────────────────────────────────────────────────────────
 
@@ -153,6 +243,27 @@ function renderSections(
   );
 }
 
+// ─── Helper: issues de outro tipo da mesma loja (cross-status) ────────────────
+
+function buildRelatedGroups(
+  g: LojaGroup,
+  isTerminal: boolean,
+  allIssuesByLoja: Map<string, SchedulingIssue[]>,
+): RelatedGroup[] | undefined {
+  const allForLoja = allIssuesByLoja.get(g.loja) ?? [];
+  const currentKeys = new Set(g.issues.map(i => i.key));
+  const others = allForLoja.filter(i => !currentKeys.has(i.key));
+  const result: RelatedGroup[] = [];
+  if (!isTerminal) {
+    const t = others.filter(isTerminalIssue);
+    if (t.length) result.push({ label: 'Projeto Terminal', issues: t, isTerminal: true });
+  } else {
+    const n = others.filter(i => !isTerminalIssue(i));
+    if (n.length) result.push({ label: 'Manutenção Regular', issues: n, isTerminal: false });
+  }
+  return result.length > 0 ? result : undefined;
+}
+
 // ─── Pending tab ──────────────────────────────────────────────────────────────
 
 function PendentesTab({
@@ -164,6 +275,7 @@ function PendentesTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  allIssuesByLoja,
 }: {
   groups: LojaGroup[];
   agendadoLojas: Set<string>;
@@ -173,15 +285,20 @@ function PendentesTab({
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  allIssuesByLoja: Map<string, SchedulingIssue[]>;
 }) {
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<SortOption>('sla-worst');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
-  const filtered = filter
-    ? byUf.filter(g =>
-        g.loja.toLowerCase().includes(filter.toLowerCase()) ||
-        g.cidade.toLowerCase().includes(filter.toLowerCase()),
-      )
-    : byUf;
+  const filtered = sortGroups(
+    filter
+      ? byUf.filter(g =>
+          g.loja.toLowerCase().includes(filter.toLowerCase()) ||
+          g.cidade.toLowerCase().includes(filter.toLowerCase()),
+        )
+      : byUf,
+    sort,
+  );
 
   const { normal, terminal } = splitByTerminal(filtered);
 
@@ -193,6 +310,7 @@ function PendentesTab({
       ? `Esta loja já possui chamado(s) na fila ${outras.join(' e ')}. Verifique se há técnico designado.`
       : undefined;
     const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
+    const relatedGroups = buildRelatedGroups(g, isTerminal, allIssuesByLoja);
     return (
       <LojaExpander
         key={`${g.loja}-${g.issues[0]?.key}`}
@@ -200,6 +318,7 @@ function PendentesTab({
         showForm
         warningText={warning}
         onScheduled={onScheduled}
+        relatedGroups={relatedGroups}
         extra={
           <>
             {hasTerminal && <TerminalAlertBadge />}
@@ -217,12 +336,15 @@ function PendentesTab({
 
   return (
     <div className="space-y-3">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Filtrar por loja ou cidade…"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          className="max-w-sm"
+        />
+        <SortBar value={sort} onChange={setSort} />
+      </div>
       {filtered.length === 0 && filter
         ? <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
         : renderSections(normal, terminal, filterMode, renderGroup,
@@ -240,14 +362,17 @@ function AgendadosTab({
   terminalLojas,
   ufFilter,
   onSuccess,
+  allIssuesByLoja,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
   onSuccess?: () => void;
+  allIssuesByLoja: Map<string, SchedulingIssue[]>;
 }) {
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<SortOption>('agenda-asc');
   const [tecCampoGroup, setTecCampoGroup] = useState<LojaGroup | null>(null);
   const [tecCampoOpen, setTecCampoOpen] = useState(false);
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -265,15 +390,18 @@ function AgendadosTab({
 
   return (
     <div className="space-y-5">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Filtrar por loja ou cidade…"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          className="max-w-sm"
+        />
+        <SortBar value={sort} onChange={setSort} options={SORT_OPTIONS_AGENDA} />
+      </div>
 
       {entries.map(([date, lojas]) => {
-        const filtered = lojas.filter(filterFn);
+        const filtered = sortGroups(lojas.filter(filterFn), sort);
         if (!filtered.length) return null;
         const { normal, terminal } = splitByTerminal(filtered);
 
@@ -289,6 +417,7 @@ function AgendadosTab({
             .filter(i => dupes.includes(`${i.pdv}||${i.ativo}`))
             .map(i => i.key);
           const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
+          const relatedGroups = buildRelatedGroups(g, isTerminal, allIssuesByLoja);
           const extra = (
             <>
               {hasTerminal && <TerminalAlertBadge />}
@@ -305,7 +434,7 @@ function AgendadosTab({
               </button>
             </>
           );
-          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} />;
+          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} relatedGroups={relatedGroups} />;
         };
 
         return (
@@ -352,29 +481,37 @@ function TecCampoTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  allIssuesByLoja,
 }: {
   groups: LojaGroup[];
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  allIssuesByLoja: Map<string, SchedulingIssue[]>;
 }) {
   const [filter, setFilter] = useState('');
+  const [sort, setSort] = useState<SortOption>('sla-worst');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
-  const filtered = filter
-    ? byUf.filter(g =>
-        g.loja.toLowerCase().includes(filter.toLowerCase()) ||
-        g.cidade.toLowerCase().includes(filter.toLowerCase()),
-      )
-    : byUf;
+  const filtered = sortGroups(
+    filter
+      ? byUf.filter(g =>
+          g.loja.toLowerCase().includes(filter.toLowerCase()) ||
+          g.cidade.toLowerCase().includes(filter.toLowerCase()),
+        )
+      : byUf,
+    sort,
+  );
 
   const { normal, terminal } = splitByTerminal(filtered);
 
   const renderGroup = (g: LojaGroup, isTerminal: boolean) => {
     const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
+    const relatedGroups = buildRelatedGroups(g, isTerminal, allIssuesByLoja);
     return (
       <LojaExpander
         key={`${g.loja}-${g.issues[0]?.key}`}
         group={g}
+        relatedGroups={relatedGroups}
         extra={hasTerminal ? <TerminalAlertBadge /> : undefined}
       />
     );
@@ -382,12 +519,15 @@ function TecCampoTab({
 
   return (
     <div className="space-y-3">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          placeholder="Filtrar por loja ou cidade…"
+          value={filter}
+          onChange={e => setFilter(e.target.value)}
+          className="max-w-sm"
+        />
+        <SortBar value={sort} onChange={setSort} />
+      </div>
       {filtered.length === 0 && filter
         ? <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
         : renderSections(normal, terminal, filterMode, renderGroup,
@@ -530,6 +670,16 @@ function ChamadosTab({
     return s;
   }, [allLojaGroups]);
 
+  // Map loja → todos os seus issues (todos os status) — para exibir chamados cruzados
+  const allIssuesByLoja = useMemo(() => {
+    const map = new Map<string, SchedulingIssue[]>();
+    for (const g of allLojaGroups) {
+      const existing = map.get(g.loja) ?? [];
+      map.set(g.loja, [...existing, ...g.issues]);
+    }
+    return map;
+  }, [allLojaGroups]);
+
   // Badge counts filtered by current mode
   const filteredCounts = useMemo(() => {
     const pred: (i: SchedulingIssue) => boolean =
@@ -649,15 +799,16 @@ function ChamadosTab({
             filterMode={filterMode}
             terminalLojas={terminalLojas}
             ufFilter={ufFilter}
+            allIssuesByLoja={allIssuesByLoja}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">
-          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} allIssuesByLoja={allIssuesByLoja} />
         </TabsContent>
       </Tabs>
     </div>

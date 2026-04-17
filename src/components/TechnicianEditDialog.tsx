@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { createOrUpdateTechnician } from '../lib/technician-firestore';
+import { createOrUpdateTechnician, listParentTechnicians } from '../lib/technician-firestore';
+import { getCityCoords } from '../lib/brazilCityCoords';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
@@ -33,6 +34,13 @@ const technicianEditSchema = z.object({
   cidade: z.string().optional(),
   uf: z.string().length(2, 'UF deve ter 2 caracteres').optional(),
   endereco: z.string().optional(),
+  // Hierarquia pai/filho
+  tecnicoPaiId: z.string().optional(),
+  pagamentoPara: z.enum(['self', 'parent']).default('self'),
+  // Área de atendimento
+  atendeArredores: z.boolean().default(false),
+  raioKm: z.string().optional(),
+  // Pagamento
   banco: z.string().optional(),
   agencia: z.string().optional(),
   conta: z.string().optional(),
@@ -73,6 +81,7 @@ export function TechnicianEditDialog({
 }: TechnicianEditDialogProps) {
   const { user: currentUser } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [parents, setParents] = useState<TechnicianProfile[]>([]);
 
   const form = useForm<TechnicianEditFormValues>({
     resolver: zodResolver(technicianEditSchema),
@@ -81,8 +90,26 @@ export function TechnicianEditDialog({
       especialidades: [],
       regiaoAtuacao: [],
       status: 'ativo',
+      tecnicoPaiId: '',
+      pagamentoPara: 'self',
+      atendeArredores: false,
+      raioKm: '',
     },
   });
+
+  // Carrega lista de técnicos pais ao abrir o dialog
+  useEffect(() => {
+    if (!open) return;
+    let mounted = true;
+    listParentTechnicians()
+      .then(list => {
+        if (!mounted) return;
+        // Evita que o técnico em edição apareça como seu próprio pai
+        setParents(technician ? list.filter(p => p.uid !== technician.uid) : list);
+      })
+      .catch(err => console.error('Erro ao carregar técnicos pais:', err));
+    return () => { mounted = false; };
+  }, [open, technician]);
 
   // Preencher formulário quando o técnico for selecionado
   useEffect(() => {
@@ -99,6 +126,12 @@ export function TechnicianEditDialog({
         cidade: technician.cidade || '',
         uf: technician.uf || '',
         endereco: technician.endereco || '',
+        tecnicoPaiId: technician.tecnicoPaiId || '',
+        pagamentoPara: technician.pagamentoPara || 'self',
+        atendeArredores: !!technician.areaAtendimento?.atendeArredores,
+        raioKm: technician.areaAtendimento?.raioKm
+          ? String(technician.areaAtendimento.raioKm)
+          : '',
         banco: technician.pagamento?.banco || '',
         agencia: technician.pagamento?.agencia || '',
         conta: technician.pagamento?.conta || '',
@@ -115,8 +148,24 @@ export function TechnicianEditDialog({
 
     setIsSubmitting(true);
     try {
-      // Atualizar email no Firebase Auth se necessário
-      // (Normalmente não mudamos, mas se necessário, podemos fazer aqui)
+      const parent = values.tecnicoPaiId
+        ? parents.find(p => p.uid === values.tecnicoPaiId)
+        : undefined;
+
+      let areaAtendimento: TechnicianProfile['areaAtendimento'] | undefined;
+      if (values.cidade && values.uf) {
+        const coords = getCityCoords(values.cidade, values.uf);
+        areaAtendimento = {
+          cidadeBase: values.cidade,
+          ufBase: values.uf,
+          coordenadas: coords ? { lat: coords[1], lng: coords[0] } : undefined,
+          atendeArredores: !!values.atendeArredores,
+          raioKm: values.atendeArredores && values.raioKm
+            ? Number(values.raioKm) || undefined
+            : undefined,
+          cidadesAdicionais: technician.areaAtendimento?.cidadesAdicionais ?? [],
+        };
+      }
 
       const technicianData: TechnicianProfile = {
         ...technician,
@@ -131,6 +180,11 @@ export function TechnicianEditDialog({
         cidade: values.cidade,
         uf: values.uf,
         endereco: values.endereco,
+        areaAtendimento,
+        tecnicoPaiId: parent?.uid,
+        tecnicoPaiCodigo: parent?.codigoTecnico,
+        tecnicoPaiNome: parent?.nome,
+        pagamentoPara: values.pagamentoPara,
         pagamento: values.banco || values.agencia || values.conta || values.pix ? {
           banco: values.banco,
           agencia: values.agencia,
@@ -151,13 +205,7 @@ export function TechnicianEditDialog({
       onSuccess?.();
     } catch (error: any) {
       console.error('Erro ao atualizar técnico:', error);
-      let errorMessage = 'Erro ao atualizar técnico';
-      
-      if (error.code === 'auth/email-already-in-use') {
-        errorMessage = 'Este e-mail já está cadastrado';
-      }
-      
-      toast.error(errorMessage);
+      toast.error('Erro ao atualizar técnico. Tente novamente.');
     } finally {
       setIsSubmitting(false);
     }
@@ -171,7 +219,7 @@ export function TechnicianEditDialog({
         <DialogHeader>
           <DialogTitle>Editar Técnico - {technician.codigoTecnico}</DialogTitle>
           <DialogDescription>
-            Atualize as informações do técnico. O código e email não podem ser alterados.
+            Atualize as informações do técnico. O código não pode ser alterado.
           </DialogDescription>
         </DialogHeader>
 
@@ -335,16 +383,16 @@ export function TechnicianEditDialog({
               />
             </div>
 
-            {/* Dados de Localização */}
+            {/* Dados de Localização e Área de Atendimento */}
             <div className="space-y-4">
-              <h3 className="text-lg font-semibold">Localização</h3>
+              <h3 className="text-lg font-semibold">Localização e Área de Atendimento</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <FormField
                   control={form.control}
                   name="cidade"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Cidade</FormLabel>
+                      <FormLabel>Cidade base</FormLabel>
                       <FormControl>
                         <Input placeholder="São Paulo" {...field} />
                       </FormControl>
@@ -381,6 +429,108 @@ export function TechnicianEditDialog({
                       <FormControl>
                         <Input placeholder="Rua, número" {...field} />
                       </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                <FormField
+                  control={form.control}
+                  name="atendeArredores"
+                  render={({ field }) => (
+                    <FormItem className="flex items-start gap-3 space-y-0 rounded-md border p-3 md:col-span-2">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                        />
+                      </FormControl>
+                      <div className="space-y-1 leading-none">
+                        <FormLabel className="font-medium">Atende arredores</FormLabel>
+                        <p className="text-xs text-muted-foreground">
+                          Marque se este técnico cobre cidades próximas dentro de um raio
+                        </p>
+                      </div>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="raioKm"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Raio (km)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          step={5}
+                          placeholder="Ex: 50"
+                          disabled={!form.watch('atendeArredores')}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </div>
+
+            {/* Hierarquia Pai/Filho */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold">Hierarquia (Opcional)</h3>
+              <p className="text-xs text-muted-foreground">
+                Use quando este técnico atende em nome de outro (subcontratado).
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="tecnicoPaiId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Técnico pai</FormLabel>
+                      <Select
+                        onValueChange={v => field.onChange(v === 'none' ? '' : v)}
+                        value={field.value || 'none'}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Nenhum" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">Nenhum (técnico independente)</SelectItem>
+                          {parents.map(p => (
+                            <SelectItem key={p.uid} value={p.uid}>
+                              {p.codigoTecnico} — {p.nome}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="pagamentoPara"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Pagamento vai para</FormLabel>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value}
+                        disabled={!form.watch('tecnicoPaiId')}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="self">O próprio técnico</SelectItem>
+                          <SelectItem value="parent">Técnico pai</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

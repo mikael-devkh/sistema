@@ -1,26 +1,7 @@
-// Simple Jira Cloud client (read-only) using Atlassian EX API
-// NOTE: For security, set credentials via environment variables and DO NOT commit tokens.
+// Jira client — all calls are routed through server-side proxy endpoints.
+// Credentials are NEVER included in client-side code.
 
-const USE_EX_API = import.meta.env.VITE_JIRA_USE_EX_API === 'true';
-const PROXY_BASE = import.meta.env.VITE_JIRA_PROXY_BASE as string | undefined; // ex.: https://<region>-<proj>.cloudfunctions.net/api
-const CLOUD_ID = import.meta.env.VITE_JIRA_CLOUD_ID as string | undefined;
-const EMAIL = import.meta.env.VITE_JIRA_EMAIL as string | undefined;
-const API_TOKEN = import.meta.env.VITE_JIRA_TOKEN as string | undefined;
-
-function authHeader() {
-  if (!EMAIL || !API_TOKEN) return {} as HeadersInit;
-  const token = btoa(`${EMAIL}:${API_TOKEN}`);
-  return { Authorization: `Basic ${token}` } as HeadersInit;
-}
-
-function getBaseUrl() {
-  if (USE_EX_API && CLOUD_ID) {
-    return `https://api.atlassian.com/ex/jira/${CLOUD_ID}/rest/api/3`;
-  }
-  // Fallback to site URL if ex api disabled
-  const SITE = (import.meta.env.VITE_JIRA_URL as string | undefined) || '';
-  return `${SITE.replace(/\/$/, '')}/rest/api/3`;
-}
+const PROXY_BASE = import.meta.env.VITE_JIRA_PROXY_BASE as string | undefined;
 
 export interface JiraIssue {
   id: string;
@@ -67,20 +48,15 @@ export function mapJiraStatusToWorkflow(statusName?: string): 'open' | 'in_progr
 }
 
 async function getTransitions(issueIdOrKey: string) {
-  if (PROXY_BASE) {
-    const url = `${PROXY_BASE.replace(/\/$/, '')}/jira/transitions?issueKey=${encodeURIComponent(issueIdOrKey)}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) throw new Error(`Jira proxy transitions failed: ${res.status}`);
-    return (await res.json()).transitions as Array<{ id:string; name:string }>;
-  }
-  const base = getBaseUrl();
-  const url = `${base}/issue/${encodeURIComponent(issueIdOrKey)}/transitions`;
-  const res = await fetch(url, { headers: { 'Accept': 'application/json', ...authHeader() } });
-  if (!res.ok) throw new Error(`Jira transitions failed: ${res.status}`);
+  if (!PROXY_BASE) throw new Error('VITE_JIRA_PROXY_BASE must be configured for Jira transitions');
+  const url = `${PROXY_BASE.replace(/\/$/, '')}/jira/transitions?issueKey=${encodeURIComponent(issueIdOrKey)}`;
+  const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error(`Jira proxy transitions failed: ${res.status}`);
   return (await res.json()).transitions as Array<{ id:string; name:string }>;
 }
 
 export async function jiraTransition(issueIdOrKey: string, toName: 'in_progress'|'waiting'|'done') {
+  if (!PROXY_BASE) throw new Error('VITE_JIRA_PROXY_BASE must be configured for Jira transitions');
   const nameMap: Record<typeof toName, string[]> = {
     in_progress: ['In Progress','Em andamento'],
     waiting: ['Waiting','Aguardando','On Hold'],
@@ -89,16 +65,9 @@ export async function jiraTransition(issueIdOrKey: string, toName: 'in_progress'
   const transitions = await getTransitions(issueIdOrKey);
   const wanted = transitions.find(t => nameMap[toName].some(n => t.name.toLowerCase() === n.toLowerCase()));
   if (!wanted && transitions.length) throw new Error('Transition not available');
-  if (PROXY_BASE) {
-    const url = `${PROXY_BASE.replace(/\/$/, '')}/jira/transition`;
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ issueKey: issueIdOrKey, transitionId: wanted?.id }) });
-    if (!res.ok) throw new Error(`Jira proxy transition failed: ${res.status}`);
-    return;
-  }
-  const base = getBaseUrl();
-  const url = `${base}/issue/${encodeURIComponent(issueIdOrKey)}/transitions`;
-  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json', ...authHeader() }, body: JSON.stringify({ transition: { id: wanted?.id } }) });
-  if (!res.ok) throw new Error(`Jira transition POST failed: ${res.status}`);
+  const url = `${PROXY_BASE.replace(/\/$/, '')}/jira/transition`;
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type':'application/json' }, body: JSON.stringify({ issueKey: issueIdOrKey, transitionId: wanted?.id }) });
+  if (!res.ok) throw new Error(`Jira proxy transition failed: ${res.status}`);
 }
 
 /**

@@ -160,6 +160,43 @@
   .animate-slide-up {
     animation: slide-up 0.25s ease-out both;
   }
+
+  /* Shimmer para skeletons */
+  .animate-shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--muted-foreground) / 0.08) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s ease-in-out infinite;
+  }
+
+  /* Bounce suave para badges de alerta */
+  .animate-pulse-once {
+    animation: pulse-once 0.6s ease-out both;
+  }
+
+  /* Utility: transição padrão suave */
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+
+  /* Utility: ring de foco elevado */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  /* Gradient top bar (linha decorativa de card) */
+  .card-top-bar {
+    @apply h-[3px] w-full bg-gradient-to-r from-primary/50 via-primary to-primary/30 rounded-t-[inherit];
+  }
+
+  /* Truncate multi-line */
+  .line-clamp-1 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; }
+  .line-clamp-2 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+  .line-clamp-3 { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 }
 
 @keyframes page-in {
@@ -191,4 +228,16 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes pulse-once {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.18); }
+  70%  { transform: scale(0.95); }
+  100% { transform: scale(1); }
 }

@@ -7,9 +7,11 @@ import { Skeleton } from "../components/ui/skeleton";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "../components/ui/dialog";
 import { Separator } from "../components/ui/separator";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import {
   FileText, Clipboard, Eye, Download, Save, RotateCcw,
   Search, Store, Hash, CalendarRange, Filter, X,
+  ClipboardList, Wrench, Package,
 } from "lucide-react";
 import { toast } from "sonner";
 import { db } from "../firebase";
@@ -20,6 +22,8 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
 import { cn } from "../lib/utils";
+import { listChamados } from "../lib/chamado-firestore";
+import type { Chamado, ChamadoStatus } from "../types/chamado";
 
 // ─── Mock fallback ────────────────────────────────────────────────────────────
 const mockReports = [
@@ -41,10 +45,73 @@ function statusBadge(s: string) {
   return                         "bg-blue-500/12   text-blue-600   border-blue-500/25   dark:text-blue-400";
 }
 
+const CHAMADO_STATUS_LABEL: Record<ChamadoStatus, string> = {
+  rascunho: 'Rascunho',
+  submetido: 'Ag. Validação Op.',
+  validado_operador: 'Ag. Validação Fin.',
+  rejeitado: 'Rejeitado',
+  validado_financeiro: 'Aprovado',
+  pago: 'Pago',
+};
+
+const CHAMADO_STATUS_BADGE: Record<ChamadoStatus, string> = {
+  rascunho: 'bg-muted text-muted-foreground border-border',
+  submetido: 'bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-400',
+  validado_operador: 'bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-400',
+  rejeitado: 'bg-red-500/10 text-red-700 border-red-500/25 dark:text-red-400',
+  validado_financeiro: 'bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-400',
+  pago: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-400',
+};
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'rats' | 'chamados'>('rats');
+
+  return (
+    <div className="space-y-5 pb-8 animate-page-in">
+      {/* ── Cabeçalho ── */}
+      <div className="rounded-xl border border-border bg-card overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+        <div className="flex items-center gap-4 px-6 py-4">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Relatórios</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Histórico consolidado de RATs e Chamados
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={v => setActiveTab(v as any)}>
+        <TabsList>
+          <TabsTrigger value="rats" className="gap-1.5">
+            <FileText className="w-3.5 h-3.5" /> RATs
+          </TabsTrigger>
+          <TabsTrigger value="chamados" className="gap-1.5">
+            <ClipboardList className="w-3.5 h-3.5" /> Chamados
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="rats" className="mt-4">
+          <RatsTab userUid={user?.uid} />
+        </TabsContent>
+
+        <TabsContent value="chamados" className="mt-4">
+          <ChamadosTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+// ─── Tab de RATs ─────────────────────────────────────────────────────────────
+
+function RatsTab({ userUid }: { userUid?: string }) {
   const [loading, setLoading]     = useState(true);
   const [items, setItems]         = useState<Report[]>([]);
   const [hasMore, setHasMore]     = useState(false);
@@ -78,7 +145,7 @@ export default function ReportsPage() {
     try {
       const base    = collection(db, "serviceReports");
       const clauses: any[] = [orderBy("archivedAt", "desc"), fbLimit(PAGE_SIZE)];
-      if (user?.uid) clauses.unshift(where("userId", "==", user.uid));
+      if (userUid) clauses.unshift(where("userId", "==", userUid));
       if (cursor)    clauses.push(startAfter(cursor));
       const snap = await getDocs(query(base, ...clauses));
       const docs = snap.docs.map(mapDoc);
@@ -92,14 +159,14 @@ export default function ReportsPage() {
     }
   };
 
-  useEffect(() => { fetchPage(null); }, [user?.uid]);
+  useEffect(() => { fetchPage(null); }, [userUid]);
 
   // Realtime: notifica novo registro arquivado
   useEffect(() => {
     try {
       const base = collection(db, "serviceReports");
       const clauses: any[] = [orderBy("archivedAt", "desc"), fbLimit(1)];
-      if (user?.uid) clauses.unshift(where("userId", "==", user.uid));
+      if (userUid) clauses.unshift(where("userId", "==", userUid));
       const unsub = onSnapshot(query(base, ...clauses), snap => {
         if (!snap.empty && items.length) {
           toast.info(`Novo registro arquivado: ${mapDoc(snap.docs[0]).id}`);
@@ -107,7 +174,7 @@ export default function ReportsPage() {
       });
       return () => unsub();
     } catch {}
-  }, [user?.uid, items.length]);
+  }, [userUid, items.length]);
 
   // ── Filtros ──
   const filtered = useMemo(() => {
@@ -155,7 +222,7 @@ export default function ReportsPage() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `historico-${Date.now()}.csv`;
+    a.download = `historico-rats-${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   };
@@ -179,30 +246,11 @@ export default function ReportsPage() {
     } catch { toast.error("Falha ao carregar visão."); }
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5 pb-8 animate-page-in">
-
-      {/* ── Cabeçalho ── */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
-        <div className="flex items-center gap-4 px-6 py-4">
-          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-            <FileText className="w-5 h-5 text-primary" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold">Histórico de RATs</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Registros de atendimento arquivados
-            </p>
-          </div>
-        </div>
-      </div>
-
+    <div className="space-y-5">
       {/* ── Painel de filtros ── */}
       <div className="rounded-xl border border-border bg-card shadow-card p-4 space-y-3">
         <div className="flex flex-wrap gap-2">
-          {/* Busca geral */}
           <div className="relative min-w-[200px] flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -213,7 +261,6 @@ export default function ReportsPage() {
             />
           </div>
 
-          {/* Status */}
           <Select value={status} onValueChange={v => setStatus(v as StatusFilter)}>
             <SelectTrigger className="w-36">
               <SelectValue placeholder="Status" />
@@ -226,7 +273,6 @@ export default function ReportsPage() {
             </SelectContent>
           </Select>
 
-          {/* Loja */}
           <div className="relative w-28">
             <Store className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -237,7 +283,6 @@ export default function ReportsPage() {
             />
           </div>
 
-          {/* FSA */}
           <div className="relative w-32">
             <Hash className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
@@ -248,28 +293,16 @@ export default function ReportsPage() {
             />
           </div>
 
-          {/* Período */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <CalendarRange className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <Input
-              type="date"
-              value={dateStart}
-              onChange={e => setDateStart(e.target.value)}
-              className="w-36 text-sm"
-            />
+            <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="w-36 text-sm" />
             <span className="text-xs text-muted-foreground">–</span>
-            <Input
-              type="date"
-              value={dateEnd}
-              onChange={e => setDateEnd(e.target.value)}
-              className="w-36 text-sm"
-            />
+            <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="w-36 text-sm" />
           </div>
         </div>
 
         <Separator />
 
-        {/* Barra de ações */}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Filter className="w-3.5 h-3.5" />
@@ -282,10 +315,7 @@ export default function ReportsPage() {
               )}
             </span>
             {activeFilters && (
-              <button
-                onClick={clearFilters}
-                className="flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors"
-              >
+              <button onClick={clearFilters} className="flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors">
                 <X className="w-3 h-3" /> Limpar
               </button>
             )}
@@ -298,13 +328,7 @@ export default function ReportsPage() {
             <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={loadView}>
               <RotateCcw className="w-3.5 h-3.5" /> Aplicar visão
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1.5 text-xs"
-              onClick={handleExportCsv}
-              disabled={selectedCount === 0}
-            >
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleExportCsv} disabled={selectedCount === 0}>
               <Download className="w-3.5 h-3.5" /> Exportar CSV
             </Button>
           </div>
@@ -313,7 +337,6 @@ export default function ReportsPage() {
 
       {/* ── Grid de cards ── */}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {/* Skeleton */}
         {loading && Array.from({ length: 6 }).map((_, i) => (
           <Card key={i} className="p-4 space-y-3 shadow-card">
             <div className="flex justify-between items-start">
@@ -322,14 +345,9 @@ export default function ReportsPage() {
             </div>
             <Skeleton className="h-4 w-40" />
             <Skeleton className="h-4 w-full" />
-            <div className="flex gap-2 pt-1">
-              <Skeleton className="h-7 flex-1 rounded-md" />
-              <Skeleton className="h-7 flex-1 rounded-md" />
-            </div>
           </Card>
         ))}
 
-        {/* Empty state */}
         {!loading && filtered.length === 0 && (
           <div className="col-span-full flex flex-col items-center gap-4 py-16 text-center text-muted-foreground">
             <div className="w-14 h-14 rounded-2xl bg-muted flex items-center justify-center">
@@ -338,9 +356,7 @@ export default function ReportsPage() {
             <div>
               <p className="font-medium">Nenhum registro encontrado</p>
               <p className="text-sm mt-0.5">
-                {activeFilters
-                  ? "Tente ajustar ou limpar os filtros."
-                  : "Os atendimentos arquivados aparecerão aqui."}
+                {activeFilters ? "Tente ajustar ou limpar os filtros." : "Os atendimentos arquivados aparecerão aqui."}
               </p>
             </div>
             {activeFilters && (
@@ -351,7 +367,6 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Cards */}
         {!loading && filtered.map(rep => (
           <Card
             key={rep.id}
@@ -361,7 +376,6 @@ export default function ReportsPage() {
             )}
           >
             <CardContent className="p-4 flex flex-col gap-2.5">
-              {/* Header */}
               <div className="flex items-start justify-between gap-2">
                 <label className="flex items-center gap-2 min-w-0 cursor-pointer">
                   <input
@@ -380,44 +394,23 @@ export default function ReportsPage() {
                 </Badge>
               </div>
 
-              {/* Meta */}
               <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                 <span className="flex items-center gap-1">
                   <Store className="w-3 h-3" /> Loja {rep.loja}
                 </span>
                 <span className="text-border">·</span>
                 <span>{rep.data}</span>
-                {rep.responsavel && (
-                  <>
-                    <span className="text-border">·</span>
-                    <span>{rep.responsavel}</span>
-                  </>
-                )}
               </div>
 
-              {/* Resumo */}
               {rep.resumo && (
-                <p className="text-xs text-foreground/75 line-clamp-2 leading-relaxed">
-                  {rep.resumo}
-                </p>
+                <p className="text-xs text-foreground/75 line-clamp-2 leading-relaxed">{rep.resumo}</p>
               )}
 
-              {/* Ações */}
               <div className="flex gap-2 pt-0.5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs flex-1"
-                  onClick={() => setSelected(rep)}
-                >
+                <Button variant="outline" size="sm" className="h-7 gap-1.5 text-xs flex-1" onClick={() => setSelected(rep)}>
                   <Eye className="w-3.5 h-3.5" /> Ver
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 text-xs flex-1"
-                  onClick={() => handleCopy(rep.id)}
-                >
+                <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs flex-1" onClick={() => handleCopy(rep.id)}>
                   <Clipboard className="w-3.5 h-3.5" /> Copiar
                 </Button>
               </div>
@@ -426,7 +419,6 @@ export default function ReportsPage() {
         ))}
       </div>
 
-      {/* Carregar mais */}
       {!loading && hasMore && (
         <div className="flex justify-center pt-2">
           <Button variant="outline" onClick={() => fetchPage(lastDoc)} className="gap-2">
@@ -435,13 +427,11 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* ── Dialog de detalhe ── */}
       <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-primary" />
-              Detalhes da RAT
+              <FileText className="w-4 h-4 text-primary" /> Detalhes da RAT
             </DialogTitle>
             <DialogDescription>{selected?.id}</DialogDescription>
           </DialogHeader>
@@ -451,9 +441,7 @@ export default function ReportsPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-0.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</p>
-                  <Badge className={cn("text-xs border", statusBadge(selected.status))}>
-                    {selected.status}
-                  </Badge>
+                  <Badge className={cn("text-xs border", statusBadge(selected.status))}>{selected.status}</Badge>
                 </div>
                 <div className="space-y-0.5">
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Loja</p>
@@ -463,27 +451,14 @@ export default function ReportsPage() {
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Data</p>
                   <p>{selected.data}</p>
                 </div>
-                {selected.responsavel && (
-                  <div className="space-y-0.5">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Responsável</p>
-                    <p>{selected.responsavel}</p>
-                  </div>
-                )}
               </div>
 
               {selected.resumo && (
-                <div className="rounded-lg bg-secondary/50 border border-border/60 p-3 text-sm">
-                  {selected.resumo}
-                </div>
+                <div className="rounded-lg bg-secondary/50 border border-border/60 p-3 text-sm">{selected.resumo}</div>
               )}
 
               <div className="flex justify-end pt-1">
-                <Button
-                  onClick={() => handleCopy(selected.id)}
-                  size="sm"
-                  variant="outline"
-                  className="gap-2"
-                >
+                <Button onClick={() => handleCopy(selected.id)} size="sm" variant="outline" className="gap-2">
                   <Clipboard className="w-4 h-4" /> Copiar código
                 </Button>
               </div>
@@ -491,6 +466,294 @@ export default function ReportsPage() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── Tab de Chamados ─────────────────────────────────────────────────────────
+
+function ChamadosTab() {
+  const [loading, setLoading] = useState(true);
+  const [chamados, setChamados] = useState<Chamado[]>([]);
+  const [selected, setSelected] = useState<Chamado | null>(null);
+
+  // Filtros
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'todos' | ChamadoStatus>('todos');
+  const [dateStart, setDateStart] = useState('');
+  const [dateEnd, setDateEnd] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await listChamados({ limitCount: 500 });
+        setChamados(data);
+      } catch {
+        toast.error('Erro ao carregar chamados.');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return chamados.filter(c => {
+      if (statusFilter !== 'todos' && c.status !== statusFilter) return false;
+      if (dateStart && c.dataAtendimento < dateStart) return false;
+      if (dateEnd && c.dataAtendimento > dateEnd) return false;
+      if (q) {
+        const hay = `${c.fsa} ${c.codigoLoja} ${c.tecnicoNome} ${c.tecnicoCodigo ?? ''} ${c.catalogoServicoNome ?? ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [chamados, search, statusFilter, dateStart, dateEnd]);
+
+  const stats = useMemo(() => ({
+    total: filtered.length,
+    aprovados: filtered.filter(c => c.status === 'validado_financeiro' || c.status === 'pago').length,
+    emValidacao: filtered.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
+    rejeitados: filtered.filter(c => c.status === 'rejeitado').length,
+    valorPecas: filtered.reduce((sum, c) => sum + (c.custoPeca ?? 0), 0),
+    minutosTotais: filtered.reduce((sum, c) => sum + (c.durationMinutes ?? 0), 0),
+  }), [filtered]);
+
+  const activeFilters = search || statusFilter !== 'todos' || dateStart || dateEnd;
+
+  const clearFilters = () => {
+    setSearch(''); setStatusFilter('todos'); setDateStart(''); setDateEnd('');
+  };
+
+  const handleExportCsv = () => {
+    if (!filtered.length) { toast.info('Nenhum chamado para exportar.'); return; }
+    const header = [
+      'fsa', 'codigoLoja', 'data', 'tecnicoCodigo', 'tecnicoNome',
+      'tecnicoPaiCodigo', 'servico', 'peca', 'custoPeca', 'duracaoMin', 'status',
+    ];
+    const rows = filtered.map(c => [
+      c.fsa, c.codigoLoja, c.dataAtendimento, c.tecnicoCodigo ?? '', c.tecnicoNome,
+      c.tecnicoPaiCodigo ?? '', c.catalogoServicoNome ?? '', c.pecaUsada ?? '',
+      c.custoPeca ?? '', c.durationMinutes ?? '', CHAMADO_STATUS_LABEL[c.status],
+    ]);
+    const csv = [
+      header.join(','),
+      ...rows.map(r => r.map(cell => JSON.stringify(String(cell ?? ''))).join(',')),
+    ].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `relatorio-chamados-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  return (
+    <div className="space-y-5">
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Total de chamados" value={stats.total} color="default" />
+        <KpiCard label="Aprovados / Pagos" value={stats.aprovados} color="green" />
+        <KpiCard label="Em validação" value={stats.emValidacao} color="blue" />
+        <KpiCard label="Rejeitados" value={stats.rejeitados} color="red" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground mb-1">Total em peças</p>
+          <p className="text-2xl font-bold">R$ {stats.valorPecas.toFixed(2)}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground mb-1">Minutos acumulados</p>
+          <p className="text-2xl font-bold">{stats.minutosTotais} min</p>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          <div className="relative min-w-[200px] flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Buscar FSA, loja, técnico, código…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-8"
+            />
+          </div>
+
+          <Select value={statusFilter} onValueChange={v => setStatusFilter(v as any)}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os status</SelectItem>
+              <SelectItem value="rascunho">Rascunho</SelectItem>
+              <SelectItem value="submetido">Ag. Validação Op.</SelectItem>
+              <SelectItem value="validado_operador">Ag. Validação Fin.</SelectItem>
+              <SelectItem value="rejeitado">Rejeitado</SelectItem>
+              <SelectItem value="validado_financeiro">Aprovado</SelectItem>
+              <SelectItem value="pago">Pago</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <CalendarRange className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+            <Input type="date" value={dateStart} onChange={e => setDateStart(e.target.value)} className="w-36 text-sm" />
+            <span className="text-xs text-muted-foreground">–</span>
+            <Input type="date" value={dateEnd} onChange={e => setDateEnd(e.target.value)} className="w-36 text-sm" />
+          </div>
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Filter className="w-3.5 h-3.5" />
+            <span><span className="font-semibold text-foreground">{filtered.length}</span> chamado(s)</span>
+            {activeFilters && (
+              <button onClick={clearFilters} className="flex items-center gap-1 text-primary hover:text-primary/80 font-medium transition-colors">
+                <X className="w-3 h-3" /> Limpar
+              </button>
+            )}
+          </div>
+          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleExportCsv} disabled={!filtered.length}>
+            <Download className="w-3.5 h-3.5" /> Exportar CSV
+          </Button>
+        </div>
+      </div>
+
+      {/* Lista */}
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        {loading && Array.from({ length: 6 }).map((_, i) => (
+          <Card key={i} className="p-4 space-y-3"><Skeleton className="h-5 w-32" /><Skeleton className="h-4 w-40" /></Card>
+        ))}
+
+        {!loading && filtered.length === 0 && (
+          <div className="col-span-full flex flex-col items-center gap-3 py-16 text-center text-muted-foreground">
+            <ClipboardList className="w-10 h-10 opacity-30" />
+            <p className="text-sm">Nenhum chamado encontrado</p>
+            {activeFilters && (
+              <Button variant="outline" size="sm" onClick={clearFilters}>Limpar filtros</Button>
+            )}
+          </div>
+        )}
+
+        {!loading && filtered.map(c => (
+          <Card key={c.id} className="shadow-card hover:border-primary/30 transition-colors cursor-pointer" onClick={() => setSelected(c)}>
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">FSA #{c.fsa}</p>
+                  <p className="text-xs text-muted-foreground">Loja {c.codigoLoja} · {new Date(c.dataAtendimento + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                </div>
+                <Badge className={cn('text-[10px] border shrink-0', CHAMADO_STATUS_BADGE[c.status])}>
+                  {CHAMADO_STATUS_LABEL[c.status]}
+                </Badge>
+              </div>
+              <div className="text-xs flex flex-wrap gap-x-2 gap-y-0.5">
+                <span className="font-medium">
+                  {c.tecnicoCodigo && <span className="font-mono text-primary">{c.tecnicoCodigo} — </span>}
+                  {c.tecnicoNome}
+                </span>
+                {c.tecnicoPaiCodigo && (
+                  <span className="text-amber-600 dark:text-amber-400 text-[11px]">
+                    ↳ sub de <span className="font-mono">{c.tecnicoPaiCodigo}</span>
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {c.catalogoServicoNome && (
+                  <Badge variant="outline" className="text-[10px]">
+                    <Wrench className="w-2.5 h-2.5 mr-1" />{c.catalogoServicoNome}
+                  </Badge>
+                )}
+                {c.pecaUsada && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    <Package className="w-2.5 h-2.5 mr-1" />{c.pecaUsada}
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Detalhe */}
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-primary" /> FSA #{selected?.fsa}
+            </DialogTitle>
+            <DialogDescription>
+              Loja {selected?.codigoLoja} · {selected && new Date(selected.dataAtendimento + 'T12:00:00').toLocaleDateString('pt-BR')}
+            </DialogDescription>
+          </DialogHeader>
+
+          {selected && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Status</p>
+                  <Badge className={cn('text-xs border mt-1', CHAMADO_STATUS_BADGE[selected.status])}>
+                    {CHAMADO_STATUS_LABEL[selected.status]}
+                  </Badge>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase text-muted-foreground font-semibold">Técnico</p>
+                  <p className="font-medium mt-1">
+                    {selected.tecnicoCodigo && <span className="font-mono text-primary mr-1">{selected.tecnicoCodigo}</span>}
+                    {selected.tecnicoCodigo ? '— ' : ''}{selected.tecnicoNome}
+                  </p>
+                  {selected.tecnicoPaiCodigo && (
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      Sub de <span className="font-mono">{selected.tecnicoPaiCodigo}</span>
+                    </p>
+                  )}
+                </div>
+                {selected.catalogoServicoNome && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] uppercase text-muted-foreground font-semibold">Serviço</p>
+                    <p className="font-medium mt-1">{selected.catalogoServicoNome}</p>
+                  </div>
+                )}
+                {selected.pecaUsada && (
+                  <div className="col-span-2">
+                    <p className="text-[10px] uppercase text-muted-foreground font-semibold">Peça</p>
+                    <p className="font-medium mt-1">
+                      {selected.pecaUsada}
+                      {selected.custoPeca ? ` · R$ ${selected.custoPeca.toFixed(2)}` : ''}
+                    </p>
+                  </div>
+                )}
+                {selected.durationMinutes != null && (
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground font-semibold">Duração</p>
+                    <p className="font-medium mt-1">{selected.durationMinutes} min</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ─── KpiCard ─────────────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, color }: { label: string; value: number | string; color: 'default' | 'blue' | 'green' | 'red' }) {
+  const colors = {
+    default: 'text-foreground border-border',
+    blue: 'text-blue-600 dark:text-blue-400 border-blue-500/20',
+    green: 'text-green-600 dark:text-green-400 border-green-500/20',
+    red: 'text-red-600 dark:text-red-400 border-red-500/20',
+  };
+  return (
+    <div className={cn('p-4 rounded-xl border-2 bg-background shadow-sm', colors[color])}>
+      <p className="text-xs font-medium text-muted-foreground mb-1">{label}</p>
+      <p className={cn('text-2xl font-bold', colors[color])}>{value}</p>
     </div>
   );
 }

@@ -15,8 +15,8 @@ async function post(body: Record<string, unknown>) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any).error || `HTTP ${res.status}`);
   return data;
 }
 
@@ -25,8 +25,8 @@ async function get(params: Record<string, string | number>) {
     Object.entries(params).map(([k, v]) => [k, String(v)])
   ).toString();
   const res = await fetch(`${API}?${qs}`);
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any).error || `HTTP ${res.status}`);
   return data;
 }
 

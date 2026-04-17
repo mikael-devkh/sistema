@@ -3,15 +3,14 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 
-// ATENÇÃO: em produção utilize variáveis de ambiente para proteger esta chave de API.
 const firebaseConfig = {
-  apiKey: "AIzaSyBxo0CPdArA-fjro3jDs-p5ISdpR8zwA-M",
-  authDomain: "wt-servicos-app.firebaseapp.com",
-  projectId: "wt-servicos-app",
-  storageBucket: "wt-servicos-app.appspot.com",
-  messagingSenderId: "659868807853",
-  appId: "1:659868807853:web:322e102bba5158c2c1cc24",
-  measurementId: "G-NPKD1SKNN9",
+  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY            as string,
+  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        as string,
+  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID         as string,
+  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     as string,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID as string,
+  appId:             import.meta.env.VITE_FIREBASE_APP_ID             as string,
+  measurementId:     import.meta.env.VITE_FIREBASE_MEASUREMENT_ID     as string,
 };
 
 const app = initializeApp(firebaseConfig);

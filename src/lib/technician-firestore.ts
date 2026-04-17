@@ -2,6 +2,7 @@ import { db } from '../firebase';
 import {
   collection,
   doc,
+  addDoc,
   getDoc,
   getDocs,
   setDoc,
@@ -12,18 +13,50 @@ import {
   limit,
 } from 'firebase/firestore';
 import type { TechnicianProfile } from '../types/technician';
+import { haversineKm, getCityCoords } from './brazilCityCoords';
+
+/** Remove undefined values recursively — Firestore rejects them with invalid-argument. */
+function stripUndefined<T extends object>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [
+        k,
+        v !== null && typeof v === 'object' && !Array.isArray(v)
+          ? stripUndefined(v as object)
+          : v,
+      ])
+  ) as Partial<T>;
+}
 
 /**
- * Cria ou atualiza um perfil de técnico
+ * Cria um novo técnico como documento Firestore (sem Firebase Auth).
+ * Retorna o UID gerado pelo Firestore (document ID).
+ */
+export async function createTechnician(
+  technician: Omit<TechnicianProfile, 'uid'>,
+): Promise<string> {
+  const dataToSave = stripUndefined({
+    ...technician,
+    dataAtualizacao: Date.now(),
+  });
+
+  const ref = await addDoc(collection(db, 'technicians'), dataToSave);
+  console.log('✅ Técnico criado no Firestore com ID:', ref.id);
+  return ref.id;
+}
+
+/**
+ * Atualiza um perfil de técnico existente (por UID/document ID).
  */
 export async function createOrUpdateTechnician(
   technician: TechnicianProfile
 ): Promise<void> {
   const technicianRef = doc(db, 'technicians', technician.uid);
-  const dataToSave = {
+  const dataToSave = stripUndefined({
     ...technician,
     dataAtualizacao: Date.now(),
-  };
+  });
   
   console.log('💾 Salvando técnico no Firestore:', {
     uid: technician.uid,
@@ -323,5 +356,122 @@ export async function deleteTechnician(uid: string): Promise<void> {
     disponivel: false,
     dataAtualizacao: Date.now(),
   });
+}
+
+/**
+ * Lista apenas técnicos "pais" (sem tecnicoPaiId). Útil para selecionar o pai
+ * no cadastro de um novo técnico.
+ */
+export async function listParentTechnicians(): Promise<TechnicianProfile[]> {
+  const all = await listTechnicians();
+  return all.filter(t => !t.tecnicoPaiId && t.status !== 'desligado');
+}
+
+/**
+ * Lista os filhos de um técnico pai.
+ */
+export async function listChildrenOf(parentUid: string): Promise<TechnicianProfile[]> {
+  const techniciansRef = collection(db, 'technicians');
+  try {
+    const q = query(techniciansRef, where('tecnicoPaiId', '==', parentUid));
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ uid: d.id, ...d.data() } as TechnicianProfile));
+  } catch {
+    // Fallback cliente (evita necessidade de índice)
+    const all = await listTechnicians();
+    return all.filter(t => t.tecnicoPaiId === parentUid);
+  }
+}
+
+/**
+ * Calcula distância (km) de um técnico até uma localidade. Retorna null se
+ * o técnico ou a cidade não possuírem coordenadas.
+ */
+export function distanceFromTechnicianToCity(
+  tech: TechnicianProfile,
+  cidade: string,
+  uf: string
+): number | null {
+  const destCoords = getCityCoords(cidade, uf);
+  if (!destCoords) return null;
+  const dest = { lat: destCoords[1], lng: destCoords[0] };
+
+  const source =
+    tech.areaAtendimento?.coordenadas ??
+    (tech.cidade && tech.uf ? (() => {
+      const c = getCityCoords(tech.cidade, tech.uf);
+      return c ? { lat: c[1], lng: c[0] } : null;
+    })() : null);
+
+  if (!source) return null;
+  return haversineKm(source, dest);
+}
+
+/**
+ * Verifica se um técnico cobre uma cidade. Considera:
+ *  - cidade base (exato)
+ *  - cidades adicionais explícitas
+ *  - raio de atendimento (quando atendeArredores = true)
+ */
+export function technicianCoversCity(
+  tech: TechnicianProfile,
+  cidade: string,
+  uf: string
+): { covers: boolean; distance: number | null; reason: string } {
+  const area = tech.areaAtendimento;
+  const normCidade = cidade.trim().toUpperCase();
+  const normUf = uf.trim().toUpperCase();
+
+  // 1) cidade base
+  if (
+    (area?.cidadeBase?.toUpperCase() === normCidade && area?.ufBase?.toUpperCase() === normUf) ||
+    (tech.cidade?.toUpperCase() === normCidade && tech.uf?.toUpperCase() === normUf)
+  ) {
+    return { covers: true, distance: 0, reason: 'Cidade base' };
+  }
+
+  // 2) cidades adicionais
+  if (area?.cidadesAdicionais?.some(
+    c => c.cidade.toUpperCase() === normCidade && c.uf.toUpperCase() === normUf,
+  )) {
+    const dist = distanceFromTechnicianToCity(tech, cidade, uf);
+    return { covers: true, distance: dist, reason: 'Cidade adicional' };
+  }
+
+  // 3) raio
+  if (area?.atendeArredores && area.raioKm && area.raioKm > 0) {
+    const dist = distanceFromTechnicianToCity(tech, cidade, uf);
+    if (dist !== null && dist <= area.raioKm) {
+      return { covers: true, distance: dist, reason: `Dentro do raio de ${area.raioKm}km` };
+    }
+    return { covers: false, distance: dist, reason: 'Fora do raio de atendimento' };
+  }
+
+  const dist = distanceFromTechnicianToCity(tech, cidade, uf);
+  return { covers: false, distance: dist, reason: 'Não cobre esta localidade' };
+}
+
+/**
+ * Busca técnicos que atendem uma localidade específica, ordenados por distância.
+ */
+export async function findTechniciansForLocation(
+  cidade: string,
+  uf: string,
+  options?: { onlyActive?: boolean; onlyAvailable?: boolean }
+): Promise<Array<TechnicianProfile & { distanceKm: number | null; matchReason: string }>> {
+  const all = await listTechnicians();
+  const filtered = all.filter(t => {
+    if (options?.onlyActive && t.status !== 'ativo') return false;
+    if (options?.onlyAvailable && !t.disponivel) return false;
+    return true;
+  });
+
+  return filtered
+    .map(t => {
+      const { covers, distance, reason } = technicianCoversCity(t, cidade, uf);
+      return covers ? { ...t, distanceKm: distance, matchReason: reason } : null;
+    })
+    .filter((t): t is TechnicianProfile & { distanceKm: number | null; matchReason: string } => !!t)
+    .sort((a, b) => (a.distanceKm ?? Infinity) - (b.distanceKm ?? Infinity));
 }
 

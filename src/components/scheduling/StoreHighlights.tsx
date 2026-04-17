@@ -1,19 +1,42 @@
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
-import { Download, AlertTriangle } from 'lucide-react';
+import { Download, AlertTriangle, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
 import type { LojaGroup } from '../../types/scheduling';
+import { IssueSection } from './LojaExpander';
+import { gerarMensagem } from '../../lib/jiraScheduling';
+
+function CopyMsgButton({ loja, issues }: { loja: string; issues: LojaGroup['issues'] }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(gerarMensagem(loja, issues));
+    setCopied(true);
+    toast.success(`Mensagem da ${loja} copiada!`);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <Button size="sm" variant="outline" onClick={copy} className="h-7 gap-1.5 text-xs">
+      {copied ? <><Check className="w-3.5 h-3.5 text-primary" /> Copiado!</> : <><Copy className="w-3.5 h-3.5" /> Copiar mensagem</>}
+    </Button>
+  );
+}
 
 interface Props {
   lojaGroups: LojaGroup[];
   threshold?: number;
 }
 
+function isTerminalIssue(issue: { problema: string; ativo: string }) {
+  return issue.problema.includes('Projeto Terminal de Consulta') || issue.ativo === '--';
+}
+
 export function StoreHighlights({ lojaGroups, threshold = 2 }: Props) {
   const [minQtd, setMinQtd] = useState(threshold);
   const [filterUf, setFilterUf] = useState('');
   const [filterQ, setFilterQ] = useState('');
+  const [expandedLoja, setExpandedLoja] = useState<string | null>(null);
 
   let filtered = lojaGroups.filter(g => g.qtd >= minQtd);
   if (filterUf) filtered = filtered.filter(g => g.uf.toUpperCase() === filterUf.toUpperCase().trim());
@@ -36,6 +59,9 @@ export function StoreHighlights({ lojaGroups, threshold = 2 }: Props) {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  const toggleLoja = (loja: string) =>
+    setExpandedLoja(prev => (prev === loja ? null : loja));
 
   return (
     <div className="space-y-4">
@@ -83,6 +109,7 @@ export function StoreHighlights({ lojaGroups, threshold = 2 }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border/50 bg-secondary/30">
+              <th className="py-2 px-3 w-6" />
               <th className="py-2 px-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Loja</th>
               <th className="py-2 px-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">Cidade</th>
               <th className="py-2 px-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wide">UF</th>
@@ -91,29 +118,66 @@ export function StoreHighlights({ lojaGroups, threshold = 2 }: Props) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((g, i) => (
-              <tr
-                key={g.loja}
-                className={`border-b border-border/30 hover:bg-secondary/20 transition-colors ${i % 2 === 0 ? '' : 'bg-secondary/10'}`}
-              >
-                <td className="py-2 px-3 font-medium text-sm">{g.loja}</td>
-                <td className="py-2 px-3 text-muted-foreground text-xs">{g.cidade}</td>
-                <td className="py-2 px-3 text-muted-foreground text-xs">{g.uf}</td>
-                <td className="py-2 px-3">
-                  <span className="font-bold tabular-nums">{g.qtd}</span>
-                </td>
-                <td className="py-2 px-3">
-                  {g.isCritical && (
-                    <Badge className="text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/30 gap-1">
-                      <AlertTriangle className="w-3 h-3" /> Crítica
-                    </Badge>
+            {filtered.map((g, i) => {
+              const isOpen = expandedLoja === g.loja;
+              const normal = g.issues.filter(i => !isTerminalIssue(i));
+              const terminal = g.issues.filter(i => isTerminalIssue(i));
+
+              return (
+                <>
+                  <tr
+                    key={g.loja}
+                    onClick={() => toggleLoja(g.loja)}
+                    className={`border-b border-border/30 cursor-pointer transition-colors ${
+                      isOpen
+                        ? 'bg-primary/5 border-primary/20'
+                        : i % 2 === 0
+                        ? 'hover:bg-secondary/20'
+                        : 'bg-secondary/10 hover:bg-secondary/20'
+                    }`}
+                  >
+                    <td className="py-2 px-3">
+                      {isOpen
+                        ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                        : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                      }
+                    </td>
+                    <td className="py-2 px-3 font-medium text-sm">{g.loja}</td>
+                    <td className="py-2 px-3 text-muted-foreground text-xs">{g.cidade}</td>
+                    <td className="py-2 px-3 text-muted-foreground text-xs">{g.uf}</td>
+                    <td className="py-2 px-3">
+                      <span className="font-bold tabular-nums">{g.qtd}</span>
+                    </td>
+                    <td className="py-2 px-3">
+                      {g.isCritical && (
+                        <Badge className="text-[10px] bg-rose-500/15 text-rose-400 border border-rose-500/30 gap-1">
+                          <AlertTriangle className="w-3 h-3" /> Crítica
+                        </Badge>
+                      )}
+                    </td>
+                  </tr>
+
+                  {isOpen && (
+                    <tr key={`${g.loja}-detail`} className="border-b border-primary/20 bg-primary/5">
+                      <td colSpan={6} className="px-4 py-3">
+                        <div className="space-y-3">
+                          {normal.length > 0 && (
+                            <IssueSection label="Manutenção Regular" issues={normal} isTerminal={false} defaultOpen />
+                          )}
+                          {terminal.length > 0 && (
+                            <IssueSection label="Projeto Terminal" issues={terminal} isTerminal defaultOpen />
+                          )}
+                          <CopyMsgButton loja={g.loja} issues={g.issues} />
+                        </div>
+                      </td>
+                    </tr>
                   )}
-                </td>
-              </tr>
-            ))}
+                </>
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-8 text-center text-muted-foreground text-sm">
+                <td colSpan={6} className="py-8 text-center text-muted-foreground text-sm">
                   Nenhuma loja encontrada.
                 </td>
               </tr>

@@ -8,10 +8,13 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 
 export interface UserProfileData {
   nome?: string;
+  email?: string;
   matricula?: string;
-  role?: 'admin' | 'tecnico';
+  role?: 'admin' | 'operador' | 'financeiro' | 'tecnico' | 'visualizador';
   allowedFsaIds?: string[];
   avatarUrl?: string;
+  webhookUrl?: string;
+  externalApiKey?: string;
 }
 
 interface AuthContextValue {
@@ -28,7 +31,9 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, loadingAuth] = useAuthState(auth);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
-  const [loadingProfile, setLoadingProfile] = useState(false);
+  // Começa como true para evitar que ProtectedAdminRoute redirecione
+  // antes do primeiro fetch do perfil completar.
+  const [loadingProfile, setLoadingProfile] = useState(true);
 
   const refreshProfile = useCallback(async () => {
     if (!user) {
@@ -48,17 +53,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           profileRef,
           {
             email: user.email ?? "",
-            role: 'tecnico', // Default - pode mudar depois no Firebase Console
+            role: 'visualizador', // Default até admin definir o perfil correto
             createdAt: serverTimestamp(),
           },
           { merge: true }
         );
-        
+
         // Atualizar profile local com dados padrão
         setProfile({
           nome: undefined,
           matricula: undefined,
-          role: 'tecnico',
+          role: 'visualizador',
           email: user.email ?? undefined,
           allowedFsaIds: undefined,
           avatarUrl: undefined,
@@ -72,9 +77,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           nome: typeof data.nome === "string" ? data.nome : undefined,
           matricula:
             typeof data.matricula === "string" ? data.matricula : undefined,
-          role: data.role === 'admin' || data.role === 'tecnico' ? data.role : undefined,
+          role: (['admin', 'operador', 'financeiro', 'tecnico', 'visualizador'] as const).includes(data.role)
+            ? data.role as UserProfileData['role']
+            : undefined,
           allowedFsaIds: Array.isArray(data.allowedFsaIds) ? data.allowedFsaIds as string[] : undefined,
           avatarUrl: typeof data.avatarUrl === 'string' ? data.avatarUrl : undefined,
+          webhookUrl: typeof data.webhookUrl === 'string' ? data.webhookUrl : undefined,
+          externalApiKey: typeof data.externalApiKey === 'string' ? data.externalApiKey : undefined,
         });
       }
     } catch (error) {

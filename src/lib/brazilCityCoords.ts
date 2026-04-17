@@ -196,3 +196,26 @@ export function getCityCoords(cidade: string, uf: string): Coords | null {
   }
   return STATE_CENTERS[normalize(uf)] ?? null;
 }
+
+/**
+ * Lista completa das cidades conhecidas (para autocomplete).
+ */
+export function listKnownCities(): { cidade: string; uf: string; lat: number; lng: number }[] {
+  return RAW.map(([cidade, uf, [lng, lat]]) => ({ cidade, uf, lat, lng }));
+}
+
+/**
+ * Distância em km entre dois pontos (fórmula de Haversine).
+ */
+export function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371; // raio da Terra em km
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}

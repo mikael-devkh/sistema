@@ -9,7 +9,11 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "cross-env DEV_URL=http://localhost:3000 playwright test",
+    "test:e2e:ui": "cross-env DEV_URL=http://localhost:3000 playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "setup:test-users": "node scripts/create-test-users.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^7.4.4",
@@ -46,6 +50,7 @@
     "@tanstack/react-query": "^5.83.0",
     "@tanstack/react-virtual": "^3.13.23",
     "@vercel/speed-insights": "^2.0.0",
+    "baseline-browser-mapping": "^2.10.19",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -62,6 +67,7 @@
     "react-dom": "^18.3.1",
     "react-firebase-hooks": "^5.1.1",
     "react-hook-form": "^7.61.1",
+    "react-qr-code": "^2.0.18",
     "react-resizable-panels": "^2.1.9",
     "react-router-dom": "^6.30.1",
     "react-simple-maps": "^3.0.0",
@@ -74,6 +80,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
@@ -84,6 +91,7 @@
     "@vercel/node": "^5.5.4",
     "@vitejs/plugin-react-swc": "^3.11.0",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^10.1.0",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",

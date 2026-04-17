@@ -1,5 +1,5 @@
 import { Sidebar } from "./Sidebar";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -8,7 +8,7 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "./ui/breadcrumb";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "../context/AuthContext";
 import { signOut } from "firebase/auth";
@@ -16,9 +16,10 @@ import { auth } from "../firebase";
 import { toast } from "sonner";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { LogOut, Menu, ChevronLeft, PanelLeft } from "lucide-react";
+import { LogOut, Menu, ChevronLeft, PanelLeft, Search } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useFocusMode } from "../context/FocusModeContext";
+import { GlobalSearch } from "./GlobalSearch";
 
 const ROUTE_MAP: Record<string, string> = {
   "/": "Dashboard",
@@ -31,7 +32,38 @@ const ROUTE_MAP: Record<string, string> = {
   "/perfil": "Perfil",
   "/tecnicos": "Técnicos",
   "/cadastrar-tecnico": "Cadastrar Técnico",
+  "/catalogo-servicos": "Catálogo de Serviços",
+  "/pagamentos": "Pagamentos",
+  "/chamados": "Chamados",
+  "/validacao": "Fila de Validação",
+  "/estoque": "Controle de Estoque",
   "/support": "Suporte",
+  "/relatorios": "Relatórios",
+  "/diario-bordo": "Diário de Bordo",
+  "/tecnicos/mapa": "Mapa de Técnicos",
+  "/seed": "Dados de Teste",
+};
+
+// Mapeia rota → grupo (para contexto no header mobile)
+const ROUTE_GROUP: Record<string, string> = {
+  "/": "Principal",
+  "/rat": "Principal",
+  "/gerador-ip": "Principal",
+  "/agendamento": "Principal",
+  "/chamados": "Chamados",
+  "/validacao": "Chamados",
+  "/pagamentos": "Chamados",
+  "/estoque": "Chamados",
+  "/templates-rat": "Recursos",
+  "/base-conhecimento": "Recursos",
+  "/diario-bordo": "Recursos",
+  "/relatorios": "Recursos",
+  "/perfil": "Conta",
+  "/configuracoes": "Conta",
+  "/tecnicos": "Conta",
+  "/tecnicos/mapa": "Conta",
+  "/catalogo-servicos": "Conta",
+  "/seed": "Conta",
 };
 
 function getSidebarCollapsed() {
@@ -46,6 +78,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { focusMode } = useFocusMode();
+
+  // Scroll to top on every navigation
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [location.pathname]);
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    document.body.style.overflow = sidebarOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [sidebarOpen]);
 
   const handleToggleCollapse = () => {
     setSidebarCollapsed(c => {
@@ -81,11 +124,15 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   }, [location.pathname]);
 
   const pageTitle = crumbs[crumbs.length - 1]?.label ?? "Dashboard";
+  const pageGroup = ROUTE_GROUP[location.pathname] ?? null;
 
   if (focusMode) {
     return (
       <div className="min-h-screen bg-background">
-        <main className="px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:font-medium">
+          Pular para o conteúdo
+        </a>
+        <main id="main-content" className="px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
           {children}
         </main>
       </div>
@@ -94,6 +141,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen bg-background">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-primary focus:text-primary-foreground focus:rounded-md focus:font-medium">
+        Pular para o conteúdo
+      </a>
+
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -148,9 +199,16 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             {/* Divisor */}
             <div className="hidden md:block h-5 w-px bg-border/60 mx-1 shrink-0" />
 
-            {/* ── Mobile: título da página ── */}
-            <div className="md:hidden font-semibold text-sm text-foreground flex-1 truncate pl-1">
-              {pageTitle}
+            {/* ── Mobile: grupo + título da página ── */}
+            <div className="md:hidden flex flex-col justify-center flex-1 min-w-0 pl-1">
+              {pageGroup && pageGroup !== pageTitle && (
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60 leading-none mb-0.5">
+                  {pageGroup}
+                </p>
+              )}
+              <p className="font-semibold text-sm text-foreground leading-none truncate">
+                {pageTitle}
+              </p>
             </div>
 
             {/* ── Desktop: voltar + breadcrumb ── */}
@@ -168,11 +226,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               <Breadcrumb>
                 <BreadcrumbList className="flex-nowrap">
                   <BreadcrumbItem>
-                    <BreadcrumbLink
-                      href="/"
-                      className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-                    >
-                      Início
+                    <BreadcrumbLink asChild>
+                      <Link to="/" className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                        Início
+                      </Link>
                     </BreadcrumbLink>
                   </BreadcrumbItem>
                   {crumbs.map((c, i) => (
@@ -184,11 +241,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                             {c.label}
                           </BreadcrumbPage>
                         ) : (
-                          <BreadcrumbLink
-                            href={c.href}
-                            className="text-muted-foreground hover:text-foreground text-sm transition-colors"
-                          >
-                            {c.label}
+                          <BreadcrumbLink asChild>
+                            <Link to={c.href} className="text-muted-foreground hover:text-foreground text-sm transition-colors">
+                              {c.label}
+                            </Link>
                           </BreadcrumbLink>
                         )}
                       </BreadcrumbItem>
@@ -200,6 +256,30 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
             {/* ── Controles direita ── */}
             <div className="flex items-center gap-1 ml-auto shrink-0">
+              {/* Search button — triggers GlobalSearch (Ctrl+K) */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      const event = new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true });
+                      document.dispatchEvent(event);
+                    }}
+                    aria-label="Buscar (Ctrl+K)"
+                  >
+                    <Search className="w-[18px] h-[18px]" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Buscar
+                  <kbd className="ml-1.5 pointer-events-none inline-flex h-4 select-none items-center gap-0.5 rounded border border-border/50 bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                    Ctrl K
+                  </kbd>
+                </TooltipContent>
+              </Tooltip>
+
               {user && (
                 <span className="hidden lg:block text-xs text-muted-foreground truncate max-w-[160px] px-1">
                   {user.email}
@@ -213,6 +293,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       variant="ghost"
                       size="sm"
                       onClick={handleLogout}
+                      aria-label="Sair"
                       className="hidden md:flex h-9 w-9 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                     >
                       <LogOut className="w-4 h-4" />
@@ -226,10 +307,13 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* ── Conteúdo ── */}
-        <main className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
+        <main id="main-content" className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
           {children}
         </main>
       </div>
+
+      {/* Global search dialog (Ctrl+K) */}
+      <GlobalSearch />
     </div>
   );
 }

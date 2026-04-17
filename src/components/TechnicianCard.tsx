@@ -1,21 +1,30 @@
+import { useState, useRef } from 'react';
+import QRCode from 'react-qr-code';
 import { Card } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { 
-  MoreVertical, 
-  Edit, 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from './ui/dialog';
+import {
+  MoreVertical,
+  Edit,
   Trash2,
   CheckCircle2,
   XCircle,
   User,
   Phone,
-  MapPin
+  MapPin,
+  Users,
+  Wallet,
+  Radius,
+  IdCard,
+  Printer,
 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import type { TechnicianProfile } from '../types/technician';
@@ -27,12 +36,101 @@ interface TechnicianCardProps {
   onToggleAvailability?: (uid: string, disponivel: boolean) => void;
 }
 
+// ─── CrachaDialog ─────────────────────────────────────────────────────────────
+
+function CrachaDialog({ technician, open, onClose }: {
+  technician: TechnicianProfile;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const badgeRef = useRef<HTMLDivElement>(null);
+  const qrValue = `${window.location.origin}/tecnicos/${technician.uid}`;
+  const isAtivo = technician.status === 'ativo';
+
+  const handlePrint = () => {
+    const content = badgeRef.current;
+    if (!content) return;
+    const win = window.open('', '_blank', 'width=400,height=600');
+    if (!win) return;
+    win.document.write(`
+      <html><head><title>Crachá — ${technician.nome}</title>
+      <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; font-family: sans-serif; }
+        .badge { width: 300px; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,.15); }
+        .top { background: ${isAtivo ? '#10b981' : '#64748b'}; padding: 24px 16px 16px; text-align: center; color: white; }
+        .avatar { width: 72px; height: 72px; border-radius: 50%; background: rgba(255,255,255,.25); display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; margin: 0 auto 10px; border: 3px solid rgba(255,255,255,.6); }
+        .name { font-size: 18px; font-weight: 700; margin: 0; }
+        .code { font-size: 12px; opacity: .85; margin-top: 2px; font-family: monospace; }
+        .body { padding: 16px; text-align: center; }
+        .role { font-size: 13px; color: #64748b; margin-bottom: 12px; }
+        .status { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; background: ${isAtivo ? '#dcfce7' : '#f1f5f9'}; color: ${isAtivo ? '#16a34a' : '#64748b'}; margin-bottom: 16px; }
+        .qr { display: flex; justify-content: center; margin-bottom: 12px; }
+        .footer { font-size: 10px; color: #94a3b8; text-align: center; padding-bottom: 12px; }
+      </style></head><body>
+      ${content.innerHTML}
+      </body></html>
+    `);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 400);
+  };
+
+  const initials = technician.nome.split(' ').slice(0, 2).map(s => s[0]?.toUpperCase() ?? '').join('');
+  const cargoLabel: Record<string, string> = { tecnico: 'Técnico de Campo', supervisor: 'Supervisor', coordenador: 'Coordenador' };
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <IdCard className="w-5 h-5 text-primary" /> Crachá do Técnico
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Badge preview */}
+        <div ref={badgeRef}>
+          <div className="badge" style={{ width: '100%', background: 'white', borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+            <div className="top" style={{ background: isAtivo ? '#10b981' : '#64748b', padding: '24px 16px 16px', textAlign: 'center', color: 'white' }}>
+              <div className="avatar" style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 700, margin: '0 auto 10px', border: '3px solid rgba(255,255,255,.6)' }}>
+                {technician.avatarUrl
+                  ? <img src={technician.avatarUrl} alt="" style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }} />
+                  : initials}
+              </div>
+              <p className="name" style={{ fontSize: 18, fontWeight: 700, margin: 0 }}>{technician.nome}</p>
+              <p className="code" style={{ fontSize: 12, opacity: .85, marginTop: 2, fontFamily: 'monospace' }}>{technician.codigoTecnico}</p>
+            </div>
+            <div className="body" style={{ padding: 16, textAlign: 'center' }}>
+              <p className="role" style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>{cargoLabel[technician.cargo] ?? technician.cargo}</p>
+              <span className="status" style={{ display: 'inline-block', padding: '3px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: isAtivo ? '#dcfce7' : '#f1f5f9', color: isAtivo ? '#16a34a' : '#64748b', marginBottom: 16 }}>
+                {isAtivo ? '● Ativo' : '○ Inativo'}
+              </span>
+              <div className="qr" style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+                <QRCode value={qrValue} size={120} />
+              </div>
+              <p className="footer" style={{ fontSize: 10, color: '#94a3b8' }}>Escaneie para verificar o perfil</p>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Fechar</Button>
+          <Button onClick={handlePrint} className="gap-1.5">
+            <Printer className="w-4 h-4" /> Imprimir
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function TechnicianCard({
   technician,
   onEdit,
   onDelete,
   onToggleAvailability,
 }: TechnicianCardProps) {
+  const [crachaOpen, setCrachaOpen] = useState(false);
+
   const initials = technician.nome
     .split(' ')
     .slice(0, 2)
@@ -56,6 +154,7 @@ export function TechnicianCard({
   const statusInfo = statusConfig[technician.status] ?? { label: technician.status, className: "bg-muted text-muted-foreground" };
 
   return (
+    <>
     <Card className="hover:shadow-md transition-shadow bg-card border-border overflow-hidden">
       {/* Colored accent bar based on availability */}
       <div className={`h-0.5 ${technician.disponivel && technician.status === 'ativo' ? 'bg-emerald-500' : 'bg-border'}`} />
@@ -80,6 +179,11 @@ export function TechnicianCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setCrachaOpen(true)}>
+                <IdCard className="mr-2 h-4 w-4" />
+                Gerar Crachá
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               {onEdit && (
                 <DropdownMenuItem onClick={() => onEdit(technician)}>
                   <Edit className="mr-2 h-4 w-4" />
@@ -131,6 +235,31 @@ export function TechnicianCard({
             <div className="flex items-center gap-2 text-sm">
               <MapPin className="h-4 w-4 text-muted-foreground" />
               <span>{technician.cidade}, {technician.uf}</span>
+            </div>
+          )}
+          {technician.areaAtendimento?.atendeArredores && technician.areaAtendimento?.raioKm ? (
+            <div className="flex items-center gap-2 text-sm">
+              <Radius className="h-4 w-4 text-muted-foreground" />
+              <span>
+                Atende arredores — raio {technician.areaAtendimento.raioKm} km
+              </span>
+            </div>
+          ) : null}
+          {technician.tecnicoPaiCodigo && (
+            <div className="flex items-center gap-2 text-sm">
+              <Users className="h-4 w-4 text-muted-foreground" />
+              <span className="truncate">
+                Subcontratado de {technician.tecnicoPaiCodigo}
+                {technician.tecnicoPaiNome ? ` — ${technician.tecnicoPaiNome}` : ''}
+              </span>
+            </div>
+          )}
+          {technician.tecnicoPaiCodigo && technician.pagamentoPara === 'parent' && (
+            <div className="flex items-center gap-2 text-sm">
+              <Wallet className="h-4 w-4 text-muted-foreground" />
+              <span className="text-amber-700 dark:text-amber-400">
+                Pagamento para técnico pai
+              </span>
             </div>
           )}
           {technician.pagamento?.pix && (
@@ -206,6 +335,13 @@ export function TechnicianCard({
         )}
       </div>
     </Card>
+
+    <CrachaDialog
+      technician={technician}
+      open={crachaOpen}
+      onClose={() => setCrachaOpen(false)}
+    />
+    </>
   );
 }
 

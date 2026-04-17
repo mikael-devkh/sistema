@@ -280,6 +280,27 @@ export async function resubmeterChamado(
   });
 }
 
+/** Busca chamados pelo número da FSA (correspondência exata, case-insensitive no cliente) */
+export async function searchChamadosByFsa(fsa: string): Promise<Chamado[]> {
+  const q = fsa.trim().toUpperCase();
+  const snap = await getDocs(query(collection(db, COL), orderBy('registradoEm', 'desc'), limit(200)));
+  return snap.docs
+    .map(mapDoc)
+    .filter(c => c.fsa?.toUpperCase().includes(q));
+}
+
+/** Lista todos os chamados de uma loja */
+export async function listChamadosByLoja(codigoLoja: string): Promise<Chamado[]> {
+  const snap = await getDocs(
+    query(collection(db, COL), where('codigoLoja', '==', codigoLoja), orderBy('registradoEm', 'desc'), limit(100)),
+  ).catch(async () => {
+    // fallback se índice ausente
+    const s = await getDocs(collection(db, COL));
+    return { docs: s.docs.filter(d => d.data().codigoLoja === codigoLoja) };
+  });
+  return (snap as any).docs.map(mapDoc);
+}
+
 /** Busca chamados prontos para pagamento (validado_financeiro, sem pagamentoId) */
 export async function fetchChamadosParaPagamento(
   de: string,

@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense, startTransition } from 'react';
+import { useState, useMemo, lazy, Suspense, startTransition, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -9,7 +9,10 @@ import {
   RefreshCw, Zap, MapPin, Hash,
   Clock, CalendarCheck, Wrench, AlertTriangle,
   ChevronDown, ChevronRight, Monitor, WifiOff,
+  Search, ExternalLink, Package, X,
 } from 'lucide-react';
+import { searchChamadosByFsa, listChamadosByLoja } from '../lib/chamado-firestore';
+import type { Chamado } from '../types/chamado';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../components/ui/collapsible';
 
 import { useAgendamentoData, useRouteGroups } from '../hooks/use-agendamento';
@@ -262,6 +265,245 @@ function buildRelatedGroups(
     if (n.length) result.push({ label: 'Manutenção Regular', issues: n, isTerminal: false });
   }
   return result.length > 0 ? result : undefined;
+}
+
+// ─── FSA Search Panel ─────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, string> = {
+  rascunho:           'Rascunho',
+  submetido:          'Submetido',
+  validado_operador:  'Validado (Op)',
+  validado_financeiro:'Validado (Fin)',
+  rejeitado:          'Rejeitado',
+  pago:               'Pago',
+};
+
+const STATUS_COLOR: Record<string, string> = {
+  rascunho:           'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+  submetido:          'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  validado_operador:  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+  validado_financeiro:'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  rejeitado:          'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  pago:               'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+};
+
+function ChamadoRow({ c }: { c: Chamado }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 transition-colors text-xs">
+      <code className="font-mono bg-secondary px-1.5 py-0.5 rounded text-[10px] shrink-0 text-muted-foreground select-all">
+        {c.fsa}
+      </code>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="font-medium">Loja {c.codigoLoja}</span>
+          <span className="text-muted-foreground">·</span>
+          <span className="text-muted-foreground">{c.dataAtendimento}</span>
+          {c.tecnicoNome && (
+            <>
+              <span className="text-muted-foreground">·</span>
+              <span className="text-muted-foreground truncate max-w-[120px]">{c.tecnicoNome}</span>
+            </>
+          )}
+        </div>
+        {c.catalogoServicoNome && (
+          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{c.catalogoServicoNome}</p>
+        )}
+      </div>
+      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${STATUS_COLOR[c.status] ?? 'bg-muted text-muted-foreground'}`}>
+        {STATUS_LABEL[c.status] ?? c.status}
+      </span>
+      {c.linkPlataforma && (
+        <a href={c.linkPlataforma} target="_blank" rel="noreferrer" className="text-primary hover:text-primary/70 shrink-0" onClick={e => e.stopPropagation()}>
+          <ExternalLink className="w-3.5 h-3.5" />
+        </a>
+      )}
+    </div>
+  );
+}
+
+function FsaSearchPanel({ allIssues }: { allIssues: SchedulingIssue[] }) {
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [chamados, setChamados] = useState<Chamado[] | null>(null);
+  const [lojaChamados, setLojaChamados] = useState<Chamado[] | null>(null);
+  const [loadingLoja, setLoadingLoja] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const jiraMatches = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.trim().toUpperCase();
+    return allIssues.filter(i => i.key.toUpperCase().includes(q));
+  }, [query, allIssues]);
+
+  const hasResults = jiraMatches.length > 0 || (chamados !== null && chamados.length > 0);
+
+  const handleSearch = useCallback(async () => {
+    const q = query.trim();
+    if (!q) return;
+    setOpen(true);
+    setLoading(true);
+    setLojaChamados(null);
+    try {
+      const found = await searchChamadosByFsa(q);
+      setChamados(found);
+    } finally {
+      setLoading(false);
+    }
+  }, [query]);
+
+  const handleLoadLoja = async (codigoLoja: string) => {
+    setLoadingLoja(true);
+    try {
+      const found = await listChamadosByLoja(codigoLoja);
+      setLojaChamados(found);
+    } finally {
+      setLoadingLoja(false);
+    }
+  };
+
+  // Loja code derived from Firestore results or Jira match
+  const lojaCodeFromChamados = chamados && chamados.length > 0 ? chamados[0].codigoLoja : null;
+
+  const handleClear = () => {
+    setQuery('');
+    setChamados(null);
+    setLojaChamados(null);
+    setOpen(false);
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Search bar */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por FSA (ex: FSA-1234)…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            className="pl-9 pr-8"
+          />
+          {query && (
+            <button
+              onClick={handleClear}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <Button size="sm" variant="outline" onClick={handleSearch} disabled={!query.trim() || loading} className="gap-1.5 shrink-0">
+          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+          Buscar
+        </Button>
+      </div>
+
+      {/* Results */}
+      {open && (
+        <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-muted/30">
+            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              Resultados para "{query.trim()}"
+            </span>
+            <button onClick={handleClear} className="text-muted-foreground hover:text-foreground">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="divide-y divide-border/50">
+            {/* Jira Issues */}
+            {jiraMatches.length > 0 && (
+              <div className="px-4 py-3 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Fila de Agendamento · {jiraMatches.length} chamado(s)
+                </p>
+                {jiraMatches.map(i => (
+                  <div key={i.key} className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 transition-colors text-xs">
+                    <code className="font-mono bg-secondary px-1.5 py-0.5 rounded text-[10px] shrink-0 select-all text-muted-foreground">
+                      {i.key}
+                    </code>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-medium">Loja {i.loja}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">PDV {i.pdv}</span>
+                        {i.cidade && (
+                          <>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">{i.cidade}{i.uf ? `/${i.uf}` : ''}</span>
+                          </>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{i.problema}</p>
+                    </div>
+                    {i.slaBadge && <span className="text-[10px] shrink-0">{i.slaBadge}</span>}
+                    <span className="text-[10px] text-muted-foreground shrink-0 bg-secondary px-1.5 py-0.5 rounded">{i.status}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Firestore chamados */}
+            {loading ? (
+              <div className="px-4 py-4 flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="w-4 h-4 animate-spin" /> Buscando chamados registrados…
+              </div>
+            ) : chamados !== null && (
+              <div className="px-4 py-3 space-y-1">
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Chamados Registrados · {chamados.length > 0 ? chamados.length : 'nenhum'}
+                </p>
+                {chamados.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-3 py-2">Nenhum chamado registrado no sistema com essa FSA.</p>
+                ) : (
+                  <>
+                    {chamados.map(c => <ChamadoRow key={c.id} c={c} />)}
+
+                    {/* Load other chamados from same store */}
+                    {lojaCodeFromChamados && (
+                      <div className="mt-3 pt-3 border-t border-border/50">
+                        {lojaChamados === null ? (
+                          <button
+                            onClick={() => handleLoadLoja(lojaCodeFromChamados)}
+                            disabled={loadingLoja}
+                            className="flex items-center gap-2 text-xs text-primary hover:text-primary/80 font-medium transition-colors"
+                          >
+                            {loadingLoja
+                              ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              : <Package className="w-3.5 h-3.5" />}
+                            Ver todos os chamados da loja {lojaCodeFromChamados}
+                          </button>
+                        ) : (
+                          <>
+                            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                              Outros chamados da loja {lojaCodeFromChamados} · {lojaChamados.filter(c => !chamados.find(fc => fc.id === c.id)).length} chamado(s)
+                            </p>
+                            {lojaChamados
+                              .filter(c => !chamados.find(fc => fc.id === c.id))
+                              .map(c => <ChamadoRow key={c.id} c={c} />)}
+                            {lojaChamados.filter(c => !chamados.find(fc => fc.id === c.id)).length === 0 && (
+                              <p className="text-xs text-muted-foreground px-3 py-2">Não há outros chamados registrados para esta loja.</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {!loading && chamados !== null && !hasResults && (
+              <div className="px-4 py-6 text-center text-sm text-muted-foreground">
+                Nenhum resultado encontrado para "{query.trim()}".
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Pending tab ──────────────────────────────────────────────────────────────
@@ -634,6 +876,7 @@ function ChamadosTab({
   agendados,
   tecCampo,
   allLojaGroups,
+  allIssues,
   agendadoLojas,
   tecCampoLojas,
   onTransition,
@@ -644,6 +887,7 @@ function ChamadosTab({
   agendados: Map<string, LojaGroup[]>;
   tecCampo: LojaGroup[];
   allLojaGroups: LojaGroup[];
+  allIssues: SchedulingIssue[];
   agendadoLojas: Set<string>;
   tecCampoLojas: Set<string>;
   onTransition: (loja: string) => void;
@@ -697,6 +941,9 @@ function ChamadosTab({
 
   return (
     <div className="space-y-4">
+      {/* ── FSA Search ──────────────────────────────────────────────────── */}
+      <FsaSearchPanel allIssues={allIssues} />
+
       {/* ── Filter control ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1 p-1 bg-secondary/50 border border-border/50 rounded-lg">
@@ -818,7 +1065,7 @@ function ChamadosTab({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AgendamentoPage() {
-  const { data, isLoading, isError, error, refresh, isFromCache, cacheAgeMinutes } = useAgendamentoData();
+  const { data, isLoading, isError, error, refresh, isFromCache, cacheAgeMinutes, isFetching } = useAgendamentoData();
   const [transitionLoja, setTransitionLoja] = useState<string | null>(null);
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chamados');
@@ -872,9 +1119,11 @@ export default function AgendamentoPage() {
           </span>
           <button
             onClick={refresh}
-            className="ml-auto shrink-0 flex items-center gap-1 font-medium underline underline-offset-2 hover:no-underline"
+            disabled={isFetching}
+            className="ml-auto shrink-0 flex items-center gap-1 font-medium underline underline-offset-2 hover:no-underline disabled:opacity-50"
           >
-            <RefreshCw className="w-3.5 h-3.5" /> Tentar novamente
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+            {isFetching ? 'Atualizando…' : 'Tentar novamente'}
           </button>
         </div>
       )}
@@ -890,8 +1139,9 @@ export default function AgendamentoPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={refresh} className="gap-1.5">
-              <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+            <Button size="sm" variant="outline" onClick={refresh} disabled={isFetching} className="gap-1.5">
+              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+              {isFetching ? 'Atualizando…' : 'Atualizar'}
             </Button>
             <Button size="sm" onClick={() => openTransition('')} className="gap-1.5">
               <Zap className="w-3.5 h-3.5" /> Transição em massa
@@ -939,6 +1189,7 @@ export default function AgendamentoPage() {
             agendados={agendados}
             tecCampo={tecCampo}
             allLojaGroups={allLojaGroups}
+            allIssues={allIssues}
             agendadoLojas={agendadoLojas}
             tecCampoLojas={tecCampoLojas}
             onTransition={openTransition}

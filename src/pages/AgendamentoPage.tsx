@@ -518,6 +518,7 @@ function PendentesTab({
   terminalLojas,
   ufFilter,
   allIssuesByLoja,
+  onMapFocus,
 }: {
   groups: LojaGroup[];
   agendadoLojas: Set<string>;
@@ -528,6 +529,7 @@ function PendentesTab({
   terminalLojas: Set<string>;
   ufFilter: string;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
+  onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<SortOption>('sla-worst');
@@ -564,6 +566,12 @@ function PendentesTab({
         extra={
           <>
             {hasTerminal && <TerminalAlertBadge />}
+            <button
+              className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+              onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
+            >
+              <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+            </button>
             <button
               className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium shrink-0"
               onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
@@ -605,6 +613,7 @@ function AgendadosTab({
   ufFilter,
   onSuccess,
   allIssuesByLoja,
+  onMapFocus,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
@@ -612,6 +621,7 @@ function AgendadosTab({
   ufFilter: string;
   onSuccess?: () => void;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
+  onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<SortOption>('agenda-asc');
@@ -669,6 +679,12 @@ function AgendadosTab({
                 </Badge>
               )}
               <button
+                className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+                onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
+              >
+                <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+              </button>
+              <button
                 className="text-[10px] px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 transition-colors font-medium shrink-0"
                 onClick={e => { e.stopPropagation(); setTecCampoGroup(g); setTecCampoOpen(true); }}
               >
@@ -724,12 +740,14 @@ function TecCampoTab({
   terminalLojas,
   ufFilter,
   allIssuesByLoja,
+  onMapFocus,
 }: {
   groups: LojaGroup[];
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
+  onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
   const [sort, setSort] = useState<SortOption>('sla-worst');
@@ -754,7 +772,17 @@ function TecCampoTab({
         key={`${g.loja}-${g.issues[0]?.key}`}
         group={g}
         relatedGroups={relatedGroups}
-        extra={hasTerminal ? <TerminalAlertBadge /> : undefined}
+        extra={
+          <>
+            {hasTerminal && <TerminalAlertBadge />}
+            <button
+              className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+              onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
+            >
+              <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+            </button>
+          </>
+        }
       />
     );
   };
@@ -881,6 +909,7 @@ function ChamadosTab({
   tecCampoLojas,
   onTransition,
   onScheduled,
+  onMapFocus,
 }: {
   kpi: { agendamento: number; agendado: number; tecCampo: number };
   pendentes: LojaGroup[];
@@ -892,6 +921,7 @@ function ChamadosTab({
   tecCampoLojas: Set<string>;
   onTransition: (loja: string) => void;
   onScheduled: () => void;
+  onMapFocus: (loja: string) => void;
 }) {
   const [highlightsOpen, setHighlightsOpen] = useState(false);
   const [subTab, setSubTab] = useState('pendentes');
@@ -1018,6 +1048,7 @@ function ChamadosTab({
 
       {/* Sub-tabs */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
+        <div className="sticky top-12 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="pendentes" className="gap-1.5">
             <Clock className="w-3.5 h-3.5" />
@@ -1035,6 +1066,7 @@ function ChamadosTab({
             <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.tecCampo}</Badge>
           </TabsTrigger>
         </TabsList>
+        </div>
 
         <TabsContent value="pendentes" className="mt-4">
           <PendentesTab
@@ -1047,15 +1079,16 @@ function ChamadosTab({
             terminalLojas={terminalLojas}
             ufFilter={ufFilter}
             allIssuesByLoja={allIssuesByLoja}
+            onMapFocus={onMapFocus}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">
-          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} allIssuesByLoja={allIssuesByLoja} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1070,11 +1103,17 @@ export default function AgendamentoPage() {
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chamados');
   const [mapUfFilter, setMapUfFilter] = useState<string | null>(null);
+  const [mapFocusLoja, setMapFocusLoja] = useState<string | null>(null);
 
   const openTransition = (loja: string) => {
     setTransitionLoja(loja);
     setTransitionOpen(true);
   };
+
+  const onMapFocus = useCallback((loja: string) => {
+    startTransition(() => setActiveTab('mapa'));
+    setMapFocusLoja(loja);
+  }, []);
 
   if (isLoading) return <PageSkeleton />;
 
@@ -1157,6 +1196,7 @@ export default function AgendamentoPage() {
         value={activeTab}
         onValueChange={v => startTransition(() => setActiveTab(v))}
       >
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
         <TabsList className="flex-wrap h-auto gap-1 p-1">
           <TabsTrigger value="chamados" className="gap-1.5">
             <CalendarCheck className="w-3.5 h-3.5" />
@@ -1180,6 +1220,7 @@ export default function AgendamentoPage() {
             Mapa
           </TabsTrigger>
         </TabsList>
+        </div>
 
         {/* ── Chamados (default) ── */}
         <TabsContent value="chamados" className="mt-4">
@@ -1194,6 +1235,7 @@ export default function AgendamentoPage() {
             tecCampoLojas={tecCampoLojas}
             onTransition={openTransition}
             onScheduled={refresh}
+            onMapFocus={onMapFocus}
           />
         </TabsContent>
 
@@ -1258,6 +1300,8 @@ export default function AgendamentoPage() {
               groups={allLojaGroups}
               selectedUf={mapUfFilter}
               onUfClick={uf => setMapUfFilter(uf)}
+              focusLoja={mapFocusLoja}
+              onFocusConsumed={() => setMapFocusLoja(null)}
             />
           </Suspense>
         </TabsContent>

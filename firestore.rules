@@ -27,9 +27,11 @@ service cloud.firestore {
     }
 
     // ── User profiles ─────────────────────────────────────────────────────────
+    // Restrict reads to own profile or admin — prevents cross-user reads of
+    // sensitive fields like externalApiKey and webhookUrl.
     match /users/{userId} {
-      allow read:  if isAuth();
-      allow write: if isAuth() && (request.auth.uid == userId || isAdmin());
+      allow read:  if request.auth.uid == userId || isAdmin();
+      allow write: if request.auth.uid == userId || isAdmin();
     }
 
     // ── Técnicos ──────────────────────────────────────────────────────────────
@@ -115,7 +117,9 @@ service cloud.firestore {
 
     // ── Shared team collections ───────────────────────────────────────────────
     match /schedulingNotes/{docId} {
-      allow read, write: if isAuth();
+      allow read:          if isAuth();
+      allow create, update: if isAnyStaff();
+      allow delete:         if isAdmin();
     }
 
     match /sharedData/{docId} {
@@ -129,7 +133,11 @@ service cloud.firestore {
     }
 
     match /diarioBordo/{docId} {
-      allow read, write: if isAuth();
+      allow read:   if isAuth();
+      // Creator or admin can delete; no freeform edits after creation.
+      allow create: if isAuth() && request.resource.data.criadoPor == request.auth.uid;
+      allow delete: if resource.data.criadoPor == request.auth.uid || isAdmin();
+      allow update: if isAdmin();
     }
   }
 }

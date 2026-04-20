@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import * as XLSX from 'xlsx';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Skeleton } from '../components/ui/skeleton';
@@ -65,6 +67,7 @@ import type { Pagamento, PagamentoPreview, PagamentoChamadoDetalhe } from '../ty
 import type { CatalogoServico } from '../types/catalogo';
 import { cn } from '../lib/utils';
 import { usePermissions } from '../hooks/use-permissions';
+import { EmptyState } from '../components/EmptyState';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -196,6 +199,7 @@ function GerarPagamentoDialog({
   nomesTecnicos,
   criadoPor,
   onConfirmed,
+  tecnicosMap,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -203,6 +207,7 @@ function GerarPagamentoDialog({
   nomesTecnicos: Map<string, string>;
   criadoPor: string;
   onConfirmed: () => void;
+  tecnicosMap: Map<string, { pix?: string; banco?: string }>;
 }) {
   const [de, setDe] = useState(firstOfMonth);
   const [ate, setAte] = useState(today);
@@ -231,6 +236,19 @@ function GerarPagamentoDialog({
   const handleConfirmar = async () => {
     const selecionados = previews.filter(p => selectedIds.has(p.tecnicoId));
     if (selecionados.length === 0) { toast.error('Selecione ao menos um técnico.'); return; }
+
+    // Validação de dados bancários — avisa (não bloqueia) se algum técnico estiver sem PIX/banco
+    const semDados = selecionados.filter(p => {
+      const t = tecnicosMap.get(p.tecnicoId);
+      return !t?.pix && !t?.banco;
+    });
+    if (semDados.length > 0) {
+      toast.warning(
+        `${semDados.length} técnico(s) sem PIX ou dados bancários cadastrados: ${semDados.map(p => p.tecnicoNome).join(', ')}. Verifique antes de pagar.`,
+        { duration: 8000 },
+      );
+    }
+
     setConfirming(true);
     try {
       await confirmarPagamentos(selecionados, { de, ate }, criadoPor);
@@ -265,8 +283,8 @@ function GerarPagamentoDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) setPreviews([]); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-primary" /> Gerar Pagamentos
           </DialogTitle>
@@ -275,7 +293,8 @@ function GerarPagamentoDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="space-y-5">
           {/* Período */}
           <div className="flex flex-col sm:flex-row gap-3 items-end">
             <div className="space-y-1.5 flex-1">
@@ -357,8 +376,9 @@ function GerarPagamentoDialog({
             </div>
           )}
         </div>
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="px-6 py-4 border-t shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           {previews.length > 0 && (
             <Button onClick={handleConfirmar} disabled={confirming || selectedIds.size === 0}>
@@ -486,6 +506,13 @@ function PagamentoCard({
                   <span>{pagamento.periodo.de} → {pagamento.periodo.ate}</span>
                   {pagamento.pagoEm && (
                     <span>Pago em {new Date(pagamento.pagoEm).toLocaleDateString('pt-BR')}</span>
+                  )}
+                  {pagamento.status === 'cancelado' && pagamento.canceladoPorNome && (
+                    <span className="text-red-500 dark:text-red-400">
+                      Cancelado por {pagamento.canceladoPorNome}
+                      {pagamento.canceladoEm ? ` em ${new Date(pagamento.canceladoEm).toLocaleDateString('pt-BR')}` : ''}
+                      {pagamento.motivoCancelamento ? ` — ${pagamento.motivoCancelamento}` : ''}
+                    </span>
                   )}
                 </div>
               </div>
@@ -662,6 +689,36 @@ function exportDashboardPDF(
   win.document.close();
 }
 
+// ─── Export XLSX ──────────────────────────────────────────────────────────────
+
+function exportDashboardXlsx(pagamentos: Pagamento[]) {
+  const rows = pagamentos.flatMap(p =>
+    p.detalhesChamados.map(d => {
+      const valorBase = d.valorChamado - (d.valorHorasExtras ?? 0) - d.reembolsoPeca;
+      return {
+        'Técnico': p.tecnicoNome,
+        'Status': p.status === 'pago' ? 'Pago' : p.status === 'cancelado' ? 'Cancelado' : 'Pendente',
+        'FSA': d.fsa,
+        'Loja': d.codigoLoja,
+        'Serviço': d.catalogoServicoNome ?? '',
+        'Duração (min)': d.durationMinutes,
+        'H. extras (h)': d.horasExtras ?? 0,
+        'Adicional?': d.isAdicional ? 'Sim' : 'Não',
+        'Valor base (R$)': +valorBase.toFixed(2),
+        'H. extras (R$)': +(d.valorHorasExtras ?? 0).toFixed(2),
+        'Reembolso peças (R$)': +d.reembolsoPeca.toFixed(2),
+        'Total chamado (R$)': +(d.valorChamado + d.reembolsoPeca).toFixed(2),
+      };
+    })
+  );
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const colWidths = [20, 10, 14, 8, 28, 12, 10, 10, 14, 12, 16, 14];
+  ws['!cols'] = colWidths.map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Pagamentos');
+  XLSX.writeFile(wb, `pagamentos-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 // ─── Dashboard financeiro agregado ────────────────────────────────────────────
 
 function DashboardTab({ pagamentosTodos, tecnicosList }: {
@@ -710,6 +767,20 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
       .sort((a, b) => b.valor - a.valor);
   }, [pagamentos]);
 
+  const evolucaoMensal = useMemo(() => {
+    const fonte = filterTecnico !== 'todos'
+      ? pagamentosTodos.filter(p => p.tecnicoId === filterTecnico)
+      : pagamentosTodos;
+    const byMonth = new Map<string, number>();
+    for (const p of fonte) {
+      const m = new Date(p.criadoEm).toISOString().slice(0, 7);
+      byMonth.set(m, (byMonth.get(m) ?? 0) + p.valor);
+    }
+    return [...byMonth.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, total]) => ({ mes: `${month.slice(5)}/${month.slice(2, 4)}`, total }));
+  }, [pagamentosTodos, filterTecnico]);
+
   const hasFilters = filterDe || filterAte || filterTecnico !== 'todos' || filterStatus !== 'todos';
 
   if (pagamentosTodos.length === 0) {
@@ -737,6 +808,10 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
                 Limpar filtros
               </Button>
             )}
+            <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs"
+              onClick={() => exportDashboardXlsx(pagamentos)}>
+              <FileText className="w-3.5 h-3.5" /> Exportar Excel
+            </Button>
             <Button size="sm" className="h-7 gap-1.5 text-xs"
               onClick={() => exportDashboardPDF(pagamentos, { de: filterDe, ate: filterAte, tecnico: filterTecnico, status: filterStatus })}>
               <FileText className="w-3.5 h-3.5" /> Exportar PDF
@@ -800,6 +875,30 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
               </div>
             ))}
           </div>
+
+          {/* Evolução mensal */}
+          {evolucaoMensal.length > 1 && (
+            <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5" />
+                Evolução Mensal{filterTecnico !== 'todos' && (() => {
+                  const t = tecnicosList.find(x => x.id === filterTecnico);
+                  return t ? ` — ${t.nome}` : '';
+                })()}
+              </p>
+              <ResponsiveContainer width="100%" height={190}>
+                <BarChart data={evolucaoMensal} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                  <YAxis tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10 }} width={52} />
+                  <RechartsTooltip
+                    formatter={(v: number) => [brl(v), 'Total']}
+                    contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                  />
+                  <Bar dataKey="total" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
 
           {/* Pendente vs Pago */}
           {filterStatus === 'todos' && (
@@ -887,7 +986,7 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function PagamentosPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { permissions } = usePermissions();
   const isAdmin = permissions.canGeneratePayment;
 
@@ -896,10 +995,12 @@ export default function PagamentosPage() {
   const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
   const [nomesTecnicos, setNomesTecnicos] = useState<Map<string, string>>(new Map());
 
+  const [tecnicos, setTecnicos] = useState<import('../types/technician').TechnicianProfile[]>([]);
   const [gerarDialogOpen, setGerarDialogOpen] = useState(false);
   const [pagandoPagamento, setPagandoPagamento] = useState<Pagamento | null>(null);
   const [cancelandoPagamento, setCancelandoPagamento] = useState<Pagamento | null>(null);
   const [obsPagamento, setObsPagamento] = useState('');
+  const [motivoCancelamento, setMotivoCancelamento] = useState('');
 
   const fetchPagamentos = async () => {
     setLoading(true);
@@ -920,6 +1021,7 @@ export default function PagamentosPage() {
       const map = new Map<string, string>();
       techs.forEach(t => map.set(t.uid, t.nome));
       setNomesTecnicos(map);
+      setTecnicos(techs);
     }).catch(() => {});
   }, [user?.uid, isAdmin]);
 
@@ -947,10 +1049,18 @@ export default function PagamentosPage() {
 
   const handleCancelar = async () => {
     if (!cancelandoPagamento) return;
+    const porNome = profile?.nome || user?.email || 'Usuário';
     try {
-      await cancelarPagamento(cancelandoPagamento.id, cancelandoPagamento);
+      await cancelarPagamento(
+        cancelandoPagamento.id,
+        cancelandoPagamento,
+        user?.uid,
+        porNome,
+        motivoCancelamento.trim() || undefined,
+      );
       toast.success('Pagamento cancelado. Chamados liberados para novo fechamento.');
       setCancelandoPagamento(null);
+      setMotivoCancelamento('');
       fetchPagamentos();
     } catch {
       toast.error('Erro ao cancelar pagamento.');
@@ -989,14 +1099,14 @@ export default function PagamentosPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <div className="p-5 rounded-xl border-2 border-amber-500/20 bg-background shadow-sm">
+        <div className="p-5 rounded-xl border-l-4 border-amber-500 bg-background shadow-sm">
           <p className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
             <Clock className="w-4 h-4" /> A pagar
           </p>
           <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{brl(totalPendente)}</p>
           <p className="text-xs text-muted-foreground mt-1">{pendentes.length} pendente(s)</p>
         </div>
-        <div className="p-5 rounded-xl border-2 border-green-500/20 bg-background shadow-sm">
+        <div className="p-5 rounded-xl border-l-4 border-green-500 bg-background shadow-sm">
           <p className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
             <CheckCircle2 className="w-4 h-4" /> Pago
           </p>
@@ -1005,7 +1115,7 @@ export default function PagamentosPage() {
             {pagamentos.filter(p => p.status === 'pago').length} pagamento(s)
           </p>
         </div>
-        <div className="p-5 rounded-xl border-2 border-border bg-background shadow-sm col-span-2 md:col-span-1">
+        <div className="p-5 rounded-xl border-l-4 border-border bg-background shadow-sm col-span-2 md:col-span-1">
           <p className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-1.5">
             <Users className="w-4 h-4" /> Técnicos
           </p>
@@ -1041,15 +1151,11 @@ export default function PagamentosPage() {
           <>
             <TabsContent value="pendentes" className="mt-4 space-y-3">
               {pendentes.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground">
-                  <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Nenhum pagamento pendente</p>
-                  {isAdmin && (
-                    <p className="text-sm mt-1">
-                      Use "Gerar Pagamento" para criar pagamentos a partir dos relatórios arquivados.
-                    </p>
-                  )}
-                </div>
+                <EmptyState
+                  icon={CheckCircle2}
+                  title="Nenhum pagamento pendente"
+                  description={isAdmin ? 'Use "Gerar Pagamento" para criar pagamentos a partir dos relatórios arquivados.' : undefined}
+                />
               ) : (
                 pendentes.map(p => (
                   <PagamentoCard
@@ -1065,10 +1171,7 @@ export default function PagamentosPage() {
 
             <TabsContent value="historico" className="mt-4 space-y-3">
               {historico.length === 0 ? (
-                <div className="text-center py-16 text-muted-foreground">
-                  <DollarSign className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="font-medium">Nenhum pagamento no histórico</p>
-                </div>
+                <EmptyState icon={DollarSign} title="Nenhum pagamento no histórico" />
               ) : (
                 historico.map(p => (
                   <PagamentoCard
@@ -1100,6 +1203,7 @@ export default function PagamentosPage() {
         nomesTecnicos={nomesTecnicos}
         criadoPor={user?.uid ?? ''}
         onConfirmed={fetchPagamentos}
+        tecnicosMap={new Map(tecnicos.map(t => [t.uid, { pix: t.pagamento?.pix, banco: t.pagamento?.banco }]))}
       />
 
       {/* Dialog: Confirmar pagamento */}
@@ -1132,7 +1236,7 @@ export default function PagamentosPage() {
       </AlertDialog>
 
       {/* Dialog: Cancelar pagamento */}
-      <AlertDialog open={!!cancelandoPagamento} onOpenChange={open => !open && setCancelandoPagamento(null)}>
+      <AlertDialog open={!!cancelandoPagamento} onOpenChange={open => { if (!open) { setCancelandoPagamento(null); setMotivoCancelamento(''); } }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Cancelar Pagamento</AlertDialogTitle>
@@ -1144,6 +1248,15 @@ export default function PagamentosPage() {
               Os chamados incluídos voltarão a ficar disponíveis para novo fechamento.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="py-2 space-y-1.5">
+            <Label htmlFor="motivo-cancel">Motivo do cancelamento (opcional)</Label>
+            <Input
+              id="motivo-cancel"
+              placeholder="Ex: Valor incorreto, chamado contestado…"
+              value={motivoCancelamento}
+              onChange={e => setMotivoCancelamento(e.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction

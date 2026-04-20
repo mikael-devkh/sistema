@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
+import { Checkbox } from '../components/ui/checkbox';
 import { Skeleton } from '../components/ui/skeleton';
 import { Textarea } from '../components/ui/textarea';
 import { Label } from '../components/ui/label';
@@ -13,37 +14,33 @@ import { toast } from 'sonner';
 import {
   CheckCircle2, XCircle, Eye, ClipboardList, Wrench, Package,
   Link as LinkIcon, Clock, History, AlertTriangle, Layers, RefreshCcw,
-  ChevronsRight, Copy, User,
+  ChevronsRight, Copy, User, Lock, Plus, Trash2, Settings2, Loader2,
 } from 'lucide-react';
+import { Input } from '../components/ui/input';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/use-permissions';
 import {
   listChamados, validarOperador, validarFinanceiro, rejeitarChamado,
+  iniciarRevisao, liberarRevisao,
 } from '../lib/chamado-firestore';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import type { Chamado, HistoricoEntry } from '../types/chamado';
 import { cn } from '../lib/utils';
+import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
+import { EmptyState as SharedEmptyState } from '../components/EmptyState';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const STATUS_BADGE: Record<string, string> = {
-  rascunho:            'bg-muted text-muted-foreground border-border',
-  submetido:           'bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-400',
-  validado_operador:   'bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-400',
-  rejeitado:           'bg-red-500/10 text-red-700 border-red-500/25 dark:text-red-400',
-  validado_financeiro: 'bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-400',
-  pago:                'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-400',
-};
+const STATUS_BADGE: Record<string, string> = Object.fromEntries(
+  Object.entries(CHAMADO_STATUS_CONFIG).map(([k, v]) => [k, v.badge])
+);
 
-const STATUS_LABEL: Record<string, string> = {
-  rascunho:            'Rascunho',
-  submetido:           'Ag. Validação Op.',
-  validado_operador:   'Ag. Validação Fin.',
-  rejeitado:           'Rejeitado',
-  validado_financeiro: 'Aprovado',
-  pago:                'Pago',
-};
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(CHAMADO_STATUS_CONFIG).map(([k, v]) => [k, v.label])
+);
 
-const MOTIVOS_PRESET = [
+const MOTIVOS_PRESET_DEFAULT = [
   'Informações incompletas',
   'Código FSA inválido ou duplicado',
   'Loja incorreta',
@@ -51,6 +48,27 @@ const MOTIVOS_PRESET = [
   'Peça não autorizada',
   'Documentação faltando',
 ];
+
+const MOTIVOS_DOC = 'configuracoes/motivosRejeicao';
+
+/** Horas desde o registro do chamado */
+function horasDesde(registradoEm: number): number {
+  return (Date.now() - registradoEm) / 3_600_000;
+}
+
+/** Urgência: submetido >24h ou validado_operador >48h */
+function urgenciaSla(c: Chamado): 'critical' | 'warning' | null {
+  const h = horasDesde(c.registradoEm);
+  if (c.status === 'submetido') {
+    if (h >= 48) return 'critical';
+    if (h >= 24) return 'warning';
+  }
+  if (c.status === 'validado_operador') {
+    if (h >= 96) return 'critical';
+    if (h >= 48) return 'warning';
+  }
+  return null;
+}
 
 function fmtDate(d: string) {
   if (!d) return '—';
@@ -102,7 +120,7 @@ function DetalheDialog({ chamado, open, onClose }: {
                 {chamado.tecnicoCodigo ? '— ' : ''}{chamado.tecnicoNome}
               </p>
               {chamado.tecnicoPaiCodigo && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
                   Subcontratado de <span className="font-mono font-semibold">{chamado.tecnicoPaiCodigo}</span>
                   {chamado.pagamentoDestino === 'parent' && ' · pagamento ao pai'}
                 </p>
@@ -246,18 +264,29 @@ function DetalheDialog({ chamado, open, onClose }: {
 
 // ─── RejeitarDialog ───────────────────────────────────────────────────────────
 
-function RejeitarDialog({ chamado, open, onClose, onConfirm, loading }: {
+function RejeitarDialog({ chamado, open, onClose, onConfirm, loading, motivos, canEditMotivos, onSaveMotivos }: {
   chamado: Chamado | null;
   open: boolean;
   onClose: () => void;
   onConfirm: (motivo: string) => void;
   loading: boolean;
+  motivos: string[];
+  canEditMotivos: boolean;
+  onSaveMotivos: (lista: string[]) => void;
 }) {
   const [motivo, setMotivo] = useState('');
+  const [editingMotivos, setEditingMotivos] = useState(false);
+  const [motivosDraft, setMotivosDraft] = useState<string[]>([]);
+  const [novoMotivo, setNovoMotivo] = useState('');
 
-  useEffect(() => { if (open) setMotivo(''); }, [open]);
+  useEffect(() => { if (open) { setMotivo(''); setEditingMotivos(false); } }, [open]);
 
   if (!chamado) return null;
+
+  const handleSaveMotivos = () => {
+    onSaveMotivos(motivosDraft.filter(m => m.trim()));
+    setEditingMotivos(false);
+  };
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -274,24 +303,71 @@ function RejeitarDialog({ chamado, open, onClose, onConfirm, loading }: {
         <div className="space-y-3">
           {/* Motivos rápidos */}
           <div>
-            <p className="text-xs text-muted-foreground mb-2">Motivos frequentes:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {MOTIVOS_PRESET.map(m => (
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-muted-foreground">Motivos frequentes:</p>
+              {canEditMotivos && !editingMotivos && (
                 <button
-                  key={m}
                   type="button"
-                  onClick={() => setMotivo(m)}
-                  className={cn(
-                    'text-[11px] px-2 py-1 rounded-full border transition-all',
-                    motivo === m
-                      ? 'bg-destructive/10 border-destructive/40 text-destructive font-semibold'
-                      : 'border-border text-muted-foreground hover:border-destructive/30 hover:text-foreground',
-                  )}
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                  onClick={() => { setMotivosDraft([...motivos]); setEditingMotivos(true); }}
                 >
-                  {m}
+                  <Settings2 className="w-3 h-3" /> Editar lista
                 </button>
-              ))}
+              )}
             </div>
+
+            {editingMotivos ? (
+              <div className="space-y-2 rounded-lg border p-3 bg-muted/30">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Gerenciar motivos</p>
+                {motivosDraft.map((m, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <Input
+                      value={m}
+                      onChange={e => setMotivosDraft(prev => prev.map((v, idx) => idx === i ? e.target.value : v))}
+                      className="h-7 text-xs"
+                    />
+                    <button type="button" onClick={() => setMotivosDraft(prev => prev.filter((_, idx) => idx !== i))}>
+                      <Trash2 className="w-3.5 h-3.5 text-destructive/70 hover:text-destructive" />
+                    </button>
+                  </div>
+                ))}
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="Novo motivo…"
+                    value={novoMotivo}
+                    onChange={e => setNovoMotivo(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && novoMotivo.trim()) { setMotivosDraft(p => [...p, novoMotivo.trim()]); setNovoMotivo(''); } }}
+                    className="h-7 text-xs"
+                  />
+                  <Button type="button" size="sm" variant="outline" className="h-7 px-2"
+                    onClick={() => { if (novoMotivo.trim()) { setMotivosDraft(p => [...p, novoMotivo.trim()]); setNovoMotivo(''); } }}>
+                    <Plus className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" size="sm" variant="outline" className="flex-1 h-7 text-xs" onClick={() => setEditingMotivos(false)}>Cancelar</Button>
+                  <Button type="button" size="sm" className="flex-1 h-7 text-xs" onClick={handleSaveMotivos}>Salvar</Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {motivos.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMotivo(m)}
+                    className={cn(
+                      'text-[11px] px-2 py-1 rounded-full border transition-all',
+                      motivo === m
+                        ? 'bg-destructive/10 border-destructive/40 text-destructive font-semibold'
+                        : 'border-border text-muted-foreground hover:border-destructive/30 hover:text-foreground',
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -322,16 +398,27 @@ function RejeitarDialog({ chamado, open, onClose, onConfirm, loading }: {
 
 // ─── ChamadoValidacaoCard ─────────────────────────────────────────────────────
 
-function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprovar, aprovando }: {
+function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprovar, aprovando, currentUserUid, selected, onToggleSelect }: {
   chamado: Chamado;
   onVer: () => void;
   onAprovar: () => void;
   onRejeitar: () => void;
   canAprovar: boolean;
   aprovando: boolean;
+  currentUserUid: string;
+  selected?: boolean;
+  onToggleSelect?: () => void;
 }) {
+  const sla = urgenciaSla(chamado);
+  const lockedByOther = chamado.emRevisaoPor && chamado.emRevisaoPor !== currentUserUid;
+  const h = Math.floor(horasDesde(chamado.registradoEm));
+
   return (
-    <div className="rounded-xl border border-border bg-card p-4 space-y-3 hover:border-primary/30 transition-colors">
+    <div className={cn(
+      'rounded-xl border bg-card p-4 space-y-3 hover:border-primary/30 transition-colors',
+      sla === 'critical' ? 'border-red-400/60' : sla === 'warning' ? 'border-amber-400/60' : 'border-border',
+      selected && 'ring-2 ring-primary/40',
+    )}>
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
@@ -345,6 +432,21 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             <Badge variant="outline" className={cn('text-[11px]', STATUS_BADGE[chamado.status])}>
               {STATUS_LABEL[chamado.status]}
             </Badge>
+            {sla === 'critical' && (
+              <Badge variant="outline" className="text-[10px] gap-1 border-red-400/60 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20">
+                <AlertTriangle className="w-2.5 h-2.5" /> {h}h — urgente
+              </Badge>
+            )}
+            {sla === 'warning' && (
+              <Badge variant="outline" className="text-[10px] gap-1 border-amber-400/60 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">
+                <Clock className="w-2.5 h-2.5" /> {h}h em fila
+              </Badge>
+            )}
+            {lockedByOther && (
+              <Badge variant="outline" className="text-[10px] gap-1 border-slate-400/40 text-slate-500">
+                <Lock className="w-2.5 h-2.5" /> Em revisão por {chamado.emRevisaoPorNome}
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Loja {chamado.codigoLoja}</span>
@@ -366,9 +468,19 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             )}
           </div>
         </div>
-        <Button variant="ghost" size="sm" className="shrink-0 h-8 w-8 p-0" onClick={onVer} title="Ver detalhes">
-          <Eye className="w-4 h-4" />
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {onToggleSelect && (
+            <Checkbox
+              checked={!!selected}
+              onCheckedChange={onToggleSelect}
+              className="h-4 w-4"
+              aria-label="Selecionar"
+            />
+          )}
+          <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={onVer} title="Ver detalhes">
+            <Eye className="w-4 h-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Badges de serviço / peça */}
@@ -399,7 +511,8 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             variant="outline"
             className="flex-1 gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
             onClick={onRejeitar}
-            disabled={aprovando}
+            disabled={aprovando || !!lockedByOther}
+            title={lockedByOther ? `Em revisão por ${chamado.emRevisaoPorNome}` : undefined}
           >
             <XCircle className="w-3.5 h-3.5" /> Rejeitar
           </Button>
@@ -407,7 +520,8 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             size="sm"
             className="flex-1 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
             onClick={onAprovar}
-            disabled={aprovando}
+            disabled={aprovando || !!lockedByOther}
+            title={lockedByOther ? `Em revisão por ${chamado.emRevisaoPorNome}` : undefined}
           >
             {aprovando
               ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Aprovando…</>
@@ -420,15 +534,8 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
   );
 }
 
-// ─── EmptyState ───────────────────────────────────────────────────────────────
-
 function EmptyState({ label }: { label: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-      <CheckCircle2 className="w-10 h-10 opacity-30" />
-      <p className="text-sm">{label}</p>
-    </div>
-  );
+  return <SharedEmptyState icon={CheckCircle2} title={label} />;
 }
 
 // ─── KpiCard ──────────────────────────────────────────────────────────────────
@@ -447,6 +554,70 @@ function KpiCard({ label, value, color }: { label: string; value: number | strin
   );
 }
 
+// ─── BatchRejeitarDialog ──────────────────────────────────────────────────────
+
+function BatchRejeitarDialog({ chamados, open, onClose, onConfirm, loading, motivos }: {
+  chamados: Chamado[];
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (items: { id: string; motivo: string }[]) => void;
+  loading: boolean;
+  motivos: string[];
+}) {
+  const [motivoPorId, setMotivoPorId] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open) {
+      const init: Record<string, string> = {};
+      chamados.forEach(c => { init[c.id] = motivos[0] ?? ''; });
+      setMotivoPorId(init);
+    }
+  }, [open, chamados, motivos]);
+
+  const allFilled = chamados.every(c => (motivoPorId[c.id] ?? '').trim());
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Rejeitar {chamados.length} chamado(s)</DialogTitle>
+          <DialogDescription>Selecione o motivo de rejeição para cada chamado.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          {chamados.map(c => (
+            <div key={c.id} className="rounded-lg border border-border p-3 space-y-2">
+              <div>
+                <p className="text-sm font-medium">FSA {c.fsa} — Loja {c.codigoLoja}</p>
+                <p className="text-xs text-muted-foreground">{c.tecnicoNome} · {fmtDate(c.dataAtendimento)}</p>
+              </div>
+              <select
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                value={motivoPorId[c.id] ?? ''}
+                onChange={e => setMotivoPorId(prev => ({ ...prev, [c.id]: e.target.value }))}
+              >
+                <option value="">Selecione o motivo…</option>
+                {motivos.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose} disabled={loading}>Cancelar</Button>
+          <Button
+            variant="destructive"
+            onClick={() => onConfirm(chamados.map(c => ({ id: c.id, motivo: motivoPorId[c.id] ?? '' })))}
+            disabled={loading || !allFilled}
+          >
+            {loading
+              ? <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />Rejeitando…</>
+              : `Confirmar ${chamados.length} rejeição(ões)`}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── ValidacaoPage ────────────────────────────────────────────────────────────
 
 export default function ValidacaoPage() {
@@ -455,6 +626,7 @@ export default function ValidacaoPage() {
 
   const [submetidos, setSubmetidos] = useState<Chamado[]>([]);
   const [validadosOp, setValidadosOp] = useState<Chamado[]>([]);
+  const [rejeitados, setRejeitados] = useState<Chamado[]>([]);
   const [loading, setLoading] = useState(true);
 
   // IDs sendo aprovados individualmente (spinner no botão)
@@ -466,24 +638,69 @@ export default function ValidacaoPage() {
   const [detalheOpen, setDetalheOpen] = useState(false);
   const [chamadoVisto, setChamadoVisto] = useState<Chamado | null>(null);
 
-  // Dialog de rejeição
+  // Dialog de rejeição individual
   const [rejeitarOpen, setRejeitarOpen] = useState(false);
   const [chamadoRejeitar, setChamadoRejeitar] = useState<Chamado | null>(null);
   const [etapaRejeitar, setEtapaRejeitar] = useState<'operador' | 'financeiro'>('operador');
   const [rejeitando, setRejeitando] = useState(false);
 
+  // Seleção em lote
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchRejeitarOpen, setBatchRejeitarOpen] = useState(false);
+  const [batchRejeitando, setBatchRejeitando] = useState(false);
+
   const canValidateOp  = permissions.canValidateOperador;
   const canValidateFin = permissions.canValidateFinanceiro;
+
+  // Motivos de rejeição configuráveis — carregados do Firestore com fallback
+  const [motivos, setMotivos] = useState<string[]>(MOTIVOS_PRESET_DEFAULT);
+  useEffect(() => {
+    getDoc(doc(db, MOTIVOS_DOC)).then(snap => {
+      if (snap.exists()) {
+        const data = snap.data();
+        if (Array.isArray(data.motivos) && data.motivos.length > 0) setMotivos(data.motivos);
+      }
+    }).catch(() => {});
+  }, []);
+
+  const handleSaveMotivos = async (lista: string[]) => {
+    try {
+      await setDoc(doc(db, MOTIVOS_DOC), { motivos: lista });
+      setMotivos(lista);
+      toast.success('Lista de motivos atualizada.');
+    } catch { toast.error('Erro ao salvar motivos.'); }
+  };
+
+  // Lock refs — armazena IDs que este usuário bloqueou para liberar ao sair
+  const lockedByMeRef = useRef<Set<string>>(new Set());
+
+  async function acquireLock(c: Chamado) {
+    if (c.emRevisaoPor && c.emRevisaoPor !== por) return; // já bloqueado por outro
+    try {
+      await iniciarRevisao(c.id, por, porNome);
+      lockedByMeRef.current.add(c.id);
+    } catch { /* non-critical */ }
+  }
+
+  async function releaseLock(id: string) {
+    if (!lockedByMeRef.current.has(id)) return;
+    try {
+      await liberarRevisao(id);
+      lockedByMeRef.current.delete(id);
+    } catch { /* non-critical */ }
+  }
 
   async function loadData() {
     setLoading(true);
     try {
-      const [s, v] = await Promise.all([
+      const [s, v, r] = await Promise.all([
         canValidateOp  ? listChamados({ status: 'submetido' }) : Promise.resolve([]),
         canValidateFin ? listChamados({ status: 'validado_operador' }) : Promise.resolve([]),
+        listChamados({ status: 'rejeitado' }),
       ]);
       setSubmetidos(s);
       setValidadosOp(v);
+      setRejeitados(r);
     } catch {
       toast.error('Erro ao carregar chamados.');
     } finally {
@@ -499,15 +716,19 @@ export default function ValidacaoPage() {
   // Aprovação direta — sem dialog
   async function aprovar(c: Chamado, etapa: 'operador' | 'financeiro') {
     setAprovandoIds(prev => new Set(prev).add(c.id));
+    await acquireLock(c);
     try {
       if (etapa === 'operador') {
         await validarOperador(c.id, por, porNome, undefined);
       } else {
         await validarFinanceiro(c.id, por, porNome, undefined);
       }
-      toast.success(`Chamado ${c.fsa} aprovado.`);
+      lockedByMeRef.current.delete(c.id); // lock liberado pela transição de status
+      const proximaEtapa = etapa === 'operador' ? 'aguardando validação financeira' : 'aprovado e pronto para pagamento';
+      toast.success(`Chamado ${c.fsa} aprovado — ${proximaEtapa}.`);
       await loadData();
     } catch {
+      await releaseLock(c.id);
       toast.error('Erro ao aprovar chamado.');
     } finally {
       setAprovandoIds(prev => { const n = new Set(prev); n.delete(c.id); return n; });
@@ -535,10 +756,16 @@ export default function ValidacaoPage() {
   }
 
   // Rejeição — abre dialog com presets
-  function abrirRejeitar(c: Chamado, etapa: 'operador' | 'financeiro') {
+  async function abrirRejeitar(c: Chamado, etapa: 'operador' | 'financeiro') {
+    await acquireLock(c);
     setChamadoRejeitar(c);
     setEtapaRejeitar(etapa);
     setRejeitarOpen(true);
+  }
+
+  async function fecharRejeitar() {
+    if (chamadoRejeitar) await releaseLock(chamadoRejeitar.id);
+    setRejeitarOpen(false);
   }
 
   async function confirmarRejeicao(motivo: string) {
@@ -546,17 +773,72 @@ export default function ValidacaoPage() {
     setRejeitando(true);
     try {
       await rejeitarChamado(chamadoRejeitar.id, por, porNome, motivo);
-      toast.success(`Chamado ${chamadoRejeitar.fsa} rejeitado.`);
+      lockedByMeRef.current.delete(chamadoRejeitar.id);
+      toast.success(`Chamado ${chamadoRejeitar.fsa} rejeitado — devolvido ao técnico para correção.`);
       setRejeitarOpen(false);
       await loadData();
     } catch {
+      await releaseLock(chamadoRejeitar.id);
       toast.error('Erro ao rejeitar chamado.');
     } finally {
       setRejeitando(false);
     }
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  async function aprovarLote(ids: string[], etapa: 'operador' | 'financeiro') {
+    setAprovandoTodos(true);
+    let ok = 0;
+    for (const id of ids) {
+      try {
+        etapa === 'operador'
+          ? await validarOperador(id, por, porNome)
+          : await validarFinanceiro(id, por, porNome);
+        ok++;
+      } catch {}
+    }
+    setSelectedIds(new Set());
+    setAprovandoTodos(false);
+    if (ok > 0) toast.success(`${ok} chamado(s) aprovado(s).`);
+    await loadData();
+  }
+
+  async function confirmarRejeicaoLote(items: { id: string; motivo: string }[]) {
+    setBatchRejeitando(true);
+    let ok = 0;
+    for (const item of items) {
+      try {
+        await rejeitarChamado(item.id, por, porNome, item.motivo);
+        lockedByMeRef.current.delete(item.id);
+        ok++;
+      } catch {}
+    }
+    setBatchRejeitarOpen(false);
+    setSelectedIds(new Set());
+    setBatchRejeitando(false);
+    if (ok > 0) toast.success(`${ok} chamado(s) rejeitado(s).`);
+    await loadData();
+  }
+
   const defaultTab = canValidateOp ? 'operador' : 'financeiro';
+
+  const motivosBreakdown = useMemo(() => {
+    const freq = new Map<string, number>();
+    for (const c of rejeitados) {
+      const m = c.motivoRejeicao?.trim() || '(sem motivo)';
+      freq.set(m, (freq.get(m) ?? 0) + 1);
+    }
+    return [...freq.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([motivo, count]) => ({ motivo, count, pct: Math.round((count / rejeitados.length) * 100) }));
+  }, [rejeitados]);
 
   return (
     <div className="space-y-6 animate-page-in">
@@ -629,6 +911,28 @@ export default function ValidacaoPage() {
               <EmptyState label="Nenhum chamado aguardando validação de operador." />
             ) : (
               <>
+                {/* Barra de ações em lote (operador) */}
+                {(() => {
+                  const sel = submetidos.filter(c => selectedIds.has(c.id));
+                  return sel.length > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+                      <span className="text-sm font-medium text-primary">{sel.length} selecionado(s)</span>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
+                          Limpar
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
+                          onClick={() => setBatchRejeitarOpen(true)} disabled={aprovandoTodos}>
+                          <XCircle className="w-3.5 h-3.5" /> Rejeitar ({sel.length})
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-green-700 border-green-500/40 hover:bg-green-500/10"
+                          onClick={() => aprovarLote(sel.map(c => c.id), 'operador')} disabled={aprovandoTodos}>
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Aprovar ({sel.length})
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
                 {/* Aprovar todos */}
                 {submetidos.length > 1 && (
                   <div className="flex justify-end">
@@ -651,12 +955,23 @@ export default function ValidacaoPage() {
                       chamado={c}
                       canAprovar={canValidateOp}
                       aprovando={aprovandoIds.has(c.id) || aprovandoTodos}
+                      currentUserUid={por}
                       onVer={() => { setChamadoVisto(c); setDetalheOpen(true); }}
                       onAprovar={() => aprovar(c, 'operador')}
                       onRejeitar={() => abrirRejeitar(c, 'operador')}
+                      selected={selectedIds.has(c.id)}
+                      onToggleSelect={() => toggleSelect(c.id)}
                     />
                   ))}
                 </div>
+                <BatchRejeitarDialog
+                  chamados={submetidos.filter(c => selectedIds.has(c.id))}
+                  open={batchRejeitarOpen && submetidos.some(c => selectedIds.has(c.id))}
+                  onClose={() => setBatchRejeitarOpen(false)}
+                  onConfirm={confirmarRejeicaoLote}
+                  loading={batchRejeitando}
+                  motivos={motivos}
+                />
               </>
             )}
           </TabsContent>
@@ -673,6 +988,28 @@ export default function ValidacaoPage() {
               <EmptyState label="Nenhum chamado aguardando validação financeira." />
             ) : (
               <>
+                {/* Barra de ações em lote (financeiro) */}
+                {(() => {
+                  const sel = validadosOp.filter(c => selectedIds.has(c.id));
+                  return sel.length > 0 ? (
+                    <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+                      <span className="text-sm font-medium text-primary">{sel.length} selecionado(s)</span>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
+                          Limpar
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-destructive border-destructive/40 hover:bg-destructive/10"
+                          onClick={() => setBatchRejeitarOpen(true)} disabled={aprovandoTodos}>
+                          <XCircle className="w-3.5 h-3.5" /> Rejeitar ({sel.length})
+                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 text-xs text-green-700 border-green-500/40 hover:bg-green-500/10"
+                          onClick={() => aprovarLote(sel.map(c => c.id), 'financeiro')} disabled={aprovandoTodos}>
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Aprovar ({sel.length})
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
                 {validadosOp.length > 1 && (
                   <div className="flex justify-end">
                     <Button
@@ -694,17 +1031,56 @@ export default function ValidacaoPage() {
                       chamado={c}
                       canAprovar={canValidateFin}
                       aprovando={aprovandoIds.has(c.id) || aprovandoTodos}
+                      currentUserUid={por}
                       onVer={() => { setChamadoVisto(c); setDetalheOpen(true); }}
                       onAprovar={() => aprovar(c, 'financeiro')}
                       onRejeitar={() => abrirRejeitar(c, 'financeiro')}
+                      selected={selectedIds.has(c.id)}
+                      onToggleSelect={() => toggleSelect(c.id)}
                     />
                   ))}
                 </div>
+                <BatchRejeitarDialog
+                  chamados={validadosOp.filter(c => selectedIds.has(c.id))}
+                  open={batchRejeitarOpen && validadosOp.some(c => selectedIds.has(c.id))}
+                  onClose={() => setBatchRejeitarOpen(false)}
+                  onConfirm={confirmarRejeicaoLote}
+                  loading={batchRejeitando}
+                  motivos={motivos}
+                />
               </>
             )}
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Relatório de rejeições por motivo */}
+      {(canValidateOp || canValidateFin) && motivosBreakdown.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+              <XCircle className="w-3.5 h-3.5" /> Rejeições por motivo
+            </p>
+            <span className="text-xs text-muted-foreground">{rejeitados.length} chamado(s) rejeitado(s)</span>
+          </div>
+          <div className="space-y-2">
+            {motivosBreakdown.map(({ motivo, count, pct }) => (
+              <div key={motivo} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground truncate max-w-[80%]">{motivo}</span>
+                  <span className="font-semibold text-foreground shrink-0 ml-2">{count} <span className="font-normal text-muted-foreground">({pct}%)</span></span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-red-400/70"
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Dialogs */}
       <DetalheDialog
@@ -715,9 +1091,12 @@ export default function ValidacaoPage() {
       <RejeitarDialog
         chamado={chamadoRejeitar}
         open={rejeitarOpen}
-        onClose={() => setRejeitarOpen(false)}
+        onClose={fecharRejeitar}
         onConfirm={confirmarRejeicao}
         loading={rejeitando}
+        motivos={motivos}
+        canEditMotivos={canValidateOp || canValidateFin}
+        onSaveMotivos={handleSaveMotivos}
       />
     </div>
   );

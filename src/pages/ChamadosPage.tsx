@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -10,13 +10,16 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '../components/ui/dialog';
+import {
+  Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter,
+} from '../components/ui/sheet';
 import { Separator } from '../components/ui/separator';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../components/ui/tooltip';
 import { toast } from 'sonner';
 import {
   Plus, Search, ClipboardList, FileText, Wrench, Package, Link as LinkIcon,
   Clock, Eye, Pencil, Send, History, Wand2, Trash2, Layers, Calculator,
-  AlertCircle, X, Download, ArrowUpDown, CalendarDays, User, ChevronDown,
+  AlertCircle, AlertTriangle, X, Download, ArrowUpDown, CalendarDays, User, ChevronDown, Loader2,
 } from 'lucide-react';
 import { CHAMADOS_EXEMPLO } from '../lib/seed-data';
 import { useAuth } from '../context/AuthContext';
@@ -25,12 +28,15 @@ import { listTechnicians } from '../lib/technician-firestore';
 import { listCatalogoServicos } from '../lib/catalogo-firestore';
 import {
   listChamados, createChamado, updateChamado,
-  submeterChamado, resubmeterChamado,
+  submeterChamado, resubmeterChamado, checkDuplicateChamado,
 } from '../lib/chamado-firestore';
+import { fetchFsaDetails } from '../lib/fsa';
 import type { Chamado, ChamadoStatus, LoteItem } from '../types/chamado';
 import type { TechnicianProfile } from '../types/technician';
 import type { CatalogoServico } from '../types/catalogo';
 import { cn } from '../lib/utils';
+import { EmptyState } from '../components/EmptyState';
+import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -49,6 +55,9 @@ function extractTicketId(url: string): string {
   if (url.startsWith(JIRA_BASE)) return url.slice(JIRA_BASE.length);
   return url;
 }
+
+const fmtDateBR = (iso: string) =>
+  iso ? iso.split('-').reverse().join('/') : '';
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 const yesterdayStr = () => {
@@ -75,14 +84,7 @@ function exportToCSV(chamados: Chamado[]) {
   URL.revokeObjectURL(url);
 }
 
-const STATUS_CONFIG: Record<ChamadoStatus, { label: string; color: string; badge: string }> = {
-  rascunho:           { label: 'Rascunho',             color: 'text-muted-foreground',                badge: 'bg-muted text-muted-foreground border-border' },
-  submetido:          { label: 'Ag. Validação Op.',    color: 'text-blue-600 dark:text-blue-400',     badge: 'bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-400' },
-  validado_operador:  { label: 'Ag. Validação Fin.',   color: 'text-purple-600 dark:text-purple-400', badge: 'bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-400' },
-  rejeitado:          { label: 'Rejeitado',            color: 'text-red-600 dark:text-red-400',       badge: 'bg-red-500/10 text-red-700 border-red-500/25 dark:text-red-400' },
-  validado_financeiro:{ label: 'Aprovado',             color: 'text-green-600 dark:text-green-400',   badge: 'bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-400' },
-  pago:               { label: 'Pago',                 color: 'text-emerald-600 dark:text-emerald-400', badge: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-400' },
-};
+const STATUS_CONFIG = CHAMADO_STATUS_CONFIG;
 
 // #1 fix: em_validacao covers both submetido + validado_operador
 const STATUS_TABS: { value: string; label: string }[] = [
@@ -111,7 +113,7 @@ function SectionLabel({ icon: Icon, label }: { icon: React.ElementType; label: s
   return (
     <div className="flex items-center gap-2">
       <div className="h-px flex-1 bg-border/60" />
-      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
+      <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground/60 flex items-center gap-1">
         <Icon className="w-3 h-3" /> {label}
       </span>
       <div className="h-px flex-1 bg-border/60" />
@@ -211,7 +213,7 @@ function chamadoToForm(c: Chamado): ChamadoFormState {
 // ─── Componente de item do lote ───────────────────────────────────────────────
 
 function LoteItemRow({
-  index, item, catalogoServicos, onChange, onRemove, isPrimary,
+  index, item, catalogoServicos, onChange, onRemove, isPrimary, fsaLoading,
 }: {
   index: number;
   item: LoteItemForm;
@@ -219,6 +221,7 @@ function LoteItemRow({
   onChange: (item: LoteItemForm) => void;
   onRemove?: () => void;
   isPrimary: boolean;
+  fsaLoading?: boolean;
 }) {
   return (
     <div className={cn(
@@ -226,7 +229,7 @@ function LoteItemRow({
       isPrimary ? 'border-primary/30 bg-primary/3' : 'border-border bg-muted/20',
     )}>
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {isPrimary ? '① Item principal' : `⊕ Item ${index + 1}`}
         </p>
         {!isPrimary && onRemove && (
@@ -239,8 +242,14 @@ function LoteItemRow({
       <div className="grid grid-cols-2 gap-2">
         <div className="space-y-1">
           <Label className="text-xs">Código de Chamado {isPrimary && <span className="text-destructive">*</span>}</Label>
+          <div className="relative">
           <Input placeholder="Ex: 2025-001" value={item.codigoChamado}
+            className={fsaLoading ? 'pr-8' : ''}
             onChange={e => onChange({ ...item, codigoChamado: e.target.value })} />
+          {fsaLoading && (
+            <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 animate-spin text-muted-foreground pointer-events-none" />
+          )}
+          </div>
         </div>
         <div className="space-y-1">
           <Label className="text-xs">Cód. Loja {isPrimary && <span className="text-destructive">*</span>}</Label>
@@ -288,17 +297,17 @@ function ValorEstimadoCard({
       </p>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Receita empresa</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Receita empresa</p>
           <p className="text-base font-bold text-green-700 dark:text-green-400">R$ {fmtBRL(vals.receita)}</p>
         </div>
         <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Custo técnico</p>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Custo técnico</p>
           <p className="text-base font-bold text-blue-700 dark:text-blue-400">
             {servico.pagaTecnico ? `R$ ${fmtBRL(vals.custo)}` : '—'}
           </p>
         </div>
       </div>
-      <div className="text-[11px] text-muted-foreground space-y-0.5 border-t border-border/50 pt-2 mt-1">
+      <div className="text-xs text-muted-foreground space-y-0.5 border-t border-border/50 pt-2 mt-1">
         <p>Base: R$ {fmtBRL(servico.valorReceita)}</p>
         {numAdicionais > 0 && (
           <p>+ {numAdicionais} ativo(s) adicional(is) × R$ {fmtBRL(servico.valorAdicionalReceita)}</p>
@@ -334,8 +343,9 @@ function ChamadoFormDialog({
   const [form, setForm] = useState<ChamadoFormState>(FORM_EMPTY);
   const [saving, setSaving] = useState(false);
   const [submitAfterSave, setSubmitAfterSave] = useState(false);
-  // #2: toggle for optional peca section
   const [showPeca, setShowPeca] = useState(false);
+  const [fsaLookupStatus, setFsaLookupStatus] = useState<'idle' | 'loading' | 'found' | 'not_found'>('idle');
+  const fsaDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (editing) {
@@ -350,11 +360,40 @@ function ChamadoFormDialog({
     setSubmitAfterSave(false);
   }, [editing, open]);
 
+  // Auto-fill codigoLoja via Jira ao digitar o FSA principal (debounce 700ms)
+  useEffect(() => {
+    const fsa = form.fsa.trim();
+    if (!fsa || editing) { setFsaLookupStatus('idle'); return; }
+    setFsaLookupStatus('loading');
+    if (fsaDebounceRef.current) clearTimeout(fsaDebounceRef.current);
+    fsaDebounceRef.current = setTimeout(async () => {
+      try {
+        const details = await fetchFsaDetails({ fsa });
+        if (details?.storeCode) {
+          setForm(f => ({ ...f, codigoLoja: f.codigoLoja || details.storeCode! }));
+          setFsaLookupStatus('found');
+        } else {
+          setFsaLookupStatus('not_found');
+        }
+      } catch {
+        setFsaLookupStatus('not_found');
+      }
+    }, 700);
+    return () => { if (fsaDebounceRef.current) clearTimeout(fsaDebounceRef.current); };
+  }, [form.fsa, editing]);
+
   const set = <K extends keyof ChamadoFormState>(k: K, v: ChamadoFormState[K]) =>
     setForm(f => ({ ...f, [k]: v }));
 
   const primaryServico = catalogoServicos.find(s => s.id === form.catalogoServicoId) ?? null;
   const tecnico = tecnicos.find(t => t.uid === form.tecnicoId) ?? null;
+
+  const indisponivel = useMemo(() => {
+    if (!tecnico?.periodosIndisponibilidade?.length || !form.dataAtendimento) return null;
+    return tecnico.periodosIndisponibilidade.find(
+      p => form.dataAtendimento >= p.de && form.dataAtendimento <= p.ate,
+    ) ?? null;
+  }, [tecnico, form.dataAtendimento]);
   const duration = calcDuration(form.horaInicio, form.horaFim);
   // #9: detect invalid hour range
   const horaInvalida = !!(form.horaInicio && form.horaFim && !duration &&
@@ -398,6 +437,19 @@ function ChamadoFormDialog({
         toast.error(`Preencha o código e a loja do item ${i + 2} do lote.`);
         return;
       }
+    }
+
+    // Verificação de duplicata — apenas ao criar (não ao editar)
+    if (!editing) {
+      try {
+        const dup = await checkDuplicateChamado(form.fsa.trim(), form.tecnicoId, form.dataAtendimento);
+        if (dup) {
+          toast.warning(
+            `Já existe um chamado com FSA "${form.fsa.trim()}" para este técnico nesta data (status: ${STATUS_CONFIG[dup.status].label}). Verifique antes de continuar.`,
+            { duration: 6000 },
+          );
+        }
+      } catch { /* non-blocking */ }
     }
 
     setSaving(true);
@@ -489,20 +541,20 @@ function ChamadoFormDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[92vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-2xl flex flex-col p-0">
+        <SheetHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+          <SheetTitle className="flex items-center gap-2">
             <ClipboardList className="w-5 h-5 text-primary" /> {title}
-          </DialogTitle>
+          </SheetTitle>
           {isRejeitado && editing?.motivoRejeicao && (
-            <DialogDescription className="text-destructive font-medium">
+            <SheetDescription className="text-destructive font-medium">
               Motivo da rejeição: {editing.motivoRejeicao}
-            </DialogDescription>
+            </SheetDescription>
           )}
-        </DialogHeader>
-
-        <div className="space-y-5 py-2">
+        </SheetHeader>
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div className="space-y-5">
 
           {/* #8 Section: Identificação */}
           <SectionLabel icon={User} label="Identificação" />
@@ -522,6 +574,15 @@ function ChamadoFormDialog({
                 ))}
               </SelectContent>
             </Select>
+            {indisponivel && (
+              <p className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/25 mt-1">
+                <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>
+                  Técnico indisponível de {fmtDateBR(indisponivel.de)} a {fmtDateBR(indisponivel.ate)}
+                  {indisponivel.motivo ? ` — ${indisponivel.motivo}` : ''}.
+                </span>
+              </p>
+            )}
           </div>
 
           {/* Itens do lote */}
@@ -542,6 +603,7 @@ function ChamadoFormDialog({
               item={{ codigoChamado: form.fsa, codigoLoja: form.codigoLoja, catalogoServicoId: form.catalogoServicoId }}
               catalogoServicos={catalogoServicos}
               isPrimary
+              fsaLoading={fsaLookupStatus === 'loading'}
               onChange={item => setForm(f => ({
                 ...f,
                 fsa: item.codigoChamado,
@@ -549,6 +611,11 @@ function ChamadoFormDialog({
                 catalogoServicoId: item.catalogoServicoId,
               }))}
             />
+            {fsaLookupStatus === 'found' && (
+              <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1 -mt-1">
+                <Wand2 className="w-3 h-3" /> Loja preenchida automaticamente via Jira.
+              </p>
+            )}
 
             {form.itensAdicionais.map((item, idx) => (
               <LoteItemRow
@@ -692,7 +759,7 @@ function ChamadoFormDialog({
                 href={resolveLink(form.linkPlataforma)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-[11px] text-primary hover:underline truncate"
+                className="flex items-center gap-1.5 text-xs text-primary hover:underline truncate"
               >
                 <LinkIcon className="w-3 h-3 shrink-0" />
                 {resolveLink(form.linkPlataforma)}
@@ -706,7 +773,9 @@ function ChamadoFormDialog({
           </div>
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        </div>
+
+        <SheetFooter className="px-6 py-4 border-t shrink-0 flex-col sm:flex-row gap-2">
           {!editing && (
             <Button type="button" variant="ghost" size="sm"
               className="gap-1.5 text-muted-foreground sm:mr-auto" onClick={preencherExemplo}>
@@ -723,9 +792,9 @@ function ChamadoFormDialog({
             {saving && submitAfterSave ? 'Enviando…' :
               isRejeitado ? 'Ajustar e Enviar Novamente' : 'Salvar e Submeter'}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </SheetFooter>
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -901,11 +970,11 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Status</p>
+              <p className="text-xs uppercase text-muted-foreground font-semibold">Status</p>
               <Badge className={cn('text-xs border mt-1', cfg.badge)}>{cfg.label}</Badge>
             </div>
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Técnico</p>
+              <p className="text-xs uppercase text-muted-foreground font-semibold">Técnico</p>
               <p className="font-medium mt-1">
                 {chamado.tecnicoCodigo && (
                   <span className="font-mono text-primary mr-1">{chamado.tecnicoCodigo}</span>
@@ -913,7 +982,7 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
                 {chamado.tecnicoCodigo ? '— ' : ''}{chamado.tecnicoNome}
               </p>
               {chamado.tecnicoPaiCodigo && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5">
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
                   Subcontratado de <span className="font-mono font-semibold">{chamado.tecnicoPaiCodigo}</span>
                   {chamado.pagamentoDestino === 'parent' && ' · pagamento ao pai'}
                 </p>
@@ -921,13 +990,13 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
             </div>
             {chamado.catalogoServicoNome && (
               <div>
-                <p className="text-[10px] uppercase text-muted-foreground font-semibold">Serviço</p>
+                <p className="text-xs uppercase text-muted-foreground font-semibold">Serviço</p>
                 <p className="font-medium mt-1">{chamado.catalogoServicoNome}</p>
               </div>
             )}
             {chamado.durationMinutes && (
               <div>
-                <p className="text-[10px] uppercase text-muted-foreground font-semibold">Duração</p>
+                <p className="text-xs uppercase text-muted-foreground font-semibold">Duração</p>
                 <p className="font-medium mt-1">{chamado.durationMinutes} min</p>
               </div>
             )}
@@ -935,7 +1004,7 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
 
           {totalItens > 1 && (
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
+              <p className="text-xs uppercase text-muted-foreground font-semibold mb-2 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5" /> Itens do Lote ({totalItens})
               </p>
               <div className="rounded-lg border border-border overflow-hidden text-xs">
@@ -974,11 +1043,11 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
           {valores && canViewFinancialValues && (
             <div className="rounded-lg bg-muted/40 border border-border p-3 grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-[10px] uppercase text-muted-foreground font-semibold">Receita</p>
+                <p className="text-xs uppercase text-muted-foreground font-semibold">Receita</p>
                 <p className="font-bold text-green-700 dark:text-green-400 mt-0.5">R$ {fmtBRL(valores.receita)}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase text-muted-foreground font-semibold">Custo Técnico</p>
+                <p className="text-xs uppercase text-muted-foreground font-semibold">Custo Técnico</p>
                 <p className="font-bold text-blue-700 dark:text-blue-400 mt-0.5">
                   {primaryServico?.pagaTecnico ? `R$ ${fmtBRL(valores.custo)}` : '—'}
                 </p>
@@ -988,7 +1057,7 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
 
           {chamado.pecaUsada && (
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Peça</p>
+              <p className="text-xs uppercase text-muted-foreground font-semibold">Peça</p>
               <p className="font-medium mt-1 text-sm">{chamado.pecaUsada}
                 {chamado.custoPeca ? ` · R$ ${chamado.custoPeca.toFixed(2)}` : ''}
                 {chamado.fornecedorPeca === 'Tecnico' ? ' (reembolso)' : ''}
@@ -997,7 +1066,7 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
           )}
           {chamado.linkPlataforma && (
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Link</p>
+              <p className="text-xs uppercase text-muted-foreground font-semibold">Link</p>
               <a href={chamado.linkPlataforma} target="_blank" rel="noreferrer"
                 className="text-primary hover:underline text-sm mt-1 block truncate">
                 {chamado.linkPlataforma}
@@ -1006,7 +1075,7 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
           )}
           {chamado.observacoes && (
             <div>
-              <p className="text-[10px] uppercase text-muted-foreground font-semibold">Observações</p>
+              <p className="text-xs uppercase text-muted-foreground font-semibold">Observações</p>
               <p className="text-sm mt-1 whitespace-pre-wrap">{chamado.observacoes}</p>
             </div>
           )}
@@ -1059,12 +1128,11 @@ export default function ChamadosPage() {
   const [tecnicos, setTecnicos] = useState<TechnicianProfile[]>([]);
   const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
 
-  const [tabStatus, setTabStatus] = useState('todos');
+  const [tabStatus, setTabStatus] = useState(() => sessionStorage.getItem('ch_tab') ?? 'todos');
   const [search, setSearch] = useState('');
-  const [filterTecnico, setFilterTecnico] = useState('todos');
-  // #11: date range filter
-  const [filterDe, setFilterDe] = useState('');
-  const [filterAte, setFilterAte] = useState('');
+  const [filterTecnico, setFilterTecnico] = useState(() => sessionStorage.getItem('ch_tec') ?? 'todos');
+  const [filterDe, setFilterDe] = useState(() => sessionStorage.getItem('ch_de') ?? '');
+  const [filterAte, setFilterAte] = useState(() => sessionStorage.getItem('ch_ate') ?? '');
   // #12: sort control
   const [sortKey, setSortKey] = useState<'data_desc' | 'data_asc' | 'status'>('data_desc');
 
@@ -1073,6 +1141,11 @@ export default function ChamadosPage() {
   const [detalheOpen, setDetalheOpen] = useState(false);
   const [detalhe, setDetalhe] = useState<Chamado | null>(null);
   const [submetendoId, setSubmetendoId] = useState<string | null>(null);
+
+  useEffect(() => { sessionStorage.setItem('ch_tab', tabStatus); }, [tabStatus]);
+  useEffect(() => { sessionStorage.setItem('ch_tec', filterTecnico); }, [filterTecnico]);
+  useEffect(() => { sessionStorage.setItem('ch_de', filterDe); }, [filterDe]);
+  useEffect(() => { sessionStorage.setItem('ch_ate', filterAte); }, [filterAte]);
 
   const userName = profile?.nome ?? user?.email ?? 'Usuário';
   const userId = user?.uid ?? '';
@@ -1306,16 +1379,17 @@ export default function ChamadosPage() {
               {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
             </div>
           ) : filtered.length === 0 ? (
-            <div className="text-center py-16 text-muted-foreground">
-              <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">Nenhum chamado encontrado</p>
-              {permissions.canRegisterChamado && tabStatus === 'todos' && (
-                <Button size="sm" variant="outline" className="mt-3"
+            <EmptyState
+              icon={ClipboardList}
+              title="Nenhum chamado encontrado"
+              description={tabStatus !== 'todos' ? 'Tente ajustar os filtros ou mudar a aba.' : undefined}
+              action={permissions.canRegisterChamado && tabStatus === 'todos' ? (
+                <Button size="sm" variant="outline"
                   onClick={() => { setEditing(null); setFormOpen(true); }}>
                   <Plus className="w-4 h-4 mr-1.5" /> Registrar primeiro chamado
                 </Button>
-              )}
-            </div>
+              ) : undefined}
+            />
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground text-right pr-1">

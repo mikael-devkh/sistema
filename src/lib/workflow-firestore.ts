@@ -1,29 +1,28 @@
 import { db } from "../firebase";
-import { collection, addDoc, doc, getDoc, getDocs, query, where, updateDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
+import { collection, addDoc, doc, getDoc, setDoc, getDocs, query, where, updateDoc, serverTimestamp, orderBy, limit } from "firebase/firestore";
 import type { AssignmentRecord, FsaRecord, ActivityRecord, WorkflowStatus } from "../types/workflow";
 
 export async function createOrUpdateFsa(fsa: FsaRecord): Promise<string> {
   if (!fsa.id) throw new Error("FSA id é obrigatório");
-  const fsasCol = collection(db, "fsas");
-  // Firestore não usa id custom no addDoc facilmente sem set, mantemos como add + campo id
-  const q = query(fsasCol, where("id", "==", fsa.id));
-  const snap = await getDocs(q);
-  if (snap.empty) {
-    const ref = await addDoc(fsasCol, { ...fsa, createdAt: Date.now(), updatedAt: Date.now() });
-    return ref.id;
+  const ref = doc(db, "fsas", fsa.id);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) {
+    await setDoc(ref, { ...fsa, createdAt: Date.now(), updatedAt: Date.now() });
+  } else {
+    await updateDoc(ref, { ...fsa, updatedAt: Date.now() });
   }
-  const ref = snap.docs[0].ref;
-  await updateDoc(ref, { ...fsa, updatedAt: Date.now() });
-  return ref.id;
+  return fsa.id;
 }
 
 export async function getFsaById(fsaId: string): Promise<FsaRecord | null> {
   if (!fsaId) return null;
-  const fsasCol = collection(db, "fsas");
-  const q = query(fsasCol, where("id", "==", fsaId));
-  const snap = await getDocs(q);
-  if (snap.empty) return null;
-  return snap.docs.map(d => ({ id: d.get("id"), ...(d.data() as FsaRecord) }))[0] || null;
+  const snap = await getDoc(doc(db, "fsas", fsaId));
+  if (snap.exists()) return { ...(snap.data() as FsaRecord), id: snap.id };
+  // Fallback for legacy documents where doc ID differs from fsa.id field
+  const legacy = await getDocs(query(collection(db, "fsas"), where("id", "==", fsaId)));
+  if (legacy.empty) return null;
+  const d = legacy.docs[0];
+  return { ...(d.data() as FsaRecord), id: d.get("id") };
 }
 
 export async function listAssignmentsByTechnician(tecnicoId: string): Promise<AssignmentRecord[]> {

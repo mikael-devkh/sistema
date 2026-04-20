@@ -20,11 +20,8 @@ const INITIAL: PendingCounts = {
   estoqueBaixo: 0,
 };
 
-/**
- * Assina em tempo real as contagens de itens pendentes em todas as áreas do
- * sistema para exibir badges na sidebar. Tolerante a falhas individuais de
- * coleções (ex.: usuário sem permissão em uma delas).
- */
+const CHAMADOS_PENDING_STATUSES = ['submetido', 'validado_operador', 'rejeitado', 'validado_financeiro'] as const;
+
 export function usePendingCounts(enabled = true): PendingCounts {
   const [counts, setCounts] = useState<PendingCounts>(INITIAL);
 
@@ -33,39 +30,22 @@ export function usePendingCounts(enabled = true): PendingCounts {
 
     const unsubs: Array<() => void> = [];
 
-    // Chamados — ag. validação operador
+    // Single listener for all 4 active chamado statuses (was 4 separate listeners)
     try {
       unsubs.push(onSnapshot(
-        query(collection(db, 'chamados'), where('status', '==', 'submetido')),
-        snap => setCounts(c => ({ ...c, chamadosValidacaoOp: snap.size })),
-        () => {},
-      ));
-    } catch {}
-
-    // Chamados — ag. validação financeiro
-    try {
-      unsubs.push(onSnapshot(
-        query(collection(db, 'chamados'), where('status', '==', 'validado_operador')),
-        snap => setCounts(c => ({ ...c, chamadosValidacaoFin: snap.size })),
-        () => {},
-      ));
-    } catch {}
-
-    // Chamados — rejeitados
-    try {
-      unsubs.push(onSnapshot(
-        query(collection(db, 'chamados'), where('status', '==', 'rejeitado')),
-        snap => setCounts(c => ({ ...c, chamadosRejeitados: snap.size })),
-        () => {},
-      ));
-    } catch {}
-
-    // Chamados — aprovados p/ pagamento
-    try {
-      unsubs.push(onSnapshot(
-        query(collection(db, 'chamados'), where('status', '==', 'validado_financeiro')),
-        snap => setCounts(c => ({ ...c, chamadosAprovados: snap.size })),
-        () => {},
+        query(collection(db, 'chamados'), where('status', 'in', CHAMADOS_PENDING_STATUSES)),
+        snap => {
+          const next = { chamadosValidacaoOp: 0, chamadosValidacaoFin: 0, chamadosRejeitados: 0, chamadosAprovados: 0 };
+          snap.forEach(d => {
+            const s = (d.data() as { status?: string }).status;
+            if (s === 'submetido') next.chamadosValidacaoOp++;
+            else if (s === 'validado_operador') next.chamadosValidacaoFin++;
+            else if (s === 'rejeitado') next.chamadosRejeitados++;
+            else if (s === 'validado_financeiro') next.chamadosAprovados++;
+          });
+          setCounts(c => ({ ...c, ...next }));
+        },
+        (err) => console.warn('[pending-counts]', err.code, err.message),
       ));
     } catch {}
 
@@ -74,11 +54,11 @@ export function usePendingCounts(enabled = true): PendingCounts {
       unsubs.push(onSnapshot(
         query(collection(db, 'pagamentos'), where('status', '==', 'pendente')),
         snap => setCounts(c => ({ ...c, pagamentosPendentes: snap.size })),
-        () => {},
+        (err) => console.warn('[pending-counts]', err.code, err.message),
       ));
     } catch {}
 
-    // Estoque — itens abaixo do mínimo (filtro client-side)
+    // Estoque — itens abaixo do mínimo (no Firestore operator for this comparison)
     try {
       unsubs.push(onSnapshot(
         collection(db, 'estoqueItens'),
@@ -92,7 +72,7 @@ export function usePendingCounts(enabled = true): PendingCounts {
           });
           setCounts(c => ({ ...c, estoqueBaixo: low }));
         },
-        () => {},
+        (err) => console.warn('[pending-counts]', err.code, err.message),
       ));
     } catch {}
 

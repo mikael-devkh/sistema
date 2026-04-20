@@ -62,6 +62,10 @@ export interface Chamado {
   motivoRejeicao?: string;
   // Pagamento
   pagamentoId?: string | null;
+  // Lock otimista de validação — preenchido quando um validador abre o chamado
+  emRevisaoPor?: string;       // UID do validador
+  emRevisaoPorNome?: string;
+  emRevisaoDesde?: number;     // timestamp ms
   // Metadados
   registradoPor: string;
   registradoPorNome: string;

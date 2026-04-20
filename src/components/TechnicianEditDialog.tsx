@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { Label } from './ui/label';
 import {
   Dialog,
   DialogContent,
@@ -19,8 +20,10 @@ import {
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from './ui/form';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Checkbox } from './ui/checkbox';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus, Trash2, CalendarOff } from 'lucide-react';
 import type { TechnicianProfile } from '../types/technician';
+
+type PeriodoIndisponibilidade = NonNullable<TechnicianProfile['periodosIndisponibilidade']>[number];
 
 const technicianEditSchema = z.object({
   nome: z.string().min(2, 'Nome é obrigatório'),
@@ -82,6 +85,8 @@ export function TechnicianEditDialog({
   const { user: currentUser } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [parents, setParents] = useState<TechnicianProfile[]>([]);
+  const [periodos, setPeriodos] = useState<PeriodoIndisponibilidade[]>([]);
+  const [novoPeriodo, setNovoPeriodo] = useState<{ de: string; ate: string; motivo: string }>({ de: '', ate: '', motivo: '' });
 
   const form = useForm<TechnicianEditFormValues>({
     resolver: zodResolver(technicianEditSchema),
@@ -110,6 +115,16 @@ export function TechnicianEditDialog({
       .catch(err => console.error('Erro ao carregar técnicos pais:', err));
     return () => { mounted = false; };
   }, [open, technician]);
+
+  // Inicializar períodos de indisponibilidade
+  useEffect(() => {
+    if (technician && open) {
+      setPeriodos(technician.periodosIndisponibilidade ?? []);
+    } else if (!open) {
+      setPeriodos([]);
+      setNovoPeriodo({ de: '', ate: '', motivo: '' });
+    }
+  }, [technician, open]);
 
   // Preencher formulário quando o técnico for selecionado
   useEffect(() => {
@@ -194,6 +209,7 @@ export function TechnicianEditDialog({
           observacoes: values.observacoesPagamento,
         } : undefined,
         status: values.status,
+        periodosIndisponibilidade: periodos.length > 0 ? periodos : undefined,
         dataAtualizacao: Date.now(),
       };
 
@@ -626,6 +642,87 @@ export function TechnicianEditDialog({
                     </FormItem>
                   )}
                 />
+              </div>
+            </div>
+
+            {/* Calendário de Disponibilidade */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <CalendarOff className="w-4 h-4 text-muted-foreground" />
+                <h3 className="text-lg font-semibold">Períodos de Indisponibilidade</h3>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Registre férias, licenças e afastamentos. Nesses períodos o técnico não será sugerido para novos chamados.
+              </p>
+
+              {periodos.length > 0 && (
+                <div className="space-y-2">
+                  {periodos.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
+                      <div className="flex-1 flex items-center gap-3 flex-wrap text-xs">
+                        <span className="font-mono">{p.de}</span>
+                        <span className="text-muted-foreground">→</span>
+                        <span className="font-mono">{p.ate}</span>
+                        {p.motivo && (
+                          <span className="px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground text-[11px]">{p.motivo}</span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPeriodos(prev => prev.filter((_, idx) => idx !== i))}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end rounded-lg border border-dashed border-border p-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">De</Label>
+                  <Input
+                    type="date"
+                    value={novoPeriodo.de}
+                    onChange={e => setNovoPeriodo(p => ({ ...p, de: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Até</Label>
+                  <Input
+                    type="date"
+                    value={novoPeriodo.ate}
+                    min={novoPeriodo.de}
+                    onChange={e => setNovoPeriodo(p => ({ ...p, ate: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Motivo</Label>
+                  <Select value={novoPeriodo.motivo} onValueChange={v => setNovoPeriodo(p => ({ ...p, motivo: v }))}>
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Tipo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ferias">Férias</SelectItem>
+                      <SelectItem value="licenca">Licença</SelectItem>
+                      <SelectItem value="outro">Outro</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  disabled={!novoPeriodo.de || !novoPeriodo.ate || novoPeriodo.ate < novoPeriodo.de}
+                  onClick={() => {
+                    setPeriodos(prev => [...prev, { de: novoPeriodo.de, ate: novoPeriodo.ate, motivo: novoPeriodo.motivo || undefined }]);
+                    setNovoPeriodo({ de: '', ate: '', motivo: '' });
+                  }}
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar
+                </Button>
               </div>
             </div>
 

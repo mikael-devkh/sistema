@@ -19,6 +19,7 @@ import {
   Radius,
   IdCard,
   Printer,
+  Eye,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -34,6 +35,7 @@ interface TechnicianCardProps {
   onEdit?: (tech: TechnicianProfile) => void;
   onDelete?: (uid: string) => void;
   onToggleAvailability?: (uid: string, disponivel: boolean) => void;
+  onViewDetails?: (tech: TechnicianProfile) => void;
 }
 
 // ─── CrachaDialog ─────────────────────────────────────────────────────────────
@@ -128,6 +130,7 @@ export function TechnicianCard({
   onEdit,
   onDelete,
   onToggleAvailability,
+  onViewDetails,
 }: TechnicianCardProps) {
   const [crachaOpen, setCrachaOpen] = useState(false);
 
@@ -179,6 +182,12 @@ export function TechnicianCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {onViewDetails && (
+                <DropdownMenuItem onClick={() => onViewDetails(technician)}>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Ver Detalhes
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setCrachaOpen(true)}>
                 <IdCard className="mr-2 h-4 w-4" />
                 Gerar Crachá
@@ -294,6 +303,18 @@ export function TechnicianCard({
             {statusInfo.label}
           </span>
         </div>
+
+        {onViewDetails && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full mt-3 gap-1.5 text-xs"
+            onClick={() => onViewDetails(technician)}
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Ver Detalhes e Histórico
+          </Button>
+        )}
 
         {(technician.totalChamados !== undefined || technician.avaliacaoMedia !== undefined) && (
           <div className="mt-3 pt-3 border-t text-xs text-muted-foreground space-y-1">

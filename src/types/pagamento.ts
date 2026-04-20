@@ -42,6 +42,11 @@ export interface Pagamento {
   pagoEm?: number;
   observacoes?: string;
   detalhesChamados: PagamentoChamadoDetalhe[];
+  // Auditoria de cancelamento
+  canceladoPor?: string;
+  canceladoPorNome?: string;
+  canceladoEm?: number;
+  motivoCancelamento?: string;
 }
 
 /** Prévia calculada antes de confirmar a geração do pagamento */

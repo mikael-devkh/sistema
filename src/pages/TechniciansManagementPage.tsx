@@ -7,6 +7,7 @@ import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { TechnicianCard } from '../components/TechnicianCard';
 import { TechnicianEditDialog } from '../components/TechnicianEditDialog';
+import { TechnicianDetailSheet } from '../components/TechnicianDetailSheet';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -38,6 +39,8 @@ export default function TechniciansManagementPage() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deletingTechnician, setDeletingTechnician] = useState<TechnicianProfile | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [detailTechnician, setDetailTechnician] = useState<TechnicianProfile | null>(null);
+  const [isDetailSheetOpen, setIsDetailSheetOpen] = useState(false);
   const [filterEspecialidade, setFilterEspecialidade] = useState<string>('todos');
   const [filterCargo, setFilterCargo] = useState<string>('todos');
   const [filterUF, setFilterUF] = useState<string>('todos');
@@ -76,6 +79,11 @@ export default function TechniciansManagementPage() {
       console.error('Erro ao atualizar disponibilidade:', error);
       toast.error('Erro ao atualizar disponibilidade');
     }
+  };
+
+  const handleViewDetails = (technician: TechnicianProfile) => {
+    setDetailTechnician(technician);
+    setIsDetailSheetOpen(true);
   };
 
   const handleEdit = (technician: TechnicianProfile) => {
@@ -389,23 +397,23 @@ export default function TechniciansManagementPage() {
           <p className="text-sm font-medium text-muted-foreground mb-2">Total</p>
           <p className="text-3xl font-bold text-foreground">{stats.total}</p>
         </div>
-        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-green-500/20">
+        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-green-500/40">
           <p className="text-sm font-medium text-muted-foreground mb-2">Ativos</p>
           <p className="text-3xl font-bold text-green-600 dark:text-green-400">{stats.ativos}</p>
         </div>
-        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-blue-500/20">
+        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-blue-500/40">
           <p className="text-sm font-medium text-muted-foreground mb-2">Disponíveis</p>
           <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{stats.disponiveis}</p>
         </div>
-        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-orange-500/20">
+        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-orange-500/40">
           <p className="text-sm font-medium text-muted-foreground mb-2">Em Atendimento</p>
           <p className="text-3xl font-bold text-orange-600 dark:text-orange-400">{stats.emAtendimento}</p>
         </div>
-        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-purple-500/20">
+        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-purple-500/40">
           <p className="text-sm font-medium text-muted-foreground mb-2">Total Chamados</p>
           <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{stats.totalChamados}</p>
         </div>
-        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-emerald-500/20">
+        <div className="p-5 border-2 rounded-xl bg-background shadow-sm hover:shadow-md transition-shadow border-emerald-500/40">
           <p className="text-sm font-medium text-muted-foreground mb-2">Concluídos</p>
           <p className="text-3xl font-bold text-emerald-600 dark:text-emerald-400">{stats.chamadosConcluidos}</p>
         </div>
@@ -433,7 +441,7 @@ export default function TechniciansManagementPage() {
         <div className="p-5 border-2 rounded-xl bg-background shadow-sm">
           <p className="text-base font-semibold mb-4 text-foreground">Distribuição por Status</p>
           <div className="space-y-3">
-            <div className="flex justify-between items-center p-2 rounded-lg bg-green-500/10 border border-green-500/20">
+            <div className="flex justify-between items-center p-2 rounded-lg bg-green-500/10 border border-green-500/40">
               <span className="text-sm font-medium">Ativo</span>
               <span className="font-bold text-lg text-green-600 dark:text-green-400">{stats.porStatus.ativo}</span>
             </div>
@@ -445,7 +453,7 @@ export default function TechniciansManagementPage() {
               <span className="text-sm font-medium">Férias</span>
               <span className="font-bold text-lg text-yellow-600 dark:text-yellow-400">{stats.porStatus.ferias}</span>
             </div>
-            <div className="flex justify-between items-center p-2 rounded-lg bg-blue-500/10 border border-blue-500/20">
+            <div className="flex justify-between items-center p-2 rounded-lg bg-blue-500/10 border border-blue-500/40">
               <span className="text-sm font-medium">Licença</span>
               <span className="font-bold text-lg text-blue-600 dark:text-blue-400">{stats.porStatus.licenca}</span>
             </div>
@@ -493,10 +501,21 @@ export default function TechniciansManagementPage() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleAvailability={handleToggleAvailability}
+              onViewDetails={handleViewDetails}
             />
           ))}
         </div>
       )}
+
+      <TechnicianDetailSheet
+        technician={detailTechnician}
+        open={isDetailSheetOpen}
+        onOpenChange={setIsDetailSheetOpen}
+        onEdit={(tech) => {
+          setIsDetailSheetOpen(false);
+          handleEdit(tech);
+        }}
+      />
 
       <TechnicianEditDialog
         technician={editingTechnician}

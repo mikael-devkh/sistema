@@ -85,6 +85,13 @@ export interface TechnicianProfile {
   cadastradoPor?: string; // UID do admin que cadastrou
   avatarUrl?: string;
 
+  // Períodos de indisponibilidade (férias, licença, etc.)
+  periodosIndisponibilidade?: Array<{
+    de: string;      // YYYY-MM-DD
+    ate: string;     // YYYY-MM-DD
+    motivo?: string; // 'ferias' | 'licenca' | 'outro'
+  }>;
+
   // Estatísticas (calculadas)
   totalChamados?: number;
   chamadosConcluidos?: number;

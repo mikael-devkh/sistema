@@ -11,7 +11,10 @@
       "Read(//tmp/**)",
       "Bash(firebase deploy *)",
       "Bash(npx firebase *)",
-      "Bash(xargs grep *)"
+      "Bash(xargs grep *)",
+      "Bash(sort -t: -k2 -rn)",
+      "Bash(npm install *)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
     ]
   }
 }

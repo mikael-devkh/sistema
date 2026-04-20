@@ -52,6 +52,9 @@ function mapDoc(d: any): Chamado {
     historico: data.historico ?? [],
     motivoRejeicao: data.motivoRejeicao ?? undefined,
     pagamentoId: data.pagamentoId ?? null,
+    emRevisaoPor: data.emRevisaoPor ?? undefined,
+    emRevisaoPorNome: data.emRevisaoPorNome ?? undefined,
+    emRevisaoDesde: data.emRevisaoDesde ?? undefined,
     registradoPor: data.registradoPor ?? '',
     registradoPorNome: data.registradoPorNome ?? '',
     registradoEm: tsToMs(data.registradoEm),
@@ -280,13 +283,57 @@ export async function resubmeterChamado(
   });
 }
 
-/** Busca chamados pelo número da FSA (correspondência exata, case-insensitive no cliente) */
+// ─── Lock otimista de validação ───────────────────────────────────────────────
+
+/** Marca o chamado como "em revisão" para evitar validação dupla */
+export async function iniciarRevisao(id: string, por: string, porNome: string): Promise<void> {
+  await updateDoc(doc(db, COL, id), {
+    emRevisaoPor: por,
+    emRevisaoPorNome: porNome,
+    emRevisaoDesde: Date.now(),
+    atualizadoEm: serverTimestamp(),
+  });
+}
+
+/** Remove o lock de revisão ao fechar/finalizar */
+export async function liberarRevisao(id: string): Promise<void> {
+  await updateDoc(doc(db, COL, id), {
+    emRevisaoPor: null,
+    emRevisaoPorNome: null,
+    emRevisaoDesde: null,
+    atualizadoEm: serverTimestamp(),
+  });
+}
+
+// ─── Verificação de duplicatas ────────────────────────────────────────────────
+
+/** Retorna chamado existente com mesmo FSA + técnico + data (excluindo o próprio id) */
+export async function checkDuplicateChamado(
+  fsa: string,
+  tecnicoId: string,
+  dataAtendimento: string,
+  excludeId?: string,
+): Promise<Chamado | null> {
+  const chamados = await searchChamadosByFsa(fsa);
+  const dup = chamados.find(c =>
+    c.tecnicoId === tecnicoId &&
+    c.dataAtendimento === dataAtendimento &&
+    c.id !== excludeId &&
+    c.status !== 'rejeitado',
+  );
+  return dup ?? null;
+}
+
+/** Busca chamados pelo número da FSA — exact match na coleção + prefix fallback */
 export async function searchChamadosByFsa(fsa: string): Promise<Chamado[]> {
   const q = fsa.trim().toUpperCase();
-  const snap = await getDocs(query(collection(db, COL), orderBy('registradoEm', 'desc'), limit(200)));
-  return snap.docs
-    .map(mapDoc)
-    .filter(c => c.fsa?.toUpperCase().includes(q));
+  if (!q) return [];
+  // Exact match (O(1) — covers the common case of full FSA codes like "WTS-1234")
+  const exact = await getDocs(query(collection(db, COL), where('fsa', '==', q), orderBy('registradoEm', 'desc'), limit(50)));
+  if (!exact.empty) return exact.docs.map(mapDoc);
+  // Prefix range query for partial input (e.g. "WTS-12")
+  const prefix = await getDocs(query(collection(db, COL), where('fsa', '>=', q), where('fsa', '<=', q + '\uf8ff'), orderBy('fsa'), limit(50)));
+  return prefix.docs.map(mapDoc);
 }
 
 /** Lista todos os chamados de uma loja */

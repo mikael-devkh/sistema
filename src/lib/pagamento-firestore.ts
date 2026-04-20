@@ -129,6 +129,10 @@ export async function listPagamentos(tecnicoId?: string): Promise<Pagamento[]> {
       pagoEm: tsToMs(data.pagoEm),
       observacoes: data.observacoes ?? undefined,
       detalhesChamados: data.detalhesChamados ?? [],
+      canceladoPor: data.canceladoPor ?? undefined,
+      canceladoPorNome: data.canceladoPorNome ?? undefined,
+      canceladoEm: data.canceladoEm ?? undefined,
+      motivoCancelamento: data.motivoCancelamento ?? undefined,
     } satisfies Pagamento;
   });
 }
@@ -141,12 +145,23 @@ export async function marcarComoPago(id: string, observacoes?: string): Promise<
   });
 }
 
-export async function cancelarPagamento(id: string, pagamento: Pagamento): Promise<void> {
+export async function cancelarPagamento(
+  id: string,
+  pagamento: Pagamento,
+  canceladoPor?: string,
+  canceladoPorNome?: string,
+  motivo?: string,
+): Promise<void> {
   const batch = writeBatch(db);
 
-  batch.update(doc(db, PAGAMENTOS_COL, id), { status: 'cancelado' });
+  batch.update(doc(db, PAGAMENTOS_COL, id), {
+    status: 'cancelado',
+    canceladoPor: canceladoPor ?? null,
+    canceladoPorNome: canceladoPorNome ?? null,
+    canceladoEm: Date.now(),
+    motivoCancelamento: motivo ?? null,
+  });
 
-  // Libera os chamados e reverte status para validado_financeiro
   for (const chamadoId of pagamento.chamadoIds) {
     batch.update(doc(db, CHAMADOS_COL, chamadoId), {
       pagamentoId: null,

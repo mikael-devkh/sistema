@@ -155,7 +155,8 @@ export function GerenteTab({ allLojaGroups }: Props) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Mensagens padronizadas para contato com gerente de loja. {isLoading && 'Carregando contatos…'}
+        Mensagens padronizadas para contato com gerente de loja.{' '}
+        {isLoading && <span>Carregando contatos…</span>}
       </p>
 
       <Input

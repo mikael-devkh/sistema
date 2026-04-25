@@ -540,6 +540,7 @@ function PendentesTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  sort,
   allIssuesByLoja,
   onMapFocus,
 }: {
@@ -551,11 +552,11 @@ function PendentesTab({
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  sort: SortOption;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<SortOption>('sla-worst');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = sortGroups(
     filter
@@ -610,15 +611,12 @@ function PendentesTab({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Filtrar por loja ou cidade…"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className="max-w-sm"
-        />
-        <SortBar value={sort} onChange={setSort} />
-      </div>
+      <Input
+        placeholder="Filtrar por loja ou cidade…"
+        value={filter}
+        onChange={e => setFilter(e.target.value)}
+        className="max-w-sm"
+      />
       {filtered.length === 0 && filter
         ? <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
         : renderSections(normal, terminal, filterMode, renderGroup,
@@ -635,6 +633,7 @@ function AgendadosTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  sort,
   onSuccess,
   allIssuesByLoja,
   onMapFocus,
@@ -643,12 +642,12 @@ function AgendadosTab({
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  sort: SortOption;
   onSuccess?: () => void;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<SortOption>('agenda-asc');
   const [tecCampoGroup, setTecCampoGroup] = useState<LojaGroup | null>(null);
   const [tecCampoOpen, setTecCampoOpen] = useState(false);
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
@@ -666,15 +665,12 @@ function AgendadosTab({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Filtrar por loja ou cidade…"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className="max-w-sm"
-        />
-        <SortBar value={sort} onChange={setSort} options={SORT_OPTIONS_AGENDA} />
-      </div>
+      <Input
+        placeholder="Filtrar por loja ou cidade…"
+        value={filter}
+        onChange={e => setFilter(e.target.value)}
+        className="max-w-sm"
+      />
 
       {entries.map(([date, lojas]) => {
         const filtered = sortGroups(lojas.filter(filterFn), sort);
@@ -774,6 +770,7 @@ function TecCampoTab({
   filterMode,
   terminalLojas,
   ufFilter,
+  sort,
   allIssuesByLoja,
   onMapFocus,
 }: {
@@ -781,11 +778,11 @@ function TecCampoTab({
   filterMode: FilterMode;
   terminalLojas: Set<string>;
   ufFilter: string;
+  sort: SortOption;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
   const [filter, setFilter] = useState('');
-  const [sort, setSort] = useState<SortOption>('sla-worst');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = sortGroups(
     filter
@@ -823,15 +820,12 @@ function TecCampoTab({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <Input
-          placeholder="Filtrar por loja ou cidade…"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className="max-w-sm"
-        />
-        <SortBar value={sort} onChange={setSort} />
-      </div>
+      <Input
+        placeholder="Filtrar por loja ou cidade…"
+        value={filter}
+        onChange={e => setFilter(e.target.value)}
+        className="max-w-sm"
+      />
       {filtered.length === 0 && filter
         ? <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
         : renderSections(normal, terminal, filterMode, renderGroup,
@@ -967,6 +961,21 @@ function ChamadosTab({
   const [subTab, setSubTab] = useState('pendentes');
   const [filterMode, setFilterMode] = useState<FilterMode>('both');
   const [ufFilter, setUfFilter] = useState('');
+  const [sortPendentes, setSortPendentes] = useState<SortOption>('sla-worst');
+  const [sortAgendados, setSortAgendados] = useState<SortOption>('agenda-asc');
+  const [sortTecCampo, setSortTecCampo] = useState<SortOption>('sla-worst');
+
+  // Sort ativo + setter conforme sub-tab
+  const activeSort: SortOption =
+    subTab === 'agendados' ? sortAgendados :
+    subTab === 'tec-campo' ? sortTecCampo  :
+    sortPendentes;
+  const setActiveSort = (v: SortOption) => {
+    if (subTab === 'agendados') setSortAgendados(v);
+    else if (subTab === 'tec-campo') setSortTecCampo(v);
+    else setSortPendentes(v);
+  };
+  const sortOptions = subTab === 'agendados' ? SORT_OPTIONS_AGENDA : SORT_OPTIONS;
 
   const allUfs = useMemo(() => {
     const ufs = new Set<string>();
@@ -1084,31 +1093,29 @@ function ChamadosTab({
             </div>
           </div>
 
-          {/* Linha de filtros (UF + Sort + ranking) — alinhada à direita */}
+          {/* Linha de filtros (UF + Sort) — alinhada à direita, dropdowns em fundo card */}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {allUfs.length > 0 && (
               <select
                 value={ufFilter}
                 onChange={e => setUfFilter(e.target.value)}
-                className="text-xs bg-card border border-border/50 rounded-md px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+                className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
                 title="Filtrar por estado"
               >
                 <option value="">UF: Todas</option>
                 {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
               </select>
             )}
-            {/* Toggle do ranking (sai do botão pesado, vira link discreto) */}
-            <button
-              className={cn(
-                'text-xs px-2.5 py-1.5 rounded-md border transition-colors',
-                highlightsOpen
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary/50',
-              )}
-              onClick={() => setHighlightsOpen(o => !o)}
+            <select
+              value={activeSort}
+              onChange={e => setActiveSort(e.target.value as SortOption)}
+              className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
+              title="Ordenação"
             >
-              {highlightsOpen ? 'Ocultar ranking' : 'Ver ranking N+'}
-            </button>
+              {sortOptions.map(o => (
+                <option key={o.value} value={o.value}>Ordenar: {o.label}</option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -1122,17 +1129,18 @@ function ChamadosTab({
             filterMode={filterMode}
             terminalLojas={terminalLojas}
             ufFilter={ufFilter}
+            sort={sortPendentes}
             allIssuesByLoja={allIssuesByLoja}
             onMapFocus={onMapFocus}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-4">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortAgendados} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-4">
-          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortTecCampo} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
       </Tabs>
     </div>

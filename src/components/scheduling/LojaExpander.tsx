@@ -5,8 +5,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/colla
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
-  ChevronDown, Copy, Check, MapPin, Hash,
-  AlertCircle, AlertTriangle, Clock, Monitor, Wrench,
+  ChevronDown, Copy, Check, MapPin,
+  AlertTriangle, Clock, Monitor, Wrench,
 } from 'lucide-react';
 import { AgendamentoForm } from './AgendamentoForm';
 import { gerarMensagem } from '../../lib/jiraScheduling';
@@ -30,6 +30,29 @@ interface Props {
 
 // ─── Issue row ────────────────────────────────────────────────────────────────
 
+/** Mapeia o emoji-prefix do slaBadge para um chip com dot colorido + texto curto. */
+function slaChip(slaBadge?: string) {
+  if (!slaBadge) return null;
+  let dot = 'bg-muted-foreground';
+  let text = slaBadge.replace(/^[🔴🟡🟢]/u, '').trim() || 'SLA';
+  if (slaBadge.startsWith('🔴')) { dot = 'bg-rose-500';   text = text || 'estourado'; }
+  else if (slaBadge.startsWith('🟡')) { dot = 'bg-amber-500'; text = text || 'alerta'; }
+  else if (slaBadge.startsWith('🟢')) { dot = 'bg-emerald-500'; text = text || 'ok'; }
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {text}
+    </span>
+  );
+}
+
+function initials(name?: string | null) {
+  if (!name) return '—';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '—';
+  return ((parts[0][0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
+}
+
 function IssueRow({ issue }: { issue: SchedulingIssue }) {
   const tecnicoNome = issue.tecnico ? issue.tecnico.split('-')[0]?.trim() : null;
   let agendaLabel: string | null = null;
@@ -38,35 +61,36 @@ function IssueRow({ issue }: { issue: SchedulingIssue }) {
   }
 
   return (
-    <div className="flex items-start gap-2 px-2 py-2 rounded-lg hover:bg-secondary/40 text-xs transition-colors">
-      {/* Key */}
-      <code className="text-[10px] bg-secondary px-1.5 py-0.5 rounded font-mono shrink-0 text-muted-foreground select-all">
+    <div className="grid grid-cols-[88px_60px_1fr_auto_auto_auto] items-center gap-3 px-3 py-2 hover:bg-secondary/40 text-xs transition-colors">
+      {/* 1. ID */}
+      <code className="text-[10px] bg-secondary px-1.5 py-0.5 rounded font-mono text-muted-foreground select-all truncate">
         {issue.key}
       </code>
 
-      {/* PDV + Ativo + Problema */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1 flex-wrap">
-          <span className="font-medium text-[11px]">PDV {issue.pdv}</span>
-          {issue.ativo && issue.ativo !== '--' && (
-            <span className="text-muted-foreground">· {issue.ativo}</span>
-          )}
-        </div>
-        <p className="text-muted-foreground truncate mt-0.5 leading-snug" title={issue.problema}>
+      {/* 2. PDV */}
+      <span className="font-medium text-[11px] tabular-nums">PDV {issue.pdv}</span>
+
+      {/* 3. Descrição (ativo + problema) */}
+      <div className="min-w-0">
+        <p className="text-foreground/90 truncate leading-snug" title={issue.problema}>
           {issue.problema}
         </p>
+        {issue.ativo && issue.ativo !== '--' && (
+          <p className="text-[10px] text-muted-foreground truncate">{issue.ativo}</p>
+        )}
       </div>
 
-      {/* Meta: SLA, status, data, técnico */}
-      <div className="flex flex-col items-end gap-0.5 shrink-0 text-[10px] text-muted-foreground">
-        {issue.slaBadge && <span>{issue.slaBadge}</span>}
-        {issue.status && (
-          <span className="bg-secondary px-1 rounded">{issue.status}</span>
-        )}
-        {agendaLabel && <span>📅 {agendaLabel}</span>}
-        {tecnicoNome && (
-          <span className="truncate max-w-[110px]" title={issue.tecnico}>👤 {tecnicoNome}</span>
-        )}
+      {/* 4. SLA chip */}
+      <div className="shrink-0 min-w-[64px] text-right">{slaChip(issue.slaBadge)}</div>
+
+      {/* 5. Data */}
+      <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums min-w-[72px] text-right">
+        {agendaLabel ?? '—'}
+      </div>
+
+      {/* 6. Técnico (avatar circular substitui o ícone) */}
+      <div className="shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary text-[10px] font-semibold flex items-center justify-center" title={issue.tecnico ?? 'não atribuído'}>
+        {tecnicoNome ? initials(tecnicoNome) : '—'}
       </div>
     </div>
   );
@@ -143,15 +167,26 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const hasCriticalSla = slaStatuses.some(s => s?.startsWith('🔴'));
   const hasWarnSla = slaStatuses.some(s => s?.startsWith('🟡'));
 
-  const borderColor = hasCriticalSla || group.slaGroupStatus === 'critical'
-    ? 'border-l-rose-500'
-    : hasWarnSla || group.slaGroupStatus === 'warning'
-    ? 'border-l-amber-500'
-    : group.isCritical
-    ? 'border-l-rose-500'
-    : 'border-l-border';
+  // Sinal único de SLA: chip com dot colorido (substitui border-l-4 + badge + emoji)
+  const slaSignal: { dot: string; label: string } | null =
+    hasCriticalSla || group.slaGroupStatus === 'critical'
+      ? { dot: 'bg-rose-500', label: hasCriticalSla ? 'SLA estourado' : '+7d sem update' }
+      : hasWarnSla || group.slaGroupStatus === 'warning'
+      ? { dot: 'bg-amber-500', label: hasWarnSla ? 'Alerta SLA' : '+3d sem update' }
+      : group.isCritical
+      ? { dot: 'bg-rose-500', label: 'crítica' }
+      : { dot: 'bg-emerald-500', label: 'SLA ok' };
+
+  // Manter borda esquerda sutil só em estado crítico (1 sinal a mais, opcional)
+  const borderEdge = (hasCriticalSla || group.slaGroupStatus === 'critical')
+    ? 'border-l-rose-500/60'
+    : 'border-l-transparent';
 
   const bgHover = open ? 'bg-card' : 'bg-card/50 hover:bg-card';
+
+  // Breakdown manutenção / terminal
+  const totalManut = group.issues.filter(i => !i.problema.includes('Projeto Terminal de Consulta') && i.ativo !== '--').length;
+  const totalTerminal = group.issues.length - totalManut;
 
   // Determina se há tipo oposto de issues para mostrar na label do header
   const hasRelated = relatedGroups && relatedGroups.length > 0;
@@ -160,59 +195,66 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
         <button
-          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border border-l-4 ${borderColor} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
+          className={`w-full grid grid-cols-[minmax(0,1.6fr)_auto_auto_auto_auto] items-center gap-4 px-4 py-3 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
         >
-          <div className="flex items-center gap-3 flex-wrap min-w-0">
-            {/* Store name */}
-            <span className="font-semibold text-sm truncate max-w-[200px]">{group.loja}</span>
-
-            {/* Location */}
+          {/* 1. Nome + cidade */}
+          <div className="min-w-0">
+            <p className="font-semibold text-sm truncate">{group.loja}</p>
             {group.cidade && (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="w-3 h-3" />
-                {group.cidade}{group.uf ? ` – ${group.uf}` : ''}
-              </span>
+              <p className="flex items-center gap-1 text-[11px] text-muted-foreground truncate">
+                <MapPin className="w-3 h-3 shrink-0" />
+                {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
+              </p>
             )}
-
-            {/* Count badge */}
-            <Badge
-              variant="secondary"
-              className="text-xs font-medium tabular-nums"
-            >
-              <Hash className="w-3 h-3 mr-0.5" />{group.qtd}
-            </Badge>
-
-            {/* SLA badges */}
-            {hasCriticalSla && (
-              <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 gap-1">
-                <AlertCircle className="w-3 h-3" /> SLA Estourado
-              </Badge>
-            )}
-            {!hasCriticalSla && hasWarnSla && (
-              <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 gap-1">
-                <AlertTriangle className="w-3 h-3" /> Alerta SLA
-              </Badge>
-            )}
-
-            {/* Staleness badges (only when no issue-level SLA badge) */}
-            {!hasCriticalSla && !hasWarnSla && group.slaGroupStatus === 'critical' && (
-              <Badge className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/40 gap-1">
-                <Clock className="w-3 h-3" /> +7d sem update
-              </Badge>
-            )}
-            {!hasCriticalSla && !hasWarnSla && group.slaGroupStatus === 'warning' && (
-              <Badge className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/40 gap-1">
-                <Clock className="w-3 h-3" /> +3d sem update
-              </Badge>
-            )}
-
-            {extra}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          {/* 2. Total de chamados (heroizado) */}
+          <div className="shrink-0 text-right tabular-nums">
+            <span className="text-lg font-bold leading-none">{group.qtd}</span>
+            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">
+              {group.qtd === 1 ? 'chamado' : 'chamados'}
+            </span>
+          </div>
+
+          {/* 3. Breakdown manut/terminal */}
+          <div className="shrink-0 hidden sm:flex items-center gap-1.5 text-[10px]">
+            {totalManut > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
+                {totalManut} manut.
+              </span>
+            )}
+            {totalTerminal > 0 && (
+              <span className="px-1.5 py-0.5 rounded bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))]">
+                {totalTerminal} terminal
+              </span>
+            )}
+          </div>
+
+          {/* 4. SLA chip único */}
+          <div className="shrink-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
+            {(hasCriticalSla || hasWarnSla || group.slaGroupStatus !== 'ok') && slaSignal ? (
+              <>
+                <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
+                {slaSignal.label}
+                {(group.slaGroupStatus === 'critical' || group.slaGroupStatus === 'warning') &&
+                  !hasCriticalSla && !hasWarnSla && (
+                    <Clock className="w-3 h-3 text-muted-foreground/70" />
+                  )}
+              </>
+            ) : (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                ok
+              </>
+            )}
+          </div>
+
+          {/* 5. Ações (extra do caller) + chevron */}
+          <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
+            {extra}
             {hasRelated && !open && (
-              <span className="text-[10px] text-muted-foreground italic">
-                ver todos os chamados
+              <span className="hidden lg:inline text-[10px] text-muted-foreground italic">
+                ver todos
               </span>
             )}
             <ChevronDown
@@ -278,7 +320,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
                   }
                 </Button>
               </div>
-              <pre className="text-xs bg-secondary/50 border border-border/50 rounded-lg p-3 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-72 text-foreground/80">
+              <pre className="text-xs bg-[hsl(140_25%_97%)] dark:bg-[hsl(150_15%_9%)] border border-border/40 rounded-lg p-3 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-72 text-foreground/75">
                 {msg}
               </pre>
             </div>

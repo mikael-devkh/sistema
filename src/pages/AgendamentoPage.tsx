@@ -201,7 +201,7 @@ type FilterMode = 'both' | 'normal' | 'terminal';
 /** Badge shown on a normal group when the same loja also has terminal issues */
 function TerminalAlertBadge() {
   return (
-    <Badge className="text-[10px] bg-violet-500/15 text-violet-300 border border-violet-500/30 gap-1 shrink-0">
+    <Badge className="text-[10px] bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))] border border-[hsl(var(--terminal)/0.3)] gap-1 shrink-0">
       <Monitor className="w-3 h-3" /> Terminal nesta loja
     </Badge>
   );
@@ -567,16 +567,17 @@ function PendentesTab({
           <>
             {hasTerminal && <TerminalAlertBadge />}
             <button
-              className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+              className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
+              title="Ver no mapa"
               onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
             >
-              <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+              <MapPin className="w-3.5 h-3.5" />
             </button>
             <button
-              className="text-[10px] px-2 py-0.5 rounded-md bg-primary/15 hover:bg-primary/25 text-primary border border-primary/30 transition-colors font-medium shrink-0"
+              className="h-8 px-3 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-semibold transition-colors shrink-0 flex items-center gap-1"
               onClick={e => { e.stopPropagation(); onTransition(g.loja); }}
             >
-              Transição em massa
+              Transição <span aria-hidden="true">→</span>
             </button>
           </>
         }
@@ -679,16 +680,17 @@ function AgendadosTab({
                 </Badge>
               )}
               <button
-                className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+                className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
+                title="Ver no mapa"
                 onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
               >
-                <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+                <MapPin className="w-3.5 h-3.5" />
               </button>
               <button
-                className="text-[10px] px-2 py-0.5 rounded-md bg-orange-500/15 hover:bg-orange-500/25 text-orange-600 dark:text-orange-400 border border-orange-500/30 transition-colors font-medium shrink-0"
+                className="h-8 px-3 rounded-md bg-orange-600 hover:bg-orange-600/90 text-white text-xs font-semibold transition-colors shrink-0 flex items-center gap-1"
                 onClick={e => { e.stopPropagation(); setTecCampoGroup(g); setTecCampoOpen(true); }}
               >
-                Virar para TEC-CAMPO
+                TEC-CAMPO <span aria-hidden="true">→</span>
               </button>
             </>
           );
@@ -776,10 +778,11 @@ function TecCampoTab({
           <>
             {hasTerminal && <TerminalAlertBadge />}
             <button
-              className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/15 hover:bg-blue-500/25 text-blue-600 dark:text-blue-400 border border-blue-500/30 transition-colors font-medium shrink-0 flex items-center gap-1"
+              className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
+              title="Ver no mapa"
               onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
             >
-              <MapPin className="w-2.5 h-2.5" /> Ver no mapa
+              <MapPin className="w-3.5 h-3.5" />
             </button>
           </>
         }
@@ -892,10 +895,10 @@ function Top5Lojas({ top5 }: { top5: LojaGroup[] }) {
 
 // ─── Chamados tab wrapper ─────────────────────────────────────────────────────
 
-const FILTER_OPTIONS: { mode: FilterMode; label: string; icon: React.ReactNode }[] = [
-  { mode: 'both',     label: 'Todos',      icon: <Hash className="w-3.5 h-3.5" /> },
-  { mode: 'normal',   label: 'Manutenção', icon: <Wrench className="w-3.5 h-3.5" /> },
-  { mode: 'terminal', label: 'Terminal',   icon: <Monitor className="w-3.5 h-3.5" /> },
+const FILTER_OPTIONS: { mode: FilterMode; label: string; dot: string }[] = [
+  { mode: 'both',     label: 'Todos',      dot: 'bg-muted-foreground/60' },
+  { mode: 'normal',   label: 'Manutenção', dot: 'bg-primary' },
+  { mode: 'terminal', label: 'Terminal',   dot: 'bg-[hsl(var(--terminal))]' },
 ];
 
 function ChamadosTab({
@@ -974,36 +977,49 @@ function ChamadosTab({
       {/* ── FSA Search ──────────────────────────────────────────────────── */}
       <FsaSearchPanel allIssues={allIssues} />
 
-      {/* ── Filter control ───────────────────────────────────────────────── */}
+      {/* ── Barra de filtros consolidada (segment status · UF · highlights) ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1 p-1 bg-secondary/50 border border-border/50 rounded-lg">
-          {FILTER_OPTIONS.map(({ mode, label, icon }) => (
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-2">Tipo</span>
+          {FILTER_OPTIONS.map(({ mode, label, dot }) => (
             <button
               key={mode}
               onClick={() => setFilterMode(mode)}
               className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
                 filterMode === mode
-                  ? mode === 'terminal'
-                    ? 'bg-violet-500/20 text-violet-300 shadow-sm border border-violet-500/30'
-                    : 'bg-card text-foreground shadow-sm border border-border/50'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-card/50',
+                  ? 'bg-card text-foreground shadow-sm border border-border/50'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-card/50 border border-transparent',
               )}
             >
-              {icon}{label}
+              <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+              {label}
             </button>
           ))}
         </div>
 
-        {/* Store highlights collapsible trigger */}
-        <button
-          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary border border-border/50 rounded-lg transition-colors"
-          onClick={() => setHighlightsOpen(o => !o)}
-        >
-          <Hash className="w-3.5 h-3.5 text-primary" />
-          Lojas com N+ chamados
-          {highlightsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
+        <div className="flex items-center gap-2">
+          {allUfs.length > 0 && (
+            <select
+              value={ufFilter}
+              onChange={e => setUfFilter(e.target.value)}
+              className="text-xs bg-secondary border border-border/50 rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+              title="Filtrar por estado"
+            >
+              <option value="">UF: Todas</option>
+              {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+            </select>
+          )}
+
+          <button
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary border border-border/50 rounded-lg transition-colors"
+            onClick={() => setHighlightsOpen(o => !o)}
+          >
+            <Hash className="w-3.5 h-3.5 text-primary" />
+            Lojas com N+ chamados
+            {highlightsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+        </div>
       </div>
 
       <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
@@ -1014,41 +1030,9 @@ function ChamadosTab({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* ── UF filter ───────────────────────────────────────────────────────── */}
-      {allUfs.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs text-muted-foreground font-medium mr-1">Estado:</span>
-          <button
-            onClick={() => setUfFilter('')}
-            className={cn(
-              'px-2.5 py-1 rounded-md text-xs font-medium transition-all border',
-              ufFilter === ''
-                ? 'bg-primary/15 text-primary border-primary/30'
-                : 'text-muted-foreground border-transparent hover:border-border/50 hover:text-foreground',
-            )}
-          >
-            Todos
-          </button>
-          {allUfs.map(uf => (
-            <button
-              key={uf}
-              onClick={() => setUfFilter(uf === ufFilter ? '' : uf)}
-              className={cn(
-                'px-2.5 py-1 rounded-md text-xs font-medium transition-all border',
-                ufFilter === uf
-                  ? 'bg-primary/15 text-primary border-primary/30'
-                  : 'text-muted-foreground border-transparent hover:border-border/50 hover:text-foreground',
-              )}
-            >
-              {uf}
-            </button>
-          ))}
-        </div>
-      )}
-
       {/* Sub-tabs */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
-        <div className="sticky top-12 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="pendentes" className="gap-1.5">
             <Clock className="w-3.5 h-3.5" />
@@ -1168,27 +1152,32 @@ export default function AgendamentoPage() {
       )}
 
       {/* ── Hero header ── */}
-      <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card p-6 shadow-lg">
-        <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Painel de Agendamentos</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Field Service · Jira FSA ·{' '}
-              <span className="text-primary font-medium">{totalAtivos} chamados ativos</span>
-            </p>
+      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
+        <div className="h-[3px] w-full bg-primary" />
+        <div className="p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Operação
+              </p>
+              <h1 className="text-2xl font-bold tracking-tight mt-0.5">Agendamentos</h1>
+              <p className="text-xs text-muted-foreground mt-1 tabular-nums">
+                <span className="font-semibold text-foreground">{totalAtivos}</span> ativos · Field Service · Jira FSA
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={refresh} disabled={isFetching} className="gap-1.5">
+                <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
+                {isFetching ? 'Atualizando…' : 'Atualizar'}
+              </Button>
+              <Button size="sm" onClick={() => openTransition('')} className="gap-1.5">
+                <Zap className="w-3.5 h-3.5" /> Transição em massa
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={refresh} disabled={isFetching} className="gap-1.5">
-              <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
-              {isFetching ? 'Atualizando…' : 'Atualizar'}
-            </Button>
-            <Button size="sm" onClick={() => openTransition('')} className="gap-1.5">
-              <Zap className="w-3.5 h-3.5" /> Transição em massa
-            </Button>
-          </div>
-        </div>
 
-        <KpiCards kpi={kpi} />
+          <KpiCards kpi={kpi} />
+        </div>
       </div>
 
       {/* ── Main tabs ── */}
@@ -1196,8 +1185,8 @@ export default function AgendamentoPage() {
         value={activeTab}
         onValueChange={v => startTransition(() => setActiveTab(v))}
       >
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur border-b pb-1 -mx-4 px-4 sm:-mx-6 sm:px-6">
-        <TabsList className="flex-wrap h-auto gap-1 p-1">
+        <div className="border-b border-border/60 -mx-4 px-4 sm:-mx-6 sm:px-6">
+        <TabsList className="flex-wrap h-auto gap-1 p-1 bg-transparent">
           <TabsTrigger value="chamados" className="gap-1.5">
             <CalendarCheck className="w-3.5 h-3.5" />
             Chamados

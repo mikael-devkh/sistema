@@ -1,74 +1,77 @@
-import { Clock, CalendarCheck, Wrench, AlertTriangle } from 'lucide-react';
 import type { KpiData } from '../../types/scheduling';
 
 interface Props { kpi: KpiData }
 
-const cards = (kpi: KpiData) => [
+type Card = {
+  label: string;
+  sublabel: string;
+  value: number;
+  /** cor da barra superior (HSL string ou tailwind bg) */
+  topBar: string;
+  /** se true, inverte: fundo escuro, número claro */
+  critical?: boolean;
+};
+
+const buildCards = (kpi: KpiData): Card[] => [
   {
-    label: 'AGENDAMENTO',
-    sublabel: 'Aguardando agendamento',
+    label: 'AGUARDANDO AGENDAMENTO',
+    sublabel: 'aguardando ação',
     value: kpi.agendamento,
-    icon: Clock,
-    gradient: 'from-amber-500/20 to-amber-600/5',
-    border: 'border-amber-500/40',
-    iconColor: 'text-amber-400',
-    valueColor: 'text-amber-300',
-    glow: 'shadow-amber-500/10',
+    topBar: 'bg-amber-500',
   },
   {
-    label: 'Agendados',
-    sublabel: 'Com data marcada',
+    label: 'AGENDADOS',
+    sublabel: 'com data marcada',
     value: kpi.agendado,
-    icon: CalendarCheck,
-    gradient: 'from-blue-500/20 to-blue-600/5',
-    border: 'border-blue-500/40',
-    iconColor: 'text-blue-400',
-    valueColor: 'text-blue-300',
-    glow: 'shadow-blue-500/10',
+    topBar: 'bg-blue-500',
   },
   {
     label: 'TEC-CAMPO',
-    sublabel: 'Técnico em andamento',
+    sublabel: 'técnico em campo',
     value: kpi.tecCampo,
-    icon: Wrench,
-    gradient: 'from-primary/20 to-primary/5',
-    border: 'border-primary/40',
-    iconColor: 'text-primary',
-    valueColor: 'text-primary',
-    glow: 'shadow-primary/10',
+    topBar: 'bg-primary',
   },
   {
-    label: 'Lojas c/ 2+ chamados',
-    sublabel: 'Atenção redobrada',
+    label: 'LOJAS CRÍTICAS',
+    sublabel: '2+ chamados · SLA',
     value: kpi.lojasMultiplas,
-    icon: AlertTriangle,
-    gradient: 'from-rose-500/20 to-rose-600/5',
-    border: 'border-rose-500/40',
-    iconColor: 'text-rose-400',
-    valueColor: 'text-rose-300',
-    glow: 'shadow-rose-500/10',
+    topBar: 'bg-rose-500',
+    critical: true,
   },
 ];
 
 export function KpiCards({ kpi }: Props) {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards(kpi).map(c => {
-        const Icon = c.icon;
+      {buildCards(kpi).map(c => {
+        const isCritical = c.critical;
         return (
           <div
             key={c.label}
-            className={`relative overflow-hidden rounded-xl border ${c.border} bg-gradient-to-br ${c.gradient} p-4 shadow-lg ${c.glow}`}
+            className={`relative overflow-hidden rounded-xl border ${
+              isCritical
+                ? 'border-rose-500/60 bg-foreground text-background dark:bg-zinc-950 dark:border-rose-500/50'
+                : 'border-border/60 bg-card'
+            } shadow-sm`}
           >
-            <div className="flex items-start justify-between">
-              <div className="space-y-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{c.label}</p>
-                <p className={`text-4xl font-bold tabular-nums ${c.valueColor}`}>{c.value}</p>
-                <p className="text-[11px] text-muted-foreground">{c.sublabel}</p>
-              </div>
-              <div className={`rounded-lg bg-card/60 p-2 ${c.iconColor}`}>
-                <Icon className="w-5 h-5" />
-              </div>
+            {/* Top bar de 3px na cor do estado */}
+            <div className={`h-[3px] w-full ${c.topBar}`} />
+            <div className="p-4 space-y-2">
+              <p className={`text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                isCritical ? 'text-rose-300' : 'text-muted-foreground'
+              }`}>
+                {c.label}
+              </p>
+              <p className={`text-4xl font-bold tabular-nums leading-none ${
+                isCritical ? 'text-background dark:text-rose-50' : 'text-foreground'
+              }`}>
+                {c.value}
+              </p>
+              <p className={`text-[11px] ${
+                isCritical ? 'text-rose-200/80' : 'text-muted-foreground'
+              }`}>
+                {c.sublabel}
+              </p>
             </div>
           </div>
         );

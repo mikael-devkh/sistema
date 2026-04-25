@@ -47,6 +47,11 @@
     --card-shadow-md: 0 4px 12px hsl(142 30% 12% / 0.08), 0 2px 4px hsl(142 30% 12% / 0.05);
 
     --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* Terminal de Consulta — chip dessaturado próximo ao verde brand */
+    --terminal: 168 35% 42%;
+    --terminal-foreground: 0 0% 100%;
+    --terminal-soft: 168 35% 95%;
   }
 
   .dark {
@@ -86,6 +91,10 @@
     --card-shadow-md: 0 4px 12px hsl(0 0% 0% / 0.35), 0 2px 4px hsl(0 0% 0% / 0.2);
 
     --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --terminal: 168 45% 55%;
+    --terminal-foreground: 150 18% 7%;
+    --terminal-soft: 168 30% 18%;
   }
 }
 

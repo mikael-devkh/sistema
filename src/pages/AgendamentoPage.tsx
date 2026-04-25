@@ -64,6 +64,21 @@ const SORT_OPTIONS_AGENDA: { value: SortOption; label: string }[] = [
   ...SORT_OPTIONS,
 ];
 
+/** Lê lastUpdated tolerante (Date | string | Timestamp). */
+function lastUpdatedMs(g: LojaGroup): number | null {
+  const v = g.lastUpdated as unknown;
+  if (!v) return null;
+  if (v instanceof Date) return v.getTime();
+  if (typeof v === 'string' || typeof v === 'number') {
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : null;
+  }
+  if (typeof v === 'object' && 'toDate' in (v as Record<string, unknown>)) {
+    try { return (v as { toDate: () => Date }).toDate().getTime(); } catch { return null; }
+  }
+  return null;
+}
+
 function slaRank(g: LojaGroup): number {
   const issueRank = Math.max(0, ...g.issues.map(i => {
     if (i.slaBadge?.startsWith('🔴')) return 3;
@@ -91,8 +106,8 @@ function sortGroups(groups: LojaGroup[], sort: SortOption): LojaGroup[] {
       case 'qtd-asc':        return a.qtd - b.qtd;
       case 'sla-worst':      return slaRank(b) - slaRank(a);
       case 'sla-best':       return slaRank(a) - slaRank(b);
-      case 'updated-oldest': return (a.lastUpdated?.getTime() ?? 0) - (b.lastUpdated?.getTime() ?? 0);
-      case 'updated-newest': return (b.lastUpdated?.getTime() ?? 0) - (a.lastUpdated?.getTime() ?? 0);
+      case 'updated-oldest': return (lastUpdatedMs(a) ?? 0) - (lastUpdatedMs(b) ?? 0);
+      case 'updated-newest': return (lastUpdatedMs(b) ?? 0) - (lastUpdatedMs(a) ?? 0);
       case 'agenda-asc':     return earliestAgenda(a) - earliestAgenda(b);
       case 'agenda-desc':    return earliestAgenda(b) - earliestAgenda(a);
       default:               return 0;
@@ -197,15 +212,6 @@ function PageSkeleton() {
 type FilterMode = 'both' | 'normal' | 'terminal';
 
 // ─── Shared render helpers ────────────────────────────────────────────────────
-
-/** Badge shown on a normal group when the same loja also has terminal issues */
-function TerminalAlertBadge() {
-  return (
-    <Badge className="text-[10px] bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))] border border-[hsl(var(--terminal)/0.3)] gap-1 shrink-0">
-      <Monitor className="w-3 h-3" /> Terminal nesta loja
-    </Badge>
-  );
-}
 
 function renderSections(
   normal: LojaGroup[],
@@ -563,9 +569,9 @@ function PendentesTab({
         warningText={warning}
         onScheduled={onScheduled}
         relatedGroups={relatedGroups}
-        extra={
+        crossTerminal={hasTerminal}
+        actions={
           <>
-            {hasTerminal && <TerminalAlertBadge />}
             <button
               className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
               title="Ver no mapa"
@@ -671,12 +677,14 @@ function AgendadosTab({
             .map(i => i.key);
           const hasTerminal = !isTerminal && terminalLojas.has(g.loja);
           const relatedGroups = buildRelatedGroups(g, isTerminal, allIssuesByLoja);
-          const extra = (
+          const actions = (
             <>
-              {hasTerminal && <TerminalAlertBadge />}
               {dupKeys.length > 0 && (
-                <Badge className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30">
-                  Dup: {dupKeys.join(', ')}
+                <Badge
+                  title={`Duplicado: ${dupKeys.join(', ')}`}
+                  className="text-[10px] bg-orange-500/15 text-orange-400 border border-orange-500/30 shrink-0"
+                >
+                  Dup
                 </Badge>
               )}
               <button
@@ -694,7 +702,15 @@ function AgendadosTab({
               </button>
             </>
           );
-          return <LojaExpander key={`${date}-${g.loja}-${g.issues[0]?.key}`} group={g} extra={extra} relatedGroups={relatedGroups} />;
+          return (
+            <LojaExpander
+              key={`${date}-${g.loja}-${g.issues[0]?.key}`}
+              group={g}
+              crossTerminal={hasTerminal}
+              actions={actions}
+              relatedGroups={relatedGroups}
+            />
+          );
         };
 
         return (
@@ -774,17 +790,15 @@ function TecCampoTab({
         key={`${g.loja}-${g.issues[0]?.key}`}
         group={g}
         relatedGroups={relatedGroups}
-        extra={
-          <>
-            {hasTerminal && <TerminalAlertBadge />}
-            <button
-              className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
-              title="Ver no mapa"
-              onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
-            >
-              <MapPin className="w-3.5 h-3.5" />
-            </button>
-          </>
+        crossTerminal={hasTerminal}
+        actions={
+          <button
+            className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
+            title="Ver no mapa"
+            onClick={e => { e.stopPropagation(); onMapFocus(g.loja); }}
+          >
+            <MapPin className="w-3.5 h-3.5" />
+          </button>
         }
       />
     );
@@ -882,11 +896,17 @@ function Top5Lojas({ top5 }: { top5: LojaGroup[] }) {
           <p className={`text-3xl font-bold tabular-nums ${g.isCritical ? 'text-rose-300' : 'text-foreground'}`}>
             {g.qtd}
           </p>
-          {g.lastUpdated && (
-            <p className="text-[10px] text-muted-foreground">
-              {format(g.lastUpdated, 'dd/MM HH:mm')}
-            </p>
-          )}
+          {(() => {
+            const ms = lastUpdatedMs(g);
+            if (ms === null) return null;
+            try {
+              return (
+                <p className="text-[10px] text-muted-foreground">
+                  {format(new Date(ms), 'dd/MM HH:mm')}
+                </p>
+              );
+            } catch { return null; }
+          })()}
         </div>
       ))}
     </div>
@@ -1147,11 +1167,27 @@ export default function AgendamentoPage() {
   // ── Métricas auxiliares dos KPIs ───────────────────────────────────────────
   const now = new Date();
   const todayStr = format(now, 'yyyy-MM-dd');
-  const novosHoje = allIssues.filter(i => i.lastUpdated && format(new Date(i.lastUpdated), 'yyyy-MM-dd') === todayStr).length;
+
+  /** Converte Date | string | Timestamp(Firestore-like) | null para timestamp em ms (NaN se inválido). */
+  const toMs = (v: unknown): number => {
+    if (!v) return NaN;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'string' || typeof v === 'number') return new Date(v).getTime();
+    if (typeof v === 'object' && 'toDate' in (v as Record<string, unknown>)) {
+      try { return (v as { toDate: () => Date }).toDate().getTime(); } catch { return NaN; }
+    }
+    return NaN;
+  };
+
+  const novosHoje = allIssues.filter(i => {
+    const ms = toMs(i.lastUpdated);
+    if (!Number.isFinite(ms)) return false;
+    try { return format(new Date(ms), 'yyyy-MM-dd') === todayStr; } catch { return false; }
+  }).length;
 
   const proxAgendaDate = (() => {
     const dates = [...agendados.values()].flat()
-      .flatMap(g => g.issues.map(i => i.dataAgenda ? new Date(i.dataAgenda).getTime() : Infinity))
+      .flatMap(g => g.issues.map(i => toMs(i.dataAgenda)))
       .filter(t => Number.isFinite(t) && t >= now.getTime() - 86400000);
     if (!dates.length) return undefined;
     const min = Math.min(...dates);

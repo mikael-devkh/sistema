@@ -23,7 +23,10 @@ interface Props {
   showForm?: boolean;
   warningText?: string;
   onScheduled?: () => void;
-  extra?: React.ReactNode;
+  /** Ações primárias do header (pin + CTA) — fixas no extremo direito */
+  actions?: React.ReactNode;
+  /** Indica que a loja tem chamados de terminal em outro tab — mostra ícone discreto */
+  crossTerminal?: boolean;
   /** Issues de outro tipo (terminal ou manutenção) da mesma loja, exibidos na seção expandida */
   relatedGroups?: RelatedGroup[];
 }
@@ -83,9 +86,14 @@ function IssueRow({ issue }: { issue: SchedulingIssue }) {
         {issue.ativo && issue.ativo !== '--' && (
           <p className="text-[10px] text-muted-foreground truncate mt-0.5">
             Ativo: {issue.ativo}
-            {issue.lastUpdated && (
-              <> · atualizado {format(issue.lastUpdated, 'HH:mm')}</>
-            )}
+            {(() => {
+              if (!issue.lastUpdated) return null;
+              const d = issue.lastUpdated instanceof Date
+                ? issue.lastUpdated
+                : new Date(issue.lastUpdated as unknown as string | number);
+              if (Number.isNaN(d.getTime())) return null;
+              try { return <> · atualizado {format(d, 'HH:mm')}</>; } catch { return null; }
+            })()}
           </p>
         )}
       </div>
@@ -181,7 +189,7 @@ export function IssueSection({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function LojaExpander({ group, showForm = false, warningText, onScheduled, extra, relatedGroups }: Props) {
+export function LojaExpander({ group, showForm = false, warningText, onScheduled, actions, crossTerminal, relatedGroups }: Props) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -205,7 +213,11 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   // Tempo relativo do último update (ex: "há 18h", "há 2d")
   const lastUpdatedLabel = (() => {
     if (!group.lastUpdated) return null;
-    const diffMs = Date.now() - group.lastUpdated.getTime();
+    const ts = group.lastUpdated instanceof Date
+      ? group.lastUpdated.getTime()
+      : new Date(group.lastUpdated as unknown as string | number).getTime();
+    if (!Number.isFinite(ts)) return null;
+    const diffMs = Date.now() - ts;
     const h = Math.floor(diffMs / 3_600_000);
     if (h < 1) return 'agora';
     if (h < 24) return `há ${h}h`;
@@ -234,37 +246,44 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const totalManut = group.issues.filter(i => !i.problema.includes('Projeto Terminal de Consulta') && i.ativo !== '--').length;
   const totalTerminal = group.issues.length - totalManut;
 
-  // Determina se há tipo oposto de issues para mostrar na label do header
-  const hasRelated = relatedGroups && relatedGroups.length > 0;
-
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
         <button
-          className={`w-full grid grid-cols-[minmax(0,1.4fr)_auto_minmax(0,auto)_minmax(0,auto)_auto] items-center gap-x-5 gap-y-2 px-5 py-3.5 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
+          className={`w-full grid grid-cols-[minmax(0,1fr)_84px_172px_140px_auto] items-center gap-x-4 px-5 py-3.5 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
         >
-          {/* 1. Nome forte + cidade pequena (hierarquia clara) */}
+          {/* 1. Nome + cidade */}
           <div className="min-w-0">
-            <p className="font-semibold text-[15px] leading-tight truncate text-foreground">
-              {group.loja}
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="font-semibold text-[15px] leading-tight truncate text-foreground">
+                {group.loja}
+              </p>
+              {crossTerminal && (
+                <span
+                  title="Esta loja também tem chamados de Terminal em outro grupo"
+                  className="shrink-0 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))]"
+                >
+                  <Monitor className="w-2.5 h-2.5" /> Terminal
+                </span>
+              )}
+            </div>
             {group.cidade && (
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5 tabular-nums">
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                 {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
               </p>
             )}
           </div>
 
-          {/* 2. Numeral grande + label CHAMADOS (estilo PDF: "4 CHAMADOS") */}
-          <div className="shrink-0 flex items-baseline gap-1.5 tabular-nums">
-            <span className="text-2xl font-bold leading-none text-foreground">{group.qtd}</span>
-            <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+          {/* 2. Numeral + label CHAMADOS — largura fixa 84px */}
+          <div className="text-center tabular-nums">
+            <div className="text-2xl font-bold leading-none text-foreground">{group.qtd}</div>
+            <div className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground font-medium mt-1">
               {group.qtd === 1 ? 'chamado' : 'chamados'}
-            </span>
+            </div>
           </div>
 
-          {/* 3. Breakdown manut/terminal — pills */}
-          <div className="shrink-0 hidden md:flex items-center gap-1.5 text-[11px]">
+          {/* 3. Breakdown manut/terminal — largura fixa 172px */}
+          <div className="flex items-center gap-1.5 text-[11px]">
             {totalManut > 0 && (
               <span className="px-2 py-0.5 rounded-md bg-secondary text-foreground/75 tabular-nums">
                 <span className="font-semibold">{totalManut}</span> <span className="text-muted-foreground">manut.</span>
@@ -277,25 +296,20 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
             )}
           </div>
 
-          {/* 4. SLA chip único + tempo abaixo */}
-          <div className="shrink-0 text-right min-w-[110px]">
+          {/* 4. SLA chip — largura fixa 140px */}
+          <div>
             <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
               <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
               {slaSignal.label}
             </div>
             {slaSignal.hint && (
-              <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">{slaSignal.hint}</p>
+              <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5 ml-3.5">{slaSignal.hint}</p>
             )}
           </div>
 
-          {/* 5. Ações + chevron */}
+          {/* 5. Ações fixas (pin + Transição) + chevron */}
           <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-            {extra}
-            {hasRelated && !open && (
-              <span className="hidden xl:inline text-[10px] text-muted-foreground italic">
-                ver todos
-              </span>
-            )}
+            {actions}
             <ChevronDown
               className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
             />

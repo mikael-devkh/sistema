@@ -68,6 +68,11 @@ function buildLojaGroups(issues: SchedulingIssue[]): Map<string, LojaGroup> {
 
   // Compute isCritical and slaGroupStatus
   for (const g of map.values()) {
+    // Normaliza lastUpdated — pode vir como string de cache antigo
+    if (g.lastUpdated && !(g.lastUpdated instanceof Date)) {
+      const d = new Date(g.lastUpdated as unknown as string | number);
+      g.lastUpdated = Number.isNaN(d.getTime()) ? null : d;
+    }
     const daysSince = g.lastUpdated
       ? (Date.now() - g.lastUpdated.getTime()) / 86_400_000
       : 0;

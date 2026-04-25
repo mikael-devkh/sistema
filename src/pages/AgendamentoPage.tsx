@@ -556,17 +556,8 @@ function PendentesTab({
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
-  const [filter, setFilter] = useState('');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
-  const filtered = sortGroups(
-    filter
-      ? byUf.filter(g =>
-          g.loja.toLowerCase().includes(filter.toLowerCase()) ||
-          g.cidade.toLowerCase().includes(filter.toLowerCase()),
-        )
-      : byUf,
-    sort,
-  );
+  const filtered = sortGroups(byUf, sort);
 
   const { normal, terminal } = splitByTerminal(filtered);
 
@@ -610,18 +601,9 @@ function PendentesTab({
   };
 
   return (
-    <div className="space-y-3">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
-      {filtered.length === 0 && filter
-        ? <EmptyState icon={<Clock className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
-        : renderSections(normal, terminal, filterMode, renderGroup,
-            <Clock className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em AGENDAMENTO.')
-      }
+    <div className="space-y-2">
+      {renderSections(normal, terminal, filterMode, renderGroup,
+        <Clock className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em AGENDAMENTO.')}
     </div>
   );
 }
@@ -647,31 +629,18 @@ function AgendadosTab({
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
-  const [filter, setFilter] = useState('');
   const [tecCampoGroup, setTecCampoGroup] = useState<LojaGroup | null>(null);
   const [tecCampoOpen, setTecCampoOpen] = useState(false);
   const entries = [...agendados.entries()].sort(([a], [b]) => a.localeCompare(b));
 
-  const filterFn = (g: LojaGroup) => {
-    if (ufFilter && g.uf !== ufFilter) return false;
-    if (!filter) return true;
-    const q = filter.toLowerCase();
-    return g.loja.toLowerCase().includes(q) || g.cidade.toLowerCase().includes(q);
-  };
+  const filterFn = (g: LojaGroup) => !ufFilter || g.uf === ufFilter;
 
   if (entries.length === 0) {
     return <EmptyState icon={<CalendarCheck className="w-8 h-8 text-muted-foreground" />} text="Nenhum chamado Agendado." />;
   }
 
   return (
-    <div className="space-y-5">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
-
+    <div className="space-y-4">
       {entries.map(([date, lojas]) => {
         const filtered = sortGroups(lojas.filter(filterFn), sort);
         if (!filtered.length) return null;
@@ -782,17 +751,8 @@ function TecCampoTab({
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
 }) {
-  const [filter, setFilter] = useState('');
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
-  const filtered = sortGroups(
-    filter
-      ? byUf.filter(g =>
-          g.loja.toLowerCase().includes(filter.toLowerCase()) ||
-          g.cidade.toLowerCase().includes(filter.toLowerCase()),
-        )
-      : byUf,
-    sort,
-  );
+  const filtered = sortGroups(byUf, sort);
 
   const { normal, terminal } = splitByTerminal(filtered);
 
@@ -819,18 +779,9 @@ function TecCampoTab({
   };
 
   return (
-    <div className="space-y-3">
-      <Input
-        placeholder="Filtrar por loja ou cidade…"
-        value={filter}
-        onChange={e => setFilter(e.target.value)}
-        className="max-w-sm"
-      />
-      {filtered.length === 0 && filter
-        ? <EmptyState icon={<Wrench className="w-8 h-8 text-muted-foreground" />} text="Nenhuma loja encontrada." />
-        : renderSections(normal, terminal, filterMode, renderGroup,
-            <Wrench className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em TEC-CAMPO.')
-      }
+    <div className="space-y-2">
+      {renderSections(normal, terminal, filterMode, renderGroup,
+        <Wrench className="w-8 h-8 text-muted-foreground" />, 'Nenhum chamado em TEC-CAMPO.')}
     </div>
   );
 }
@@ -1019,39 +970,13 @@ function ChamadosTab({
   }, [filterMode, pendentes, agendados, tecCampo]);
 
   return (
-    <div className="space-y-4">
-      {/* Banner foco — lojas críticas */}
-      {kpi.lojasMultiplas > 0 && !highlightsOpen && (
-        <div className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-2.5 text-xs">
-          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
-          <span className="text-foreground/90">
-            <span className="font-semibold tabular-nums">{kpi.lojasMultiplas}</span> lojas com 2+ chamados.{' '}
-            <button
-              onClick={() => setHighlightsOpen(true)}
-              className="text-rose-600 dark:text-rose-400 font-medium hover:underline"
-            >
-              Ver ranking →
-            </button>
-          </span>
-          <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
-            atualizado há poucos segundos
-          </span>
-        </div>
-      )}
-
-      <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
-        <CollapsibleContent>
-          <div className="border border-border/50 rounded-lg p-4 bg-card">
-            <StoreHighlights lojaGroups={allLojaGroups} />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-
-      {/* Sub-tabs + Tipo inline (linha única) */}
+    <div className="space-y-3">
+      {/* Sub-tabs + filtros (linha compacta) + banner abaixo */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* Sub-tabs — pill segment com dot por status */}
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur py-2 -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-2">
+          {/* Linha 1: sub-tabs · Tipo · UF · Sort  — tudo numa linha */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {/* Sub-tabs — pill segment com dot */}
             <TabsList className="h-auto p-1 gap-1 bg-secondary/50 border border-border/50 rounded-lg">
               {[
                 { value: 'pendentes',  label: 'Pendentes',  count: filteredCounts.pendentes, dot: 'bg-amber-500' },
@@ -1073,7 +998,7 @@ function ChamadosTab({
               ))}
             </TabsList>
 
-            {/* Tipo inline (estilo texto, ativo com bg sutil) */}
+            {/* Tipo inline */}
             <div className="flex items-center gap-1 text-xs">
               <span className="text-muted-foreground mr-1">Tipo:</span>
               {FILTER_OPTIONS.map(({ mode, label }) => (
@@ -1091,35 +1016,62 @@ function ChamadosTab({
                 </button>
               ))}
             </div>
+
+            {/* UF + Sort à direita (mesma linha) */}
+            <div className="flex items-center gap-2 ml-auto">
+              {allUfs.length > 0 && (
+                <select
+                  value={ufFilter}
+                  onChange={e => setUfFilter(e.target.value)}
+                  className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
+                  title="Filtrar por estado"
+                >
+                  <option value="">UF: Todas</option>
+                  {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+                </select>
+              )}
+              <select
+                value={activeSort}
+                onChange={e => setActiveSort(e.target.value as SortOption)}
+                className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
+                title="Ordenação"
+              >
+                {sortOptions.map(o => (
+                  <option key={o.value} value={o.value}>Ordenar: {o.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Linha de filtros (UF + Sort) — alinhada à direita, dropdowns em fundo card */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {allUfs.length > 0 && (
-              <select
-                value={ufFilter}
-                onChange={e => setUfFilter(e.target.value)}
-                className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
-                title="Filtrar por estado"
-              >
-                <option value="">UF: Todas</option>
-                {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-              </select>
-            )}
-            <select
-              value={activeSort}
-              onChange={e => setActiveSort(e.target.value as SortOption)}
-              className="text-xs bg-card border border-border/60 rounded-md px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer shadow-sm"
-              title="Ordenação"
-            >
-              {sortOptions.map(o => (
-                <option key={o.value} value={o.value}>Ordenar: {o.label}</option>
-              ))}
-            </select>
-          </div>
+          {/* Banner crítico ABAIXO da linha de filtros */}
+          {kpi.lojasMultiplas > 0 && !highlightsOpen && (
+            <div className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-2 text-xs">
+              <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+              <span className="text-foreground/90">
+                <span className="font-semibold tabular-nums">{kpi.lojasMultiplas}</span> lojas com 2+ chamados.{' '}
+                <button
+                  onClick={() => setHighlightsOpen(true)}
+                  className="text-rose-600 dark:text-rose-400 font-medium hover:underline"
+                >
+                  Ver ranking →
+                </button>
+              </span>
+              <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+                atualizado há poucos segundos
+              </span>
+            </div>
+          )}
+
+          <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
+            <CollapsibleContent>
+              <div className="border border-border/50 rounded-lg p-4 bg-card">
+                <StoreHighlights lojaGroups={allLojaGroups} />
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
-        <TabsContent value="pendentes" className="mt-4">
+        <TabsContent value="pendentes" className="mt-3">
           <PendentesTab
             groups={pendentes}
             agendadoLojas={agendadoLojas}
@@ -1135,11 +1087,11 @@ function ChamadosTab({
           />
         </TabsContent>
 
-        <TabsContent value="agendados" className="mt-4">
+        <TabsContent value="agendados" className="mt-3">
           <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortAgendados} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
 
-        <TabsContent value="tec-campo" className="mt-4">
+        <TabsContent value="tec-campo" className="mt-3">
           <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortTecCampo} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
         </TabsContent>
       </Tabs>

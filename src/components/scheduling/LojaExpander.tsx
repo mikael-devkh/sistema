@@ -6,7 +6,7 @@ import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
   ChevronDown, Copy, Check, MapPin,
-  AlertTriangle, Clock, Monitor, Wrench,
+  AlertTriangle, Monitor, Wrench,
 } from 'lucide-react';
 import { AgendamentoForm } from './AgendamentoForm';
 import { gerarMensagem } from '../../lib/jiraScheduling';
@@ -167,15 +167,26 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const hasCriticalSla = slaStatuses.some(s => s?.startsWith('🔴'));
   const hasWarnSla = slaStatuses.some(s => s?.startsWith('🟡'));
 
-  // Sinal único de SLA: chip com dot colorido (substitui border-l-4 + badge + emoji)
-  const slaSignal: { dot: string; label: string } | null =
+  // Tempo relativo do último update (ex: "há 18h", "há 2d")
+  const lastUpdatedLabel = (() => {
+    if (!group.lastUpdated) return null;
+    const diffMs = Date.now() - group.lastUpdated.getTime();
+    const h = Math.floor(diffMs / 3_600_000);
+    if (h < 1) return 'agora';
+    if (h < 24) return `há ${h}h`;
+    const d = Math.floor(h / 24);
+    return `há ${d}d`;
+  })();
+
+  // Sinal único de SLA: chip com dot colorido + tempo
+  const slaSignal: { dot: string; label: string; hint?: string } =
     hasCriticalSla || group.slaGroupStatus === 'critical'
-      ? { dot: 'bg-rose-500', label: hasCriticalSla ? 'SLA estourado' : '+7d sem update' }
+      ? { dot: 'bg-rose-500',    label: hasCriticalSla ? 'SLA estourado' : '+7d sem update', hint: lastUpdatedLabel ?? undefined }
       : hasWarnSla || group.slaGroupStatus === 'warning'
-      ? { dot: 'bg-amber-500', label: hasWarnSla ? 'Alerta SLA' : '+3d sem update' }
+      ? { dot: 'bg-amber-500',   label: hasWarnSla ? 'Alerta SLA' : '+3d sem update',        hint: lastUpdatedLabel ?? undefined }
       : group.isCritical
-      ? { dot: 'bg-rose-500', label: 'crítica' }
-      : { dot: 'bg-emerald-500', label: 'SLA ok' };
+      ? { dot: 'bg-rose-500',    label: 'crítica',                                            hint: lastUpdatedLabel ?? undefined }
+      : { dot: 'bg-emerald-500', label: 'SLA ok',                                             hint: lastUpdatedLabel ?? undefined };
 
   // Manter borda esquerda sutil só em estado crítico (1 sinal a mais, opcional)
   const borderEdge = (hasCriticalSla || group.slaGroupStatus === 'critical')
@@ -230,22 +241,14 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
             )}
           </div>
 
-          {/* 4. SLA chip único */}
-          <div className="shrink-0 flex items-center gap-1.5 text-[10px] text-muted-foreground">
-            {(hasCriticalSla || hasWarnSla || group.slaGroupStatus !== 'ok') && slaSignal ? (
-              <>
-                <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
-                {slaSignal.label}
-                {(group.slaGroupStatus === 'critical' || group.slaGroupStatus === 'warning') &&
-                  !hasCriticalSla && !hasWarnSla && (
-                    <Clock className="w-3 h-3 text-muted-foreground/70" />
-                  )}
-              </>
-            ) : (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                ok
-              </>
+          {/* 4. SLA chip único com tempo */}
+          <div className="shrink-0 text-right">
+            <div className="inline-flex items-center gap-1.5 text-[11px] text-foreground/85">
+              <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
+              <span className="font-medium">{slaSignal.label}</span>
+            </div>
+            {slaSignal.hint && (
+              <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">{slaSignal.hint}</p>
             )}
           </div>
 

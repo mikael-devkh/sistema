@@ -974,9 +974,6 @@ function ChamadosTab({
 
   return (
     <div className="space-y-4">
-      {/* ── FSA Search ──────────────────────────────────────────────────── */}
-      <FsaSearchPanel allIssues={allIssues} />
-
       {/* ── Barra de filtros consolidada (segment status · UF · highlights) ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1 p-1 bg-secondary/50 border border-border/50 rounded-lg">
@@ -1021,6 +1018,25 @@ function ChamadosTab({
           </button>
         </div>
       </div>
+
+      {/* Banner foco — lojas críticas */}
+      {kpi.lojasMultiplas > 0 && !highlightsOpen && (
+        <div className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-2.5 text-xs">
+          <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+          <span className="text-foreground/90">
+            <span className="font-semibold tabular-nums">{kpi.lojasMultiplas}</span> lojas com 2+ chamados.{' '}
+            <button
+              onClick={() => setHighlightsOpen(true)}
+              className="text-rose-600 dark:text-rose-400 font-medium hover:underline"
+            >
+              Ver ranking →
+            </button>
+          </span>
+          <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+            atualizado há poucos segundos
+          </span>
+        </div>
+      )}
 
       <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
         <CollapsibleContent>
@@ -1125,6 +1141,26 @@ export default function AgendamentoPage() {
   const tecCampoLojas = new Set(tecCampo.map(g => g.loja));
   const totalAtivos = kpi.agendamento + kpi.agendado + kpi.tecCampo;
 
+  // ── Métricas auxiliares dos KPIs ───────────────────────────────────────────
+  const now = new Date();
+  const todayStr = format(now, 'yyyy-MM-dd');
+  const novosHoje = allIssues.filter(i => i.lastUpdated && format(new Date(i.lastUpdated), 'yyyy-MM-dd') === todayStr).length;
+
+  const proxAgendaDate = (() => {
+    const dates = [...agendados.values()].flat()
+      .flatMap(g => g.issues.map(i => i.dataAgenda ? new Date(i.dataAgenda).getTime() : Infinity))
+      .filter(t => Number.isFinite(t) && t >= now.getTime() - 86400000);
+    if (!dates.length) return undefined;
+    const min = Math.min(...dates);
+    try { return format(new Date(min), 'dd/MM HH') + 'h'; } catch { return undefined; }
+  })();
+
+  const tecnicosCampo = new Set(
+    tecCampo.flatMap(g => g.issues.map(i => i.tecnico).filter(Boolean) as string[]),
+  ).size || kpi.tecCampo;
+
+  const sincronizado = format(now, 'HH:mm');
+
   return (
     <div className="space-y-5 pb-10 animate-page-in">
 
@@ -1155,28 +1191,37 @@ export default function AgendamentoPage() {
       <div className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
         <div className="h-[3px] w-full bg-primary" />
         <div className="p-6">
-          <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Operação
               </p>
-              <h1 className="text-2xl font-bold tracking-tight mt-0.5">Agendamentos</h1>
-              <p className="text-xs text-muted-foreground mt-1 tabular-nums">
-                <span className="font-semibold text-foreground">{totalAtivos}</span> ativos · Field Service · Jira FSA
+              <h1 className="text-3xl font-bold tracking-tight mt-1 leading-none">Agendamentos</h1>
+              <p className="text-xs text-muted-foreground mt-2 tabular-nums">
+                <span className="font-semibold text-foreground">{totalAtivos}</span> ativos
+                <span className="mx-2 text-border">·</span>
+                sincronizado <span className="text-foreground tabular-nums">{sincronizado}</span>
+                <span className="mx-2 text-border">·</span>
+                Jira FSA
               </p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 shrink-0">
               <Button size="sm" variant="outline" onClick={refresh} disabled={isFetching} className="gap-1.5">
                 <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
                 {isFetching ? 'Atualizando…' : 'Atualizar'}
               </Button>
               <Button size="sm" onClick={() => openTransition('')} className="gap-1.5">
-                <Zap className="w-3.5 h-3.5" /> Transição em massa
+                <Zap className="w-3.5 h-3.5" /> Transição em massa <span aria-hidden>→</span>
               </Button>
             </div>
           </div>
 
-          <KpiCards kpi={kpi} />
+          <KpiCards
+            kpi={kpi}
+            novosHoje={novosHoje}
+            proxAgenda={proxAgendaDate}
+            tecnicosCampo={tecnicosCampo}
+          />
         </div>
       </div>
 
@@ -1185,7 +1230,7 @@ export default function AgendamentoPage() {
         value={activeTab}
         onValueChange={v => startTransition(() => setActiveTab(v))}
       >
-        <div className="border-b border-border/60 -mx-4 px-4 sm:-mx-6 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 -mx-4 px-4 sm:-mx-6 sm:px-6">
         <TabsList className="flex-wrap h-auto gap-1 p-1 bg-transparent">
           <TabsTrigger value="chamados" className="gap-1.5">
             <CalendarCheck className="w-3.5 h-3.5" />
@@ -1209,6 +1254,16 @@ export default function AgendamentoPage() {
             Mapa
           </TabsTrigger>
         </TabsList>
+
+        {/* FSA Search no header global — libera 60px verticais */}
+        <div className="hidden md:block pb-1.5 max-w-sm w-full">
+          <FsaSearchPanel allIssues={allIssues} />
+        </div>
+        </div>
+
+        {/* FSA Search mobile (abaixo das tabs) */}
+        <div className="md:hidden mt-3">
+          <FsaSearchPanel allIssues={allIssues} />
         </div>
 
         {/* ── Chamados (default) ── */}

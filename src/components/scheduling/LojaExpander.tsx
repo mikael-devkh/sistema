@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
+import { Collapsible, CollapsibleContent } from '../ui/collapsible';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import {
@@ -246,76 +246,96 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const totalManut = group.issues.filter(i => !i.problema.includes('Projeto Terminal de Consulta') && i.ativo !== '--').length;
   const totalTerminal = group.issues.length - totalManut;
 
+  const toggle = () => setOpen(o => !o);
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger asChild>
-        <button
-          className={`w-full grid grid-cols-[minmax(0,1fr)_84px_172px_140px_auto] items-center gap-x-4 px-5 py-3.5 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
+      {/*
+        Header é um <div role="button"> (NÃO <button>) — `actions` contém botões
+        e botão dentro de botão é HTML inválido (quebra DOM com erro 'insertBefore').
+        A área de ações usa stopPropagation para não acionar o toggle.
+      */}
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-label={`${open ? 'Recolher' : 'Expandir'} ${group.loja}`}
+        onClick={toggle}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            toggle();
+          }
+        }}
+        className={`w-full grid grid-cols-[minmax(0,1fr)_84px_172px_140px_auto] items-center gap-x-4 px-5 py-3.5 rounded-xl border border-l-4 cursor-pointer ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}
+      >
+        {/* 1. Nome + cidade */}
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-[15px] leading-tight truncate text-foreground">
+              {group.loja}
+            </span>
+            {crossTerminal && (
+              <span
+                title="Esta loja também tem chamados de Terminal em outro grupo"
+                className="shrink-0 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))]"
+              >
+                <Monitor className="w-2.5 h-2.5" /> Terminal
+              </span>
+            )}
+          </div>
+          {group.cidade && (
+            <span className="block text-[11px] text-muted-foreground truncate mt-0.5">
+              {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
+            </span>
+          )}
+        </div>
+
+        {/* 2. Numeral + label CHAMADOS */}
+        <div className="text-center tabular-nums">
+          <div className="text-2xl font-bold leading-none text-foreground">{group.qtd}</div>
+          <div className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground font-medium mt-1">
+            {group.qtd === 1 ? 'chamado' : 'chamados'}
+          </div>
+        </div>
+
+        {/* 3. Breakdown manut/terminal */}
+        <div className="flex items-center gap-1.5 text-[11px]">
+          {totalManut > 0 && (
+            <span className="px-2 py-0.5 rounded-md bg-secondary text-foreground/75 tabular-nums">
+              <span className="font-semibold">{totalManut}</span> <span className="text-muted-foreground">manut.</span>
+            </span>
+          )}
+          {totalTerminal > 0 && (
+            <span className="px-2 py-0.5 rounded-md bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))] tabular-nums">
+              <span className="font-semibold">{totalTerminal}</span> terminal
+            </span>
+          )}
+        </div>
+
+        {/* 4. SLA chip */}
+        <div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
+            <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
+            {slaSignal.label}
+          </div>
+          {slaSignal.hint && (
+            <span className="block text-[10px] text-muted-foreground tabular-nums mt-0.5 ml-3.5">{slaSignal.hint}</span>
+          )}
+        </div>
+
+        {/* 5. Ações + chevron — stopPropagation para não acionar o toggle */}
+        <div
+          className="flex items-center gap-2 shrink-0"
+          onClick={e => e.stopPropagation()}
+          onKeyDown={e => e.stopPropagation()}
         >
-          {/* 1. Nome + cidade */}
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="font-semibold text-[15px] leading-tight truncate text-foreground">
-                {group.loja}
-              </p>
-              {crossTerminal && (
-                <span
-                  title="Esta loja também tem chamados de Terminal em outro grupo"
-                  className="shrink-0 inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))]"
-                >
-                  <Monitor className="w-2.5 h-2.5" /> Terminal
-                </span>
-              )}
-            </div>
-            {group.cidade && (
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
-              </p>
-            )}
-          </div>
-
-          {/* 2. Numeral + label CHAMADOS — largura fixa 84px */}
-          <div className="text-center tabular-nums">
-            <div className="text-2xl font-bold leading-none text-foreground">{group.qtd}</div>
-            <div className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground font-medium mt-1">
-              {group.qtd === 1 ? 'chamado' : 'chamados'}
-            </div>
-          </div>
-
-          {/* 3. Breakdown manut/terminal — largura fixa 172px */}
-          <div className="flex items-center gap-1.5 text-[11px]">
-            {totalManut > 0 && (
-              <span className="px-2 py-0.5 rounded-md bg-secondary text-foreground/75 tabular-nums">
-                <span className="font-semibold">{totalManut}</span> <span className="text-muted-foreground">manut.</span>
-              </span>
-            )}
-            {totalTerminal > 0 && (
-              <span className="px-2 py-0.5 rounded-md bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))] tabular-nums">
-                <span className="font-semibold">{totalTerminal}</span> terminal
-              </span>
-            )}
-          </div>
-
-          {/* 4. SLA chip — largura fixa 140px */}
-          <div>
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
-              <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
-              {slaSignal.label}
-            </div>
-            {slaSignal.hint && (
-              <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5 ml-3.5">{slaSignal.hint}</p>
-            )}
-          </div>
-
-          {/* 5. Ações fixas (pin + Transição) + chevron */}
-          <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
-            {actions}
-            <ChevronDown
-              className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
-            />
-          </div>
-        </button>
-      </CollapsibleTrigger>
+          {actions}
+          <ChevronDown
+            className={`w-4 h-4 text-muted-foreground transition-transform duration-200 pointer-events-none ${open ? 'rotate-180' : ''}`}
+          />
+        </div>
+      </div>
 
       <CollapsibleContent>
         <div className="mt-1 rounded-xl border border-border/50 bg-card p-4 space-y-4 shadow-sm">

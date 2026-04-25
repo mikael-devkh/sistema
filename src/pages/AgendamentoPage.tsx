@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense, startTransition, useCallback } from 'react';
+import { useState, useMemo, useRef, useEffect, lazy, Suspense, startTransition, useCallback } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -8,7 +8,7 @@ import { Skeleton } from '../components/ui/skeleton';
 import {
   RefreshCw, Zap, MapPin, Hash,
   Clock, CalendarCheck, Wrench, AlertTriangle,
-  ChevronDown, ChevronRight, Monitor, WifiOff,
+  ChevronDown, Monitor, WifiOff,
   Search, ExternalLink, Package, X,
 } from 'lucide-react';
 import { searchChamadosByFsa, listChamadosByLoja } from '../lib/chamado-firestore';
@@ -334,6 +334,19 @@ function FsaSearchPanel({ allIssues }: { allIssues: SchedulingIssue[] }) {
   const [lojaChamados, setLojaChamados] = useState<Chamado[] | null>(null);
   const [loadingLoja, setLoadingLoja] = useState(false);
   const [open, setOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Atalho ⌘K / Ctrl+K — foca o input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const jiraMatches = useMemo(() => {
     if (!query.trim()) return [];
@@ -379,30 +392,34 @@ function FsaSearchPanel({ allIssues }: { allIssues: SchedulingIssue[] }) {
 
   return (
     <div className="space-y-2">
-      {/* Search bar */}
+      {/* Search bar — header global com hint ⌘K */}
       <div className="flex items-center gap-2">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input
-            placeholder="Buscar por FSA (ex: FSA-1234)…"
+            ref={inputRef}
+            placeholder="Buscar por FSA, loja, cidade…"
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            className="pl-9 pr-8"
+            className="pl-9 pr-16 h-9"
           />
-          {query && (
+          {query ? (
             <button
               onClick={handleClear}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
             >
               <X className="w-3.5 h-3.5" />
             </button>
+          ) : (
+            <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 text-[10px] font-medium text-muted-foreground bg-secondary border border-border/50 rounded px-1.5 py-0.5">
+              <span className="text-[11px]">⌘</span>K
+            </kbd>
           )}
         </div>
-        <Button size="sm" variant="outline" onClick={handleSearch} disabled={!query.trim() || loading} className="gap-1.5 shrink-0">
-          {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-          Buscar
-        </Button>
+        {loading && (
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />
+        )}
       </div>
 
       {/* Results */}
@@ -915,10 +932,10 @@ function Top5Lojas({ top5 }: { top5: LojaGroup[] }) {
 
 // ─── Chamados tab wrapper ─────────────────────────────────────────────────────
 
-const FILTER_OPTIONS: { mode: FilterMode; label: string; dot: string }[] = [
-  { mode: 'both',     label: 'Todos',      dot: 'bg-muted-foreground/60' },
-  { mode: 'normal',   label: 'Manutenção', dot: 'bg-primary' },
-  { mode: 'terminal', label: 'Terminal',   dot: 'bg-[hsl(var(--terminal))]' },
+const FILTER_OPTIONS: { mode: FilterMode; label: string }[] = [
+  { mode: 'both',     label: 'Todos' },
+  { mode: 'normal',   label: 'Manutenção' },
+  { mode: 'terminal', label: 'Terminal' },
 ];
 
 function ChamadosTab({
@@ -994,51 +1011,6 @@ function ChamadosTab({
 
   return (
     <div className="space-y-4">
-      {/* ── Barra de filtros consolidada (segment status · UF · highlights) ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-1 p-1 bg-secondary/50 border border-border/50 rounded-lg">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-2">Tipo</span>
-          {FILTER_OPTIONS.map(({ mode, label, dot }) => (
-            <button
-              key={mode}
-              onClick={() => setFilterMode(mode)}
-              className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium transition-all',
-                filterMode === mode
-                  ? 'bg-card text-foreground shadow-sm border border-border/50'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-card/50 border border-transparent',
-              )}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {allUfs.length > 0 && (
-            <select
-              value={ufFilter}
-              onChange={e => setUfFilter(e.target.value)}
-              className="text-xs bg-secondary border border-border/50 rounded-md px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
-              title="Filtrar por estado"
-            >
-              <option value="">UF: Todas</option>
-              {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-            </select>
-          )}
-
-          <button
-            className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground bg-secondary/50 hover:bg-secondary border border-border/50 rounded-lg transition-colors"
-            onClick={() => setHighlightsOpen(o => !o)}
-          >
-            <Hash className="w-3.5 h-3.5 text-primary" />
-            Lojas com N+ chamados
-            {highlightsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-      </div>
-
       {/* Banner foco — lojas críticas */}
       {kpi.lojasMultiplas > 0 && !highlightsOpen && (
         <div className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 px-4 py-2.5 text-xs">
@@ -1066,29 +1038,78 @@ function ChamadosTab({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Sub-tabs — segment com dot colorido por status */}
+      {/* Sub-tabs + Tipo inline (linha única) */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
-        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
-        <TabsList className="h-auto p-1 gap-1 bg-secondary/50 border border-border/50 rounded-lg">
-          {[
-            { value: 'pendentes',  label: 'Pendentes',  count: filteredCounts.pendentes, dot: 'bg-amber-500' },
-            { value: 'agendados',  label: 'Agendados',  count: filteredCounts.agendados, dot: 'bg-blue-500' },
-            { value: 'tec-campo',  label: 'TEC-CAMPO',  count: filteredCounts.tecCampo,  dot: 'bg-primary' },
-          ].map(t => (
-            <TabsTrigger
-              key={t.value}
-              value={t.value}
+        <div className="sticky top-0 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Sub-tabs — pill segment com dot por status */}
+            <TabsList className="h-auto p-1 gap-1 bg-secondary/50 border border-border/50 rounded-lg">
+              {[
+                { value: 'pendentes',  label: 'Pendentes',  count: filteredCounts.pendentes, dot: 'bg-amber-500' },
+                { value: 'agendados',  label: 'Agendados',  count: filteredCounts.agendados, dot: 'bg-blue-500' },
+                { value: 'tec-campo',  label: 'TEC-CAMPO',  count: filteredCounts.tecCampo,  dot: 'bg-primary' },
+              ].map(t => (
+                <TabsTrigger
+                  key={t.value}
+                  value={t.value}
+                  className={cn(
+                    'gap-2 px-3 py-1.5 rounded-md text-xs font-medium',
+                    'data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50',
+                  )}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
+                  {t.label}
+                  <span className="text-[10px] text-muted-foreground tabular-nums">{t.count}</span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+
+            {/* Tipo inline (estilo texto, ativo com bg sutil) */}
+            <div className="flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground mr-1">Tipo:</span>
+              {FILTER_OPTIONS.map(({ mode, label }) => (
+                <button
+                  key={mode}
+                  onClick={() => setFilterMode(mode)}
+                  className={cn(
+                    'px-2.5 py-1 rounded-md font-medium transition-colors',
+                    filterMode === mode
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Linha de filtros (UF + Sort + ranking) — alinhada à direita */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {allUfs.length > 0 && (
+              <select
+                value={ufFilter}
+                onChange={e => setUfFilter(e.target.value)}
+                className="text-xs bg-card border border-border/50 rounded-md px-2.5 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+                title="Filtrar por estado"
+              >
+                <option value="">UF: Todas</option>
+                {allUfs.map(uf => <option key={uf} value={uf}>{uf}</option>)}
+              </select>
+            )}
+            {/* Toggle do ranking (sai do botão pesado, vira link discreto) */}
+            <button
               className={cn(
-                'gap-2 px-3 py-1.5 rounded-md text-xs font-medium',
-                'data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50',
+                'text-xs px-2.5 py-1.5 rounded-md border transition-colors',
+                highlightsOpen
+                  ? 'bg-primary/10 text-primary border-primary/30'
+                  : 'text-muted-foreground border-border/50 hover:text-foreground hover:bg-secondary/50',
               )}
+              onClick={() => setHighlightsOpen(o => !o)}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
-              {t.label}
-              <span className="text-[10px] text-muted-foreground tabular-nums">{t.count}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+              {highlightsOpen ? 'Ocultar ranking' : 'Ver ranking N+'}
+            </button>
+          </div>
         </div>
 
         <TabsContent value="pendentes" className="mt-4">

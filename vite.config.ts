@@ -61,32 +61,24 @@ export default defineConfig(({ mode }) => ({
         cleanupOutdatedCaches: true,
         skipWaiting: true,
         clientsClaim: true,
-        // Estratégia para assets JS: NetworkFirst com fallback para cache
+        // NÃO interceptar assets gerados pelo build (/assets/*) — o browser já
+        // faz cache via header HTTP usando o hash no nome do arquivo. Se o SW
+        // intercepta isso, depois de um deploy ele tenta servir chunks com
+        // hash antigo que não existem mais na CDN, quebrando lazy imports.
+        navigateFallbackDenylist: [/^\/assets\//],
         runtimeCaching: [
-          {
-            urlPattern: /\.(?:js|mjs)$/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'js-cache',
-              networkTimeoutSeconds: 3,
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 // 24 horas
-              },
-              cacheableResponse: {
-                statuses: [0, 200]
-              }
-            }
-          },
+          // API externa — cache curto, network first
           {
             urlPattern: /^https:\/\/api\./,
             handler: 'NetworkFirst',
             options: {
               cacheName: 'api-cache',
+              networkTimeoutSeconds: 3,
               expiration: {
                 maxEntries: 50,
                 maxAgeSeconds: 60 * 60 // 1 hora
-              }
+              },
+              cacheableResponse: { statuses: [0, 200] },
             }
           },
           {
@@ -94,10 +86,12 @@ export default defineConfig(({ mode }) => ({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'fsa-cache',
+              networkTimeoutSeconds: 3,
               expiration: {
                 maxEntries: 100,
                 maxAgeSeconds: 5 * 60 // 5 minutos
-              }
+              },
+              cacheableResponse: { statuses: [0, 200] },
             }
           }
         ]

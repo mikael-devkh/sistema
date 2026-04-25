@@ -1046,25 +1046,28 @@ function ChamadosTab({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* Sub-tabs */}
+      {/* Sub-tabs — segment com dot colorido por status */}
       <Tabs value={subTab} onValueChange={v => startTransition(() => setSubTab(v))}>
         <div className="sticky top-0 z-10 bg-background/95 backdrop-blur pt-1 pb-2 -mx-4 px-4 sm:-mx-6 sm:px-6">
-        <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="pendentes" className="gap-1.5">
-            <Clock className="w-3.5 h-3.5" />
-            Pendentes
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.pendentes}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="agendados" className="gap-1.5">
-            <CalendarCheck className="w-3.5 h-3.5" />
-            Agendados
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.agendados}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="tec-campo" className="gap-1.5">
-            <Wrench className="w-3.5 h-3.5" />
-            TEC-CAMPO
-            <Badge variant="secondary" className="text-[10px] tabular-nums">{filteredCounts.tecCampo}</Badge>
-          </TabsTrigger>
+        <TabsList className="h-auto p-1 gap-1 bg-secondary/50 border border-border/50 rounded-lg">
+          {[
+            { value: 'pendentes',  label: 'Pendentes',  count: filteredCounts.pendentes, dot: 'bg-amber-500' },
+            { value: 'agendados',  label: 'Agendados',  count: filteredCounts.agendados, dot: 'bg-blue-500' },
+            { value: 'tec-campo',  label: 'TEC-CAMPO',  count: filteredCounts.tecCampo,  dot: 'bg-primary' },
+          ].map(t => (
+            <TabsTrigger
+              key={t.value}
+              value={t.value}
+              className={cn(
+                'gap-2 px-3 py-1.5 rounded-md text-xs font-medium',
+                'data-[state=active]:bg-card data-[state=active]:shadow-sm data-[state=active]:border data-[state=active]:border-border/50',
+              )}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${t.dot}`} />
+              {t.label}
+              <span className="text-[10px] text-muted-foreground tabular-nums">{t.count}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
         </div>
 
@@ -1231,28 +1234,31 @@ export default function AgendamentoPage() {
         onValueChange={v => startTransition(() => setActiveTab(v))}
       >
         <div className="flex items-center justify-between gap-3 border-b border-border/60 -mx-4 px-4 sm:-mx-6 sm:px-6">
-        <TabsList className="flex-wrap h-auto gap-1 p-1 bg-transparent">
-          <TabsTrigger value="chamados" className="gap-1.5">
-            <CalendarCheck className="w-3.5 h-3.5" />
-            Chamados
-            <Badge variant="secondary" className="text-[10px] tabular-nums ml-0.5">{totalAtivos}</Badge>
-          </TabsTrigger>
-          <TabsTrigger value="overview" className="gap-1.5">
-            Visão Geral
-          </TabsTrigger>
-          <TabsTrigger value="reqs" className="gap-1.5">
-            Rastreador REQs
-          </TabsTrigger>
-          <TabsTrigger value="gerente" className="gap-1.5">
-            Gerente
-          </TabsTrigger>
-          <TabsTrigger value="planilha" className="gap-1.5">
-            Planilha
-          </TabsTrigger>
-          <TabsTrigger value="mapa" className="gap-1.5">
-            <MapPin className="w-3.5 h-3.5" />
-            Mapa
-          </TabsTrigger>
+        <TabsList className="flex-wrap h-auto gap-0 p-0 bg-transparent rounded-none">
+          {[
+            { value: 'chamados', label: 'Chamados', count: totalAtivos },
+            { value: 'overview', label: 'Visão geral' },
+            { value: 'reqs',     label: 'REQs' },
+            { value: 'gerente',  label: 'Gerente' },
+            { value: 'planilha', label: 'Planilha' },
+            { value: 'mapa',     label: 'Mapa' },
+          ].map(t => (
+            <TabsTrigger
+              key={t.value}
+              value={t.value}
+              className={cn(
+                'relative h-10 px-3 rounded-none bg-transparent shadow-none',
+                'text-sm font-medium text-muted-foreground hover:text-foreground',
+                'data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:text-foreground',
+                'data-[state=active]:after:absolute data-[state=active]:after:left-0 data-[state=active]:after:right-0 data-[state=active]:after:-bottom-px data-[state=active]:after:h-0.5 data-[state=active]:after:bg-primary',
+              )}
+            >
+              {t.label}
+              {t.count !== undefined && (
+                <span className="ml-1.5 text-[11px] text-muted-foreground tabular-nums">{t.count}</span>
+              )}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         {/* FSA Search no header global — libera 60px verticais */}

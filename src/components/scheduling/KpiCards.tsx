@@ -2,11 +2,8 @@ import type { KpiData } from '../../types/scheduling';
 
 interface Props {
   kpi: KpiData;
-  /** chamados que entraram hoje (sub-fila) */
   novosHoje?: number;
-  /** próximo agendamento marcado (formato "22/04 14h") */
   proxAgenda?: string;
-  /** técnicos em campo agora */
   tecnicosCampo?: number;
 }
 
@@ -14,8 +11,7 @@ type Card = {
   label: string;
   value: number;
   topBar: string;
-  /** linha abaixo do número (callout específico) */
-  callout?: React.ReactNode;
+  callout: React.ReactNode;
   critical?: boolean;
 };
 
@@ -25,12 +21,12 @@ const buildCards = (p: Props): Card[] => [
     value: p.kpi.agendamento,
     topBar: 'bg-amber-500',
     callout: (
-      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-        {p.novosHoje !== undefined ? (
-          <span className="tabular-nums">↑ {p.novosHoje} hoje</span>
-        ) : <span>aguardando</span>}
-        <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> ação
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-muted-foreground tabular-nums">
+          {p.novosHoje !== undefined ? <>↑ <span className="text-foreground font-medium">{p.novosHoje}</span> hoje</> : 'aguardando'}
+        </span>
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700 dark:text-amber-300 bg-amber-500/15 px-1.5 py-0.5 rounded-full">
+          <span className="w-1 h-1 rounded-full bg-amber-500" /> ação
         </span>
       </div>
     ),
@@ -40,8 +36,8 @@ const buildCards = (p: Props): Card[] => [
     value: p.kpi.agendado,
     topBar: 'bg-blue-500',
     callout: (
-      <span className="text-[10px] text-muted-foreground tabular-nums">
-        {p.proxAgenda ? `próx. ${p.proxAgenda}` : 'com data marcada'}
+      <span className="text-[11px] text-muted-foreground tabular-nums">
+        {p.proxAgenda ? <>próx. <span className="text-foreground font-medium">{p.proxAgenda}</span></> : 'com data marcada'}
       </span>
     ),
   },
@@ -50,10 +46,10 @@ const buildCards = (p: Props): Card[] => [
     value: p.kpi.tecCampo,
     topBar: 'bg-primary',
     callout: (
-      <span className="text-[10px] text-muted-foreground tabular-nums">
+      <span className="text-[11px] text-muted-foreground tabular-nums">
         {p.tecnicosCampo !== undefined
-          ? `${p.tecnicosCampo} técnicos em campo`
-          : 'técnico em campo'}
+          ? <><span className="text-foreground font-medium">{p.tecnicosCampo}</span> técnicos em campo</>
+          : 'técnico em andamento'}
       </span>
     ),
   },
@@ -63,10 +59,10 @@ const buildCards = (p: Props): Card[] => [
     topBar: 'bg-rose-500',
     critical: true,
     callout: (
-      <div className="flex items-center justify-between text-[10px]">
-        <span className="text-rose-200/80">2+ chamados · SLA</span>
-        <span className="inline-flex items-center gap-1 text-rose-300 font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> foco
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] text-rose-200/70">2+ chamados · SLA</span>
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-200 bg-rose-500/25 px-1.5 py-0.5 rounded-full">
+          <span className="w-1 h-1 rounded-full bg-rose-400" /> foco
         </span>
       </div>
     ),
@@ -83,23 +79,23 @@ export function KpiCards(props: Props) {
             key={c.label}
             className={`relative overflow-hidden rounded-xl border ${
               isCritical
-                ? 'border-rose-500/60 bg-zinc-900 text-zinc-50 dark:bg-zinc-950 dark:border-rose-500/40'
+                ? 'border-rose-500/40 bg-zinc-900 dark:bg-zinc-950'
                 : 'border-border/60 bg-card'
-            } shadow-sm`}
+            }`}
           >
             <div className={`h-[3px] w-full ${c.topBar}`} />
-            <div className="p-4 space-y-3">
-              <p className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${
+            <div className="px-4 pt-3 pb-3 flex flex-col gap-2.5">
+              <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] leading-tight ${
                 isCritical ? 'text-zinc-400' : 'text-muted-foreground'
               }`}>
                 {c.label}
               </p>
-              <p className={`text-5xl font-bold tabular-nums leading-none ${
+              <p className={`text-[2.75rem] font-bold tabular-nums leading-[0.95] tracking-tight ${
                 isCritical ? 'text-zinc-50' : 'text-foreground'
               }`}>
                 {c.value}
               </p>
-              <div className="pt-1 border-t border-border/40 dark:border-white/10">
+              <div className={`pt-2 border-t ${isCritical ? 'border-white/10' : 'border-border/40'}`}>
                 {c.callout}
               </div>
             </div>

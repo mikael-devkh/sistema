@@ -55,43 +55,67 @@ function initials(name?: string | null) {
 
 function IssueRow({ issue }: { issue: SchedulingIssue }) {
   const tecnicoNome = issue.tecnico ? issue.tecnico.split('-')[0]?.trim() : null;
-  let agendaLabel: string | null = null;
+  let agendaDate: string | null = null;
+  let agendaTime: string | null = null;
   if (issue.dataAgenda) {
-    try { agendaLabel = format(new Date(issue.dataAgenda), 'dd/MM HH:mm'); } catch { /* ignore */ }
+    try {
+      const d = new Date(issue.dataAgenda);
+      agendaDate = format(d, 'dd/MM');
+      agendaTime = format(d, 'HH:mm');
+    } catch { /* ignore */ }
   }
 
   return (
-    <div className="grid grid-cols-[88px_60px_1fr_auto_auto_auto] items-center gap-3 px-3 py-2 hover:bg-secondary/40 text-xs transition-colors">
-      {/* 1. ID */}
+    <div className="grid grid-cols-[80px_56px_minmax(0,1fr)_72px_72px_28px] items-center gap-x-4 px-3 py-2.5 hover:bg-secondary/40 text-xs transition-colors">
+      {/* 1. ID FSA */}
       <code className="text-[10px] bg-secondary px-1.5 py-0.5 rounded font-mono text-muted-foreground select-all truncate">
         {issue.key}
       </code>
 
       {/* 2. PDV */}
-      <span className="font-medium text-[11px] tabular-nums">PDV {issue.pdv}</span>
+      <span className="text-[11px] text-muted-foreground tabular-nums">PDV {issue.pdv}</span>
 
-      {/* 3. Descrição (ativo + problema) */}
+      {/* 3. Descrição em uma linha + ativo abaixo discreto */}
       <div className="min-w-0">
-        <p className="text-foreground/90 truncate leading-snug" title={issue.problema}>
+        <p className="text-[12px] text-foreground/90 truncate leading-tight" title={issue.problema}>
           {issue.problema}
         </p>
         {issue.ativo && issue.ativo !== '--' && (
-          <p className="text-[10px] text-muted-foreground truncate">{issue.ativo}</p>
+          <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+            Ativo: {issue.ativo}
+            {issue.lastUpdated && (
+              <> · atualizado {format(issue.lastUpdated, 'HH:mm')}</>
+            )}
+          </p>
         )}
       </div>
 
-      {/* 4. SLA chip */}
-      <div className="shrink-0 min-w-[64px] text-right">{slaChip(issue.slaBadge)}</div>
+      {/* 4. SLA chip dot+texto */}
+      <div className="shrink-0">{slaChip(issue.slaBadge)}</div>
 
-      {/* 5. Data */}
-      <div className="shrink-0 text-[10px] text-muted-foreground tabular-nums min-w-[72px] text-right">
-        {agendaLabel ?? '—'}
+      {/* 5. Data: dd/MM em cima, HH:mm em baixo */}
+      <div className="shrink-0 text-[11px] text-muted-foreground tabular-nums leading-tight">
+        {agendaDate ? (
+          <>
+            <span className="text-foreground/85">{agendaDate}</span>
+            {agendaTime && <span className="block text-[10px]">{agendaTime}</span>}
+          </>
+        ) : (
+          <span className="text-muted-foreground/60">—</span>
+        )}
       </div>
 
-      {/* 6. Técnico (avatar circular substitui o ícone) */}
-      <div className="shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary text-[10px] font-semibold flex items-center justify-center" title={issue.tecnico ?? 'não atribuído'}>
-        {tecnicoNome ? initials(tecnicoNome) : '—'}
-      </div>
+      {/* 6. Avatar do técnico ou traço */}
+      {tecnicoNome ? (
+        <div
+          className="shrink-0 w-7 h-7 rounded-full bg-primary/15 text-primary text-[10px] font-semibold flex items-center justify-center"
+          title={issue.tecnico ?? 'não atribuído'}
+        >
+          {initials(tecnicoNome)}
+        </div>
+      ) : (
+        <span className="shrink-0 text-[10px] text-muted-foreground/50 text-center" title="não atribuído">—</span>
+      )}
     </div>
   );
 }
@@ -136,8 +160,19 @@ export function IssueSection({
       </button>
 
       {open && (
-        <div className="border border-border/40 rounded-lg overflow-hidden divide-y divide-border/30">
-          {issues.map(issue => <IssueRow key={issue.key} issue={issue} />)}
+        <div className="border border-border/40 rounded-lg overflow-hidden">
+          {/* Header da tabela */}
+          <div className="grid grid-cols-[80px_56px_minmax(0,1fr)_72px_72px_28px] items-center gap-x-4 px-3 py-1.5 bg-muted/40 border-b border-border/30 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span>FSA</span>
+            <span>PDV</span>
+            <span>Descrição</span>
+            <span>SLA</span>
+            <span>Agenda</span>
+            <span className="text-center">Téc.</span>
+          </div>
+          <div className="divide-y divide-border/30">
+            {issues.map(issue => <IssueRow key={issue.key} issue={issue} />)}
+          </div>
         </div>
       )}
     </div>
@@ -206,57 +241,58 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger asChild>
         <button
-          className={`w-full grid grid-cols-[minmax(0,1.6fr)_auto_auto_auto_auto] items-center gap-4 px-4 py-3 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
+          className={`w-full grid grid-cols-[minmax(0,1.4fr)_auto_minmax(0,auto)_minmax(0,auto)_auto] items-center gap-x-5 gap-y-2 px-5 py-3.5 rounded-xl border border-l-4 ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm`}
         >
-          {/* 1. Nome + cidade */}
+          {/* 1. Nome forte + cidade pequena (hierarquia clara) */}
           <div className="min-w-0">
-            <p className="font-semibold text-sm truncate">{group.loja}</p>
+            <p className="font-semibold text-[15px] leading-tight truncate text-foreground">
+              {group.loja}
+            </p>
             {group.cidade && (
-              <p className="flex items-center gap-1 text-[11px] text-muted-foreground truncate">
-                <MapPin className="w-3 h-3 shrink-0" />
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5 tabular-nums">
                 {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
               </p>
             )}
           </div>
 
-          {/* 2. Total de chamados (heroizado) */}
-          <div className="shrink-0 text-right tabular-nums">
-            <span className="text-lg font-bold leading-none">{group.qtd}</span>
-            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground mt-0.5">
+          {/* 2. Numeral grande + label CHAMADOS (estilo PDF: "4 CHAMADOS") */}
+          <div className="shrink-0 flex items-baseline gap-1.5 tabular-nums">
+            <span className="text-2xl font-bold leading-none text-foreground">{group.qtd}</span>
+            <span className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
               {group.qtd === 1 ? 'chamado' : 'chamados'}
             </span>
           </div>
 
-          {/* 3. Breakdown manut/terminal */}
-          <div className="shrink-0 hidden sm:flex items-center gap-1.5 text-[10px]">
+          {/* 3. Breakdown manut/terminal — pills */}
+          <div className="shrink-0 hidden md:flex items-center gap-1.5 text-[11px]">
             {totalManut > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">
-                {totalManut} manut.
+              <span className="px-2 py-0.5 rounded-md bg-secondary text-foreground/75 tabular-nums">
+                <span className="font-semibold">{totalManut}</span> <span className="text-muted-foreground">manut.</span>
               </span>
             )}
             {totalTerminal > 0 && (
-              <span className="px-1.5 py-0.5 rounded bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))]">
-                {totalTerminal} terminal
+              <span className="px-2 py-0.5 rounded-md bg-[hsl(var(--terminal-soft))] text-[hsl(var(--terminal))] tabular-nums">
+                <span className="font-semibold">{totalTerminal}</span> terminal
               </span>
             )}
           </div>
 
-          {/* 4. SLA chip único com tempo */}
-          <div className="shrink-0 text-right">
-            <div className="inline-flex items-center gap-1.5 text-[11px] text-foreground/85">
+          {/* 4. SLA chip único + tempo abaixo */}
+          <div className="shrink-0 text-right min-w-[110px]">
+            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium text-foreground/90">
               <span className={`w-1.5 h-1.5 rounded-full ${slaSignal.dot}`} />
-              <span className="font-medium">{slaSignal.label}</span>
+              {slaSignal.label}
             </div>
             {slaSignal.hint && (
               <p className="text-[10px] text-muted-foreground tabular-nums mt-0.5">{slaSignal.hint}</p>
             )}
           </div>
 
-          {/* 5. Ações (extra do caller) + chevron */}
+          {/* 5. Ações + chevron */}
           <div className="flex items-center gap-2 shrink-0" onClick={e => e.stopPropagation()}>
             {extra}
             {hasRelated && !open && (
-              <span className="hidden lg:inline text-[10px] text-muted-foreground italic">
+              <span className="hidden xl:inline text-[10px] text-muted-foreground italic">
                 ver todos
               </span>
             )}

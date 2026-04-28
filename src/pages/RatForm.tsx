@@ -595,13 +595,25 @@ const RatForm = () => {
       await generateRatPDF(formData);
       // Salva no Firestore (histórico compartilhado por usuário)
       if (user) {
+        // Firestore não aceita `undefined`; converte recursivamente para null
+        const stripUndefined = (val: any): any => {
+          if (val === undefined) return null;
+          if (val === null) return null;
+          if (Array.isArray(val)) return val.map(stripUndefined);
+          if (typeof val === "object") {
+            const out: Record<string, any> = {};
+            for (const [k, v] of Object.entries(val)) out[k] = stripUndefined(v);
+            return out;
+          }
+          return val;
+        };
         const entry = {
           timestamp: Date.now(),
           fsa: formData.fsa?.trim() || null,
           codigoLoja: formData.codigoLoja?.trim() || null,
           pdv: formData.pdv?.trim() || null,
           defeitoProblema: formData.defeitoProblema?.trim() || null,
-          formData: cloneRatFormData(formData),
+          formData: stripUndefined(cloneRatFormData(formData)),
           userId: user.uid,
         };
         try {

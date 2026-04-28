@@ -1,5 +1,13 @@
 export type PagamentoStatus = 'pendente' | 'pago' | 'cancelado';
 
+export interface PagamentoHistoricoEntry {
+  status: PagamentoStatus;
+  por: string;
+  porNome: string;
+  em: number;
+  observacao?: string;
+}
+
 export interface PagamentoChamadoDetalhe {
   serviceReportId: string;
   fsa: string;
@@ -40,8 +48,12 @@ export interface Pagamento {
   criadoPor: string;
   criadoEm: number;
   pagoEm?: number;
+  pagoPor?: string;
+  pagoPorNome?: string;
+  comprovanteUrl?: string;
   observacoes?: string;
   detalhesChamados: PagamentoChamadoDetalhe[];
+  historico: PagamentoHistoricoEntry[];
   // Auditoria de cancelamento
   canceladoPor?: string;
   canceladoPorNome?: string;

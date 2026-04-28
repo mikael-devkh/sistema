@@ -198,6 +198,7 @@ function GerarPagamentoDialog({
   catalogoServicos,
   nomesTecnicos,
   criadoPor,
+  criadoPorNome,
   onConfirmed,
   tecnicosMap,
 }: {
@@ -206,6 +207,7 @@ function GerarPagamentoDialog({
   catalogoServicos: CatalogoServico[];
   nomesTecnicos: Map<string, string>;
   criadoPor: string;
+  criadoPorNome: string;
   onConfirmed: () => void;
   tecnicosMap: Map<string, { pix?: string; banco?: string }>;
 }) {
@@ -251,7 +253,7 @@ function GerarPagamentoDialog({
 
     setConfirming(true);
     try {
-      await confirmarPagamentos(selecionados, { de, ate }, criadoPor);
+      await confirmarPagamentos(selecionados, { de, ate }, criadoPor, criadoPorNome);
       toast.success(`${selecionados.length} pagamento(s) gerado(s) com sucesso.`);
       onConfirmed();
       onOpenChange(false);
@@ -567,6 +569,38 @@ function PagamentoCard({
 
             {pagamento.observacoes && (
               <p className="text-xs text-muted-foreground italic">{pagamento.observacoes}</p>
+            )}
+
+            {pagamento.comprovanteUrl && (
+              <a
+                href={pagamento.comprovanteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                <LinkIcon className="w-3.5 h-3.5" /> Abrir comprovante
+              </a>
+            )}
+
+            {pagamento.historico.length > 0 && (
+              <div className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Histórico do pagamento
+                </p>
+                {[...pagamento.historico].reverse().map((h, idx) => (
+                  <div key={`${h.status}-${h.em}-${idx}`} className="text-xs flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
+                    <div>
+                      <p className="font-medium">
+                        {statusConfig(h.status).label}
+                        <span className="font-normal text-muted-foreground"> · {h.porNome}</span>
+                        <span className="font-normal text-muted-foreground"> · {new Date(h.em).toLocaleString('pt-BR')}</span>
+                      </p>
+                      {h.observacao && <p className="text-muted-foreground">{h.observacao}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         </AccordionContent>
@@ -1000,6 +1034,7 @@ export default function PagamentosPage() {
   const [pagandoPagamento, setPagandoPagamento] = useState<Pagamento | null>(null);
   const [cancelandoPagamento, setCancelandoPagamento] = useState<Pagamento | null>(null);
   const [obsPagamento, setObsPagamento] = useState('');
+  const [comprovanteUrl, setComprovanteUrl] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
 
   const fetchPagamentos = async () => {
@@ -1036,11 +1071,19 @@ export default function PagamentosPage() {
 
   const handleMarcarPago = async () => {
     if (!pagandoPagamento) return;
+    const porNome = profile?.nome || user?.email || 'Financeiro';
     try {
-      await marcarComoPago(pagandoPagamento.id, obsPagamento || undefined);
+      await marcarComoPago(
+        pagandoPagamento.id,
+        obsPagamento || undefined,
+        user?.uid,
+        porNome,
+        comprovanteUrl || undefined,
+      );
       toast.success('Pagamento registrado.');
       setPagandoPagamento(null);
       setObsPagamento('');
+      setComprovanteUrl('');
       fetchPagamentos();
     } catch {
       toast.error('Erro ao marcar pagamento.');
@@ -1162,7 +1205,7 @@ export default function PagamentosPage() {
                     key={p.id}
                     pagamento={p}
                     isAdmin={isAdmin}
-                    onPago={pag => { setPagandoPagamento(pag); setObsPagamento(''); }}
+                    onPago={pag => { setPagandoPagamento(pag); setObsPagamento(''); setComprovanteUrl(''); }}
                     onCancelado={setCancelandoPagamento}
                   />
                 ))
@@ -1202,12 +1245,19 @@ export default function PagamentosPage() {
         catalogoServicos={catalogoServicos}
         nomesTecnicos={nomesTecnicos}
         criadoPor={user?.uid ?? ''}
+        criadoPorNome={profile?.nome || user?.email || 'Financeiro'}
         onConfirmed={fetchPagamentos}
         tecnicosMap={new Map(tecnicos.map(t => [t.uid, { pix: t.pagamento?.pix, banco: t.pagamento?.banco }]))}
       />
 
       {/* Dialog: Confirmar pagamento */}
-      <AlertDialog open={!!pagandoPagamento} onOpenChange={open => !open && setPagandoPagamento(null)}>
+      <AlertDialog open={!!pagandoPagamento} onOpenChange={open => {
+        if (!open) {
+          setPagandoPagamento(null);
+          setObsPagamento('');
+          setComprovanteUrl('');
+        }
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Marcar como Pago</AlertDialogTitle>
@@ -1217,14 +1267,25 @@ export default function PagamentosPage() {
               para <strong>{pagandoPagamento?.tecnicoNome}</strong>?
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="py-2 space-y-1.5">
-            <Label htmlFor="obs-pag">Observações (opcional)</Label>
-            <Input
-              id="obs-pag"
-              placeholder="Ex: PIX enviado em 15/04"
-              value={obsPagamento}
-              onChange={e => setObsPagamento(e.target.value)}
-            />
+          <div className="py-2 space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="comprovante-pag">Link do comprovante (opcional)</Label>
+              <Input
+                id="comprovante-pag"
+                placeholder="https://drive.google.com/..."
+                value={comprovanteUrl}
+                onChange={e => setComprovanteUrl(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="obs-pag">Observações (opcional)</Label>
+              <Input
+                id="obs-pag"
+                placeholder="Ex: PIX enviado em 15/04"
+                value={obsPagamento}
+                onChange={e => setObsPagamento(e.target.value)}
+              />
+            </div>
           </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>

@@ -87,12 +87,24 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Chaves de idempotência usadas pelo cliente para evitar criação duplicada
+    // em retentativas ou cliques repetidos.
+    match /chamadoIdempotency/{docId} {
+      allow read, create: if isAnyStaff();
+      allow update, delete: if isAdmin();
+    }
+
     // ── Pagamentos ────────────────────────────────────────────────────────────
     match /pagamentos/{docId} {
       allow read:   if isAuth();
       allow create: if isFinanceiroOrAbove();
       allow update: if isFinanceiroOrAbove();
       allow delete: if isAdmin();
+    }
+
+    match /pagamentoIdempotency/{docId} {
+      allow read, create: if isFinanceiroOrAbove();
+      allow update, delete: if isAdmin();
     }
 
     // ── Estoque ───────────────────────────────────────────────────────────────

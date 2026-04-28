@@ -93,6 +93,7 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: 'em_validacao', label: 'Ag. Validação' },
   { value: 'rejeitado', label: 'Rejeitados' },
   { value: 'validado_financeiro', label: 'Aprovados' },
+  { value: 'pagamento_pendente', label: 'Ag. Pagamento' },
   { value: 'pago', label: 'Pagos' },
 ];
 
@@ -1172,6 +1173,7 @@ export default function ChamadosPage() {
     em_validacao: chamados.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
     rejeitado: chamados.filter(c => c.status === 'rejeitado').length,
     validado_financeiro: chamados.filter(c => c.status === 'validado_financeiro').length,
+    pagamento_pendente: chamados.filter(c => c.status === 'pagamento_pendente').length,
     pago: chamados.filter(c => c.status === 'pago').length,
   }), [chamados]);
 

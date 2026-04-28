@@ -4,6 +4,7 @@ export type ChamadoStatus =
   | 'validado_operador'
   | 'rejeitado'
   | 'validado_financeiro'
+  | 'pagamento_pendente'
   | 'pago';
 
 export interface HistoricoEntry {

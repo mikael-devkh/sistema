@@ -1,7 +1,6 @@
 import {
   collection,
   doc,
-  addDoc,
   updateDoc,
   getDocs,
   getDoc,
@@ -11,9 +10,16 @@ import {
   serverTimestamp,
   Timestamp,
   limit,
+  runTransaction,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Chamado, ChamadoStatus, HistoricoEntry } from '../types/chamado';
+import {
+  assertChamadoPayload,
+  assertChamadoTransition,
+  buildChamadoIdempotencyKey,
+  normalizeChamadoCode,
+} from './chamado-validation';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -63,6 +69,7 @@ function mapDoc(d: any): Chamado {
 }
 
 const COL = 'chamados';
+const IDEMPOTENCY_COL = 'chamadoIdempotency';
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
@@ -75,6 +82,8 @@ export async function createChamado(
   payload: NovoChamadoPayload,
   submitImediato = false,
 ): Promise<Chamado> {
+  assertChamadoPayload(payload);
+
   const status: ChamadoStatus = submitImediato ? 'submetido' : 'rascunho';
   const entrada: HistoricoEntry = {
     status,
@@ -84,14 +93,43 @@ export async function createChamado(
     observacao: submitImediato ? 'Chamado registrado e submetido' : 'Rascunho criado',
   };
 
-  const ref = await addDoc(collection(db, COL), {
+  const normalizedPayload = {
     ...payload,
-    status,
-    historico: [entrada],
-    pagamentoId: null,
-    motivoRejeicao: null,
-    registradoEm: serverTimestamp(),
-    atualizadoEm: serverTimestamp(),
+    fsa: normalizeChamadoCode(payload.fsa),
+    codigoLoja: payload.codigoLoja.trim(),
+    itensAdicionais: payload.itensAdicionais?.map(item => ({
+      ...item,
+      codigoChamado: normalizeChamadoCode(item.codigoChamado),
+      codigoLoja: item.codigoLoja.trim(),
+    })),
+  };
+  const idempotencyKey = buildChamadoIdempotencyKey(normalizedPayload);
+  const idemRef = doc(db, IDEMPOTENCY_COL, encodeURIComponent(idempotencyKey));
+
+  const ref = await runTransaction(db, async tx => {
+    const existing = await tx.get(idemRef);
+    if (existing.exists()) {
+      const chamadoId = existing.data().chamadoId as string | undefined;
+      if (chamadoId) return doc(db, COL, chamadoId);
+    }
+
+    const newRef = doc(collection(db, COL));
+    tx.set(newRef, {
+      ...normalizedPayload,
+      status,
+      historico: [entrada],
+      pagamentoId: null,
+      motivoRejeicao: null,
+      registradoEm: serverTimestamp(),
+      atualizadoEm: serverTimestamp(),
+    });
+    tx.set(idemRef, {
+      chamadoId: newRef.id,
+      key: idempotencyKey,
+      criadoEm: serverTimestamp(),
+      criadoPor: payload.registradoPor,
+    });
+    return newRef;
   });
 
   const snap = await getDoc(ref);
@@ -182,15 +220,24 @@ async function transicionar(
   entrada: HistoricoEntry,
   extraFields?: Record<string, unknown>,
 ): Promise<void> {
-  const chamado = await getChamado(id);
-  if (!chamado) throw new Error('Chamado não encontrado');
+  const ref = doc(db, COL, id);
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Chamado não encontrado');
 
-  await updateDoc(doc(db, COL, id), {
-    status: novoStatus,
-    historico: [...chamado.historico, entrada],
-    motivoRejeicao: extraFields?.motivoRejeicao ?? chamado.motivoRejeicao ?? null,
-    ...extraFields,
-    atualizadoEm: serverTimestamp(),
+    const chamado = mapDoc(snap);
+    assertChamadoTransition(chamado.status, novoStatus);
+
+    tx.update(ref, {
+      status: novoStatus,
+      historico: [...chamado.historico, entrada],
+      motivoRejeicao: extraFields?.motivoRejeicao ?? chamado.motivoRejeicao ?? null,
+      emRevisaoPor: null,
+      emRevisaoPorNome: null,
+      emRevisaoDesde: null,
+      ...extraFields,
+      atualizadoEm: serverTimestamp(),
+    });
   });
 }
 
@@ -263,9 +310,6 @@ export async function resubmeterChamado(
   porNome: string,
   atualizacoes: Partial<Omit<Chamado, 'id' | 'historico' | 'status' | 'registradoEm'>>,
 ): Promise<void> {
-  const chamado = await getChamado(id);
-  if (!chamado) throw new Error('Chamado não encontrado');
-
   const entrada: HistoricoEntry = {
     status: 'submetido',
     por,
@@ -274,12 +318,27 @@ export async function resubmeterChamado(
     observacao: 'Corrigido e resubmetido',
   };
 
-  await updateDoc(doc(db, COL, id), {
-    ...atualizacoes,
-    status: 'submetido',
-    motivoRejeicao: null,
-    historico: [...chamado.historico, entrada],
-    atualizadoEm: serverTimestamp(),
+  const ref = doc(db, COL, id);
+  await runTransaction(db, async tx => {
+    const snap = await tx.get(ref);
+    if (!snap.exists()) throw new Error('Chamado não encontrado');
+    const chamado = mapDoc(snap);
+    assertChamadoTransition(chamado.status, 'submetido');
+
+    const next = { ...chamado, ...atualizacoes, status: 'submetido' as ChamadoStatus };
+    assertChamadoPayload(next);
+
+    tx.update(ref, {
+      ...atualizacoes,
+      fsa: next.fsa ? normalizeChamadoCode(next.fsa) : chamado.fsa,
+      status: 'submetido',
+      motivoRejeicao: null,
+      historico: [...chamado.historico, entrada],
+      emRevisaoPor: null,
+      emRevisaoPorNome: null,
+      emRevisaoDesde: null,
+      atualizadoEm: serverTimestamp(),
+    });
   });
 }
 

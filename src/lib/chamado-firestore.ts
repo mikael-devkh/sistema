@@ -52,11 +52,15 @@ function mapDoc(d: any): Chamado {
     pecaUsada: data.pecaUsada ?? undefined,
     custoPeca: data.custoPeca ?? undefined,
     fornecedorPeca: data.fornecedorPeca ?? undefined,
+    estoqueItemId: data.estoqueItemId ?? undefined,
+    estoqueItemNome: data.estoqueItemNome ?? undefined,
+    estoqueQuantidade: data.estoqueQuantidade ?? undefined,
     linkPlataforma: data.linkPlataforma ?? undefined,
     observacoes: data.observacoes ?? undefined,
     status: data.status ?? 'rascunho',
     historico: data.historico ?? [],
     motivoRejeicao: data.motivoRejeicao ?? undefined,
+    motivoRejeicaoEtapa: data.motivoRejeicaoEtapa ?? undefined,
     pagamentoId: data.pagamentoId ?? null,
     emRevisaoPor: data.emRevisaoPor ?? undefined,
     emRevisaoPorNome: data.emRevisaoPorNome ?? undefined,
@@ -294,12 +298,19 @@ export async function rejeitarChamado(
   por: string,
   porNome: string,
   motivo: string,
+  etapa?: 'operacional' | 'financeira',
 ): Promise<void> {
+  const novoStatus: ChamadoStatus = etapa === 'financeira'
+    ? 'rejeitado_financeiro'
+    : etapa === 'operacional'
+      ? 'rejeitado_operacional'
+      : 'rejeitado';
+
   await transicionar(
     id,
-    'rejeitado',
-    { status: 'rejeitado', por, porNome, em: Date.now(), observacao: motivo },
-    { motivoRejeicao: motivo },
+    novoStatus,
+    { status: novoStatus, por, porNome, em: Date.now(), observacao: motivo },
+    { motivoRejeicao: motivo, motivoRejeicaoEtapa: etapa ?? 'legado' },
   );
 }
 
@@ -333,6 +344,7 @@ export async function resubmeterChamado(
       fsa: next.fsa ? normalizeChamadoCode(next.fsa) : chamado.fsa,
       status: 'submetido',
       motivoRejeicao: null,
+      motivoRejeicaoEtapa: null,
       historico: [...chamado.historico, entrada],
       emRevisaoPor: null,
       emRevisaoPorNome: null,
@@ -378,7 +390,9 @@ export async function checkDuplicateChamado(
     c.tecnicoId === tecnicoId &&
     c.dataAtendimento === dataAtendimento &&
     c.id !== excludeId &&
-    c.status !== 'rejeitado',
+    c.status !== 'rejeitado' &&
+    c.status !== 'rejeitado_operacional' &&
+    c.status !== 'rejeitado_financeiro',
   );
   return dup ?? null;
 }

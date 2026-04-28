@@ -5,7 +5,7 @@ import { db } from '../firebase';
 export interface PendingCounts {
   chamadosValidacaoOp: number;     // status 'submetido'
   chamadosValidacaoFin: number;    // status 'validado_operador'
-  chamadosRejeitados: number;      // status 'rejeitado'
+  chamadosRejeitados: number;      // status rejeitado/rejeitado_operacional/rejeitado_financeiro
   chamadosAprovados: number;       // status 'validado_financeiro' (prontos p/ pagamento)
   pagamentosPendentes: number;     // status 'pendente'
   estoqueBaixo: number;            // quantidadeAtual <= quantidadeMinima
@@ -20,7 +20,14 @@ const INITIAL: PendingCounts = {
   estoqueBaixo: 0,
 };
 
-const CHAMADOS_PENDING_STATUSES = ['submetido', 'validado_operador', 'rejeitado', 'validado_financeiro'] as const;
+const CHAMADOS_PENDING_STATUSES = [
+  'submetido',
+  'validado_operador',
+  'rejeitado',
+  'rejeitado_operacional',
+  'rejeitado_financeiro',
+  'validado_financeiro',
+] as const;
 
 export function usePendingCounts(enabled = true): PendingCounts {
   const [counts, setCounts] = useState<PendingCounts>(INITIAL);
@@ -40,7 +47,7 @@ export function usePendingCounts(enabled = true): PendingCounts {
             const s = (d.data() as { status?: string }).status;
             if (s === 'submetido') next.chamadosValidacaoOp++;
             else if (s === 'validado_operador') next.chamadosValidacaoFin++;
-            else if (s === 'rejeitado') next.chamadosRejeitados++;
+            else if (s === 'rejeitado' || s === 'rejeitado_operacional' || s === 'rejeitado_financeiro') next.chamadosRejeitados++;
             else if (s === 'validado_financeiro') next.chamadosAprovados++;
           });
           setCounts(c => ({ ...c, ...next }));

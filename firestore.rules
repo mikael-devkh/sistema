@@ -104,7 +104,8 @@ service cloud.firestore {
 
     match /pagamentoIdempotency/{docId} {
       allow read, create: if isFinanceiroOrAbove();
-      allow update, delete: if isAdmin();
+      allow update: if isFinanceiroOrAbove();
+      allow delete: if isAdmin();
     }
 
     // ── Estoque ───────────────────────────────────────────────────────────────

@@ -8,7 +8,10 @@ import {
   serverTimestamp,
   Timestamp,
   runTransaction,
+  type DocumentData,
+  type DocumentSnapshot,
   type QueryConstraint,
+  type Transaction,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Pagamento, PagamentoHistoricoEntry, PagamentoPreview } from '../types/pagamento';
@@ -45,6 +48,44 @@ function mapHistoricoEntry(value: unknown): PagamentoHistoricoEntry {
 const PAGAMENTOS_COL = 'pagamentos';
 const CHAMADOS_COL = 'chamados';
 const IDEMPOTENCY_COL = 'pagamentoIdempotency';
+const CHAMADO_STATUS_PAGAMENTO_ATIVO = ['pagamento_pendente', 'validado_financeiro'];
+
+function getPagamentoDestinatarioId(chamado: Pick<Chamado, 'pagamentoDestino' | 'tecnicoPaiId' | 'tecnicoId'>): string {
+  return chamado.pagamentoDestino === 'parent' && chamado.tecnicoPaiId
+    ? chamado.tecnicoPaiId
+    : chamado.tecnicoId;
+}
+
+function getPagamentoDestinatarioNome(chamado: Pick<Chamado, 'pagamentoDestino' | 'tecnicoPaiId' | 'tecnicoId' | 'tecnicoNome'>, nomesTecnicos?: Map<string, string>): string {
+  const destinatarioId = getPagamentoDestinatarioId(chamado);
+  return nomesTecnicos?.get(destinatarioId) ?? chamado.tecnicoNome ?? destinatarioId;
+}
+
+async function fetchAndAssertChamadosDoPagamento(
+  tx: Transaction,
+  pagamentoId: string,
+  chamadoIds: string[],
+  acao: 'marcar como pago' | 'cancelar',
+): Promise<DocumentSnapshot<DocumentData>[]> {
+  const chamadoRefs = chamadoIds.map(chamadoId => doc(db, CHAMADOS_COL, chamadoId));
+  const chamadoSnaps = await Promise.all(chamadoRefs.map(ref => tx.get(ref)));
+
+  if (chamadoSnaps.length !== chamadoIds.length || chamadoSnaps.some(s => !s.exists())) {
+    throw new Error(`Pagamento possui chamado vinculado inexistente. Revise antes de ${acao}.`);
+  }
+
+  const chamadoInconsistente = chamadoSnaps.find(chamadoSnap => {
+    const chamadoData = chamadoSnap.data();
+    return chamadoData?.pagamentoId !== pagamentoId ||
+      !CHAMADO_STATUS_PAGAMENTO_ATIVO.includes(chamadoData?.status);
+  });
+
+  if (chamadoInconsistente) {
+    throw new Error(`Pagamento possui chamado em estado inconsistente. Recarregue e revise antes de ${acao}.`);
+  }
+
+  return chamadoSnaps;
+}
 
 // ─── Gerar prévia ─────────────────────────────────────────────────────────────
 
@@ -52,24 +93,25 @@ export async function gerarPreviewPagamentos(
   de: string,
   ate: string,
   catalogoServicos: CatalogoServico[],
-  _nomesTecnicos?: Map<string, string>,
+  nomesTecnicos?: Map<string, string>,
 ): Promise<PagamentoPreview[]> {
   const chamados = await fetchChamadosParaPagamento(de, ate);
   const catalogoMap = new Map(catalogoServicos.map(s => [s.id, s]));
 
   const byTecnico = new Map<string, Chamado[]>();
   for (const c of chamados) {
-    if (!byTecnico.has(c.tecnicoId)) byTecnico.set(c.tecnicoId, []);
-    byTecnico.get(c.tecnicoId)!.push(c);
+    const destinatarioId = getPagamentoDestinatarioId(c);
+    if (!byTecnico.has(destinatarioId)) byTecnico.set(destinatarioId, []);
+    byTecnico.get(destinatarioId)!.push(c);
   }
 
   const previews: PagamentoPreview[] = [];
-  byTecnico.forEach((chamadosDoTec, tecnicoId) => {
+  byTecnico.forEach((chamadosDoTec, destinatarioId) => {
     const detalhes = calcularDetalhesDeChamados(chamadosDoTec, catalogoMap);
     const valorTotal = detalhes.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0);
     previews.push({
-      tecnicoId,
-      tecnicoNome: chamadosDoTec[0]?.tecnicoNome ?? tecnicoId,
+      tecnicoId: destinatarioId,
+      tecnicoNome: chamadosDoTec[0] ? getPagamentoDestinatarioNome(chamadosDoTec[0], nomesTecnicos) : destinatarioId,
       valorTotal,
       qtdChamados: chamadosDoTec.length,
       detalhesChamados: detalhes,
@@ -91,31 +133,41 @@ export async function confirmarPagamentos(
     if (preview.detalhesChamados.length === 0) continue;
 
     await runTransaction(db, async tx => {
-      const requestedIds = [...new Set(preview.detalhesChamados.map(d => d.serviceReportId))];
+      const requestedIds = [...new Set(preview.detalhesChamados.map(d => d.serviceReportId))].sort();
+      const idempotencyKey = [
+        preview.tecnicoId,
+        periodo.de,
+        periodo.ate,
+        requestedIds.join(','),
+      ].join('|');
+      const idemRef = doc(db, IDEMPOTENCY_COL, encodeURIComponent(idempotencyKey));
+      const existing = await tx.get(idemRef);
+      const existingPagamentoId = existing.exists()
+        ? existing.data().pagamentoId as string | undefined
+        : undefined;
+
+      if (existingPagamentoId) {
+        const existingPagamento = await tx.get(doc(db, PAGAMENTOS_COL, existingPagamentoId));
+        if (existingPagamento.exists() && existingPagamento.data().status !== 'cancelado') return;
+      }
+
       const chamadoRefs = requestedIds.map(id => doc(db, CHAMADOS_COL, id));
       const chamadoSnaps = await Promise.all(chamadoRefs.map(ref => tx.get(ref)));
 
       const eligibleSnaps = chamadoSnaps
         .filter(snap => {
           const data = snap.data();
-          return snap.exists() &&
-            data?.tecnicoId === preview.tecnicoId &&
+          if (!snap.exists()) return false;
+          const chamado = data as Pick<Chamado, 'pagamentoDestino' | 'tecnicoPaiId' | 'tecnicoId'>;
+          return getPagamentoDestinatarioId(chamado) === preview.tecnicoId &&
             data?.status === 'validado_financeiro' &&
             data?.pagamentoId == null;
         });
       const eligibleIds = eligibleSnaps.map(snap => snap.id).sort();
 
-      if (eligibleIds.length === 0) return;
-
-      const idempotencyKey = [
-        preview.tecnicoId,
-        periodo.de,
-        periodo.ate,
-        eligibleIds.join(','),
-      ].join('|');
-      const idemRef = doc(db, IDEMPOTENCY_COL, encodeURIComponent(idempotencyKey));
-      const existing = await tx.get(idemRef);
-      if (existing.exists()) return;
+      if (eligibleIds.length !== requestedIds.length) {
+        throw new Error('Prévia de pagamento desatualizada. Recalcule antes de confirmar.');
+      }
 
       const detalhes = preview.detalhesChamados.filter(d => eligibleIds.includes(d.serviceReportId));
       const valor = detalhes.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0);
@@ -149,14 +201,25 @@ export async function confirmarPagamentos(
         observacoes: null,
         detalhesChamados: detalhes,
         historico,
+        idempotencyKey,
       });
 
-      tx.set(idemRef, {
+      const idemPayload = {
         pagamentoId: pagRef.id,
         key: idempotencyKey,
-        criadoEm: serverTimestamp(),
+        atualizadoEm: serverTimestamp(),
         criadoPor,
-      });
+        pagamentoAnteriorId: existingPagamentoId ?? null,
+      };
+
+      if (existing.exists()) {
+        tx.update(idemRef, idemPayload);
+      } else {
+        tx.set(idemRef, {
+          ...idemPayload,
+          criadoEm: serverTimestamp(),
+        });
+      }
 
       for (const snap of eligibleSnaps) {
         const data = snap.data();
@@ -222,8 +285,7 @@ export async function marcarComoPago(
     if (data.status === 'cancelado') throw new Error('Pagamento cancelado não pode ser pago');
     const historico = Array.isArray(data.historico) ? data.historico : [];
     const chamadoIds = ((data.chamadoIds ?? []) as string[]);
-    const chamadoRefs = chamadoIds.map(chamadoId => doc(db, CHAMADOS_COL, chamadoId));
-    const chamadoSnaps = await Promise.all(chamadoRefs.map(ref => tx.get(ref)));
+    const chamadoSnaps = await fetchAndAssertChamadosDoPagamento(tx, id, chamadoIds, 'marcar como pago');
     const now = Date.now();
 
     tx.update(pagRef, {
@@ -280,8 +342,7 @@ export async function cancelarPagamento(
     if (data.status === 'pago') throw new Error('Pagamento pago não pode ser cancelado por este fluxo');
     const historico = Array.isArray(data.historico) ? data.historico : [];
     const chamadoIds = ((data.chamadoIds as string[] | undefined) ?? pagamento.chamadoIds);
-    const chamadoRefs = chamadoIds.map(chamadoId => doc(db, CHAMADOS_COL, chamadoId));
-    const chamadoSnaps = await Promise.all(chamadoRefs.map(ref => tx.get(ref)));
+    const chamadoSnaps = await fetchAndAssertChamadosDoPagamento(tx, id, chamadoIds, 'cancelar');
     const now = Date.now();
 
     tx.update(pagRef, {

@@ -21,12 +21,15 @@ export interface ChamadoValidationResult {
 
 export const CHAMADO_ALLOWED_TRANSITIONS: Record<ChamadoStatus, ChamadoStatus[]> = {
   rascunho: ['submetido'],
-  submetido: ['validado_operador', 'rejeitado'],
-  validado_operador: ['validado_financeiro', 'rejeitado'],
+  submetido: ['validado_operador', 'rejeitado_operacional', 'rejeitado'],
+  validado_operador: ['validado_financeiro', 'rejeitado_financeiro', 'rejeitado'],
+  rejeitado_operacional: ['submetido', 'cancelado'],
+  rejeitado_financeiro: ['submetido', 'cancelado'],
   rejeitado: ['submetido'],
-  validado_financeiro: ['pagamento_pendente', 'rejeitado'],
-  pagamento_pendente: ['validado_financeiro', 'pago', 'rejeitado'],
+  validado_financeiro: ['pagamento_pendente', 'rejeitado_financeiro', 'rejeitado', 'cancelado'],
+  pagamento_pendente: ['validado_financeiro', 'pago', 'rejeitado_financeiro', 'rejeitado', 'cancelado'],
   pago: [],
+  cancelado: [],
 };
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;

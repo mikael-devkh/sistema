@@ -48,6 +48,9 @@ describe('chamado-validation', () => {
 
   it('permite apenas transicoes previstas no workflow', () => {
     expect(() => assertChamadoTransition('rascunho', 'submetido')).not.toThrow();
+    expect(() => assertChamadoTransition('submetido', 'rejeitado_operacional')).not.toThrow();
+    expect(() => assertChamadoTransition('validado_operador', 'rejeitado_financeiro')).not.toThrow();
+    expect(() => assertChamadoTransition('rejeitado_financeiro', 'submetido')).not.toThrow();
     expect(() => assertChamadoTransition('validado_financeiro', 'pagamento_pendente')).not.toThrow();
     expect(() => assertChamadoTransition('pagamento_pendente', 'pago')).not.toThrow();
     expect(() => assertChamadoTransition('rascunho', 'pago')).toThrow('Transição de chamado inválida');

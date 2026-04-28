@@ -216,7 +216,7 @@ function GerarPagamentoDialog({
   const [previews, setPreviews] = useState<PagamentoPreview[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedChamadoIds, setSelectedChamadoIds] = useState<Set<string>>(new Set());
 
   const handleCalcular = async () => {
     if (!de || !ate) { toast.error('Selecione o período.'); return; }
@@ -225,7 +225,7 @@ function GerarPagamentoDialog({
     try {
       const result = await gerarPreviewPagamentos(de, ate, catalogoServicos, nomesTecnicos);
       setPreviews(result);
-      setSelectedIds(new Set(result.map(p => p.tecnicoId)));
+      setSelectedChamadoIds(new Set(result.flatMap(p => p.detalhesChamados.map(d => d.serviceReportId))));
       if (result.length === 0) toast.info('Nenhum relatório pendente encontrado no período.');
     } catch (e) {
       console.error(e);
@@ -235,9 +235,24 @@ function GerarPagamentoDialog({
     }
   };
 
+  const selectedPreviews = useMemo<PagamentoPreview[]>(() => {
+    return previews
+      .map(p => {
+        const detalhesChamados = p.detalhesChamados.filter(d => selectedChamadoIds.has(d.serviceReportId));
+        const valorTotal = detalhesChamados.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0);
+        return {
+          ...p,
+          detalhesChamados,
+          qtdChamados: detalhesChamados.length,
+          valorTotal,
+        };
+      })
+      .filter(p => p.detalhesChamados.length > 0);
+  }, [previews, selectedChamadoIds]);
+
   const handleConfirmar = async () => {
-    const selecionados = previews.filter(p => selectedIds.has(p.tecnicoId));
-    if (selecionados.length === 0) { toast.error('Selecione ao menos um técnico.'); return; }
+    const selecionados = selectedPreviews;
+    if (selecionados.length === 0) { toast.error('Selecione ao menos um chamado.'); return; }
 
     // Validação de dados bancários — avisa (não bloqueia) se algum técnico estiver sem PIX/banco
     const semDados = selecionados.filter(p => {
@@ -260,32 +275,41 @@ function GerarPagamentoDialog({
       setPreviews([]);
     } catch (e) {
       console.error(e);
-      toast.error('Erro ao confirmar pagamentos.');
+      toast.error(e instanceof Error ? e.message : 'Erro ao confirmar pagamentos.');
     } finally {
       setConfirming(false);
     }
   };
 
   const totalSelecionado = useMemo(
-    () => previews.filter(p => selectedIds.has(p.tecnicoId)).reduce((s, p) => s + p.valorTotal, 0),
-    [previews, selectedIds]
+    () => selectedPreviews.reduce((s, p) => s + p.valorTotal, 0),
+    [selectedPreviews]
   );
 
   const allDetalhes = useMemo(
-    () => previews.filter(p => selectedIds.has(p.tecnicoId)).flatMap(p => p.detalhesChamados),
-    [previews, selectedIds]
+    () => selectedPreviews.flatMap(p => p.detalhesChamados),
+    [selectedPreviews]
   );
 
-  const toggleTecnico = (id: string) =>
-    setSelectedIds(prev => {
+  const toggleTecnico = (preview: PagamentoPreview) =>
+    setSelectedChamadoIds(prev => {
+      const next = new Set(prev);
+      const ids = preview.detalhesChamados.map(d => d.serviceReportId);
+      const allSelected = ids.every(id => next.has(id));
+      ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
+      return next;
+    });
+
+  const toggleChamado = (id: string) =>
+    setSelectedChamadoIds(prev => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
 
   return (
-    <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) setPreviews([]); }}>
-      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0">
+    <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) { setPreviews([]); setSelectedChamadoIds(new Set()); } }}>
+      <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-primary" /> Gerar Pagamentos
@@ -321,12 +345,12 @@ function GerarPagamentoDialog({
                 <span className="font-semibold">{previews.length} técnico(s) com saldo</span>
                 <div className="flex items-center gap-3">
                   <button type="button" className="text-xs text-primary hover:underline"
-                    onClick={() => setSelectedIds(new Set(previews.map(p => p.tecnicoId)))}>
+                    onClick={() => setSelectedChamadoIds(new Set(previews.flatMap(p => p.detalhesChamados.map(d => d.serviceReportId))))}>
                     Selecionar todos
                   </button>
                   <span className="text-border">|</span>
                   <button type="button" className="text-xs text-muted-foreground hover:underline"
-                    onClick={() => setSelectedIds(new Set())}>
+                    onClick={() => setSelectedChamadoIds(new Set())}>
                     Nenhum
                   </button>
                   <span className="text-muted-foreground">
@@ -335,34 +359,82 @@ function GerarPagamentoDialog({
                 </div>
               </div>
 
-              <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-                {previews.map(p => (
-                  <div
-                    key={p.tecnicoId}
-                    className={cn(
-                      'rounded-lg border px-4 py-3 cursor-pointer transition-colors',
-                      selectedIds.has(p.tecnicoId)
-                        ? 'border-primary/40 bg-primary/5'
-                        : 'border-border hover:border-border/80',
-                    )}
-                    onClick={() => toggleTecnico(p.tecnicoId)}
-                  >
-                    <div className="flex items-center gap-3">
-                      <input
-                        type="checkbox"
-                        className="accent-primary w-4 h-4 shrink-0"
-                        checked={selectedIds.has(p.tecnicoId)}
-                        onChange={() => toggleTecnico(p.tecnicoId)}
-                        onClick={e => e.stopPropagation()}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{p.tecnicoNome}</p>
-                        <p className="text-xs text-muted-foreground">{p.qtdChamados} chamado(s)</p>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {previews.map(p => {
+                  const selectedDetails = p.detalhesChamados.filter(d => selectedChamadoIds.has(d.serviceReportId));
+                  const selectedValue = selectedDetails.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0);
+                  const allSelected = selectedDetails.length === p.detalhesChamados.length;
+                  const someSelected = selectedDetails.length > 0 && !allSelected;
+
+                  return (
+                    <div
+                      key={p.tecnicoId}
+                      className={cn(
+                        'rounded-lg border px-4 py-3 transition-colors space-y-3',
+                        selectedDetails.length > 0
+                          ? 'border-primary/40 bg-primary/5'
+                          : 'border-border',
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          className="accent-primary w-4 h-4 shrink-0"
+                          checked={allSelected}
+                          onChange={() => toggleTecnico(p)}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-sm truncate">{p.tecnicoNome}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {selectedDetails.length}/{p.qtdChamados} chamado(s) selecionado(s)
+                            {someSelected && ' · seleção parcial'}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-bold text-sm">{brl(selectedValue)}</p>
+                          {selectedValue !== p.valorTotal && (
+                            <p className="text-[10px] text-muted-foreground">de {brl(p.valorTotal)}</p>
+                          )}
+                        </div>
                       </div>
-                      <p className="font-bold text-sm shrink-0">{brl(p.valorTotal)}</p>
+
+                      <div className="space-y-1.5">
+                        {p.detalhesChamados.map(d => {
+                          const totalChamado = d.valorChamado + d.reembolsoPeca;
+                          return (
+                            <label
+                              key={d.serviceReportId}
+                              className={cn(
+                                'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                selectedChamadoIds.has(d.serviceReportId)
+                                  ? 'border-primary/30 bg-background'
+                                  : 'border-border/60 bg-muted/20 text-muted-foreground',
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0"
+                                checked={selectedChamadoIds.has(d.serviceReportId)}
+                                onChange={() => toggleChamado(d.serviceReportId)}
+                              />
+                              <span className="flex-1 min-w-0">
+                                <span className="font-medium text-foreground">FSA #{d.fsa} · Loja {d.codigoLoja}</span>
+                                <span className="block truncate">
+                                  {d.catalogoServicoNome ?? 'Sem serviço'}
+                                  {d.isAdicional ? ' · adicional' : ''}
+                                  {d.reembolsoPeca > 0 ? ` · reembolso ${brl(d.reembolsoPeca)}` : ''}
+                                  {d.estoqueItemId ? ` · estoque: ${d.estoqueItemNome ?? d.pecaUsada ?? 'peça'}${d.estoqueQuantidade ? ` (${d.estoqueQuantidade})` : ''}` : ''}
+                                  {d.pagamentoDestino === 'parent' && d.tecnicoExecutorNome ? ` · executor ${d.tecnicoExecutorNome}` : ''}
+                                </span>
+                              </span>
+                              <span className="font-semibold text-foreground shrink-0">{brl(totalChamado)}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Breakdown do total selecionado */}
@@ -383,10 +455,10 @@ function GerarPagamentoDialog({
         <DialogFooter className="px-6 py-4 border-t shrink-0">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           {previews.length > 0 && (
-            <Button onClick={handleConfirmar} disabled={confirming || selectedIds.size === 0}>
+            <Button onClick={handleConfirmar} disabled={confirming || selectedChamadoIds.size === 0}>
               {confirming
                 ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Confirmando…</>
-                : `Confirmar ${selectedIds.size} pagamento(s)`}
+                : `Confirmar ${selectedPreviews.length} pagamento(s)`}
             </Button>
           )}
         </DialogFooter>
@@ -421,13 +493,19 @@ function ChamadoDetalheRow({ d }: { d: PagamentoChamadoDetalhe }) {
               <Wrench className="w-2.5 h-2.5" />{d.catalogoServicoNome}
             </span>
           )}
-          {d.pecaUsada && (
+          {(d.pecaUsada || d.estoqueItemId) && (
             <span className="flex items-center gap-1">
-              <Package className="w-2.5 h-2.5" />{d.pecaUsada}
+              <Package className="w-2.5 h-2.5" />{d.pecaUsada ?? d.estoqueItemNome ?? 'Peça'}
               {d.fornecedorPeca === 'Tecnico' && ' (reimb.)'}
+              {d.estoqueItemId && ` · estoque${d.estoqueQuantidade ? ` ${d.estoqueQuantidade}` : ''}`}
             </span>
           )}
           <span>{d.durationMinutes} min</span>
+          {d.pagamentoDestino === 'parent' && d.tecnicoExecutorNome && (
+            <span className="flex items-center gap-1">
+              <Users className="w-2.5 h-2.5" /> executor: {d.tecnicoExecutorNome}
+            </span>
+          )}
           {/* Link de referência */}
           {d.linkPlataforma && (
             <a
@@ -654,6 +732,8 @@ function exportDashboardPDF(
         <td>${d.catalogoServicoNome ?? '—'}</td>
         <td>${d.durationMinutes} min${d.horasExtras ? ` (+${fmtH(d.horasExtras)})` : ''}</td>
         <td>${d.isAdicional ? 'Sim' : '—'}</td>
+        <td>${d.pecaUsada ?? d.estoqueItemNome ?? '—'}</td>
+        <td>${d.estoqueItemId ? `${d.estoqueItemNome ?? d.pecaUsada ?? 'Sim'}${d.estoqueQuantidade ? ` (${d.estoqueQuantidade})` : ''}` : '—'}</td>
         <td>${d.reembolsoPeca > 0 ? brl(d.reembolsoPeca) : '—'}</td>
         <td class="total">${brl(d.valorChamado + d.reembolsoPeca)}</td>
       </tr>`)
@@ -709,7 +789,7 @@ function exportDashboardPDF(
 
   <h2>Chamados — Links de Referência</h2>
   <table>
-    <thead><tr><th>Técnico</th><th>FSA</th><th>Loja</th><th>Serviço</th><th>Duração</th><th>Adicional</th><th>Reembolso</th><th>Total</th></tr></thead>
+    <thead><tr><th>Técnico</th><th>FSA</th><th>Loja</th><th>Serviço</th><th>Duração</th><th>Adicional</th><th>Peça</th><th>Estoque</th><th>Reembolso</th><th>Total</th></tr></thead>
     <tbody>${chamadoRows}</tbody>
   </table>
 
@@ -738,6 +818,9 @@ function exportDashboardXlsx(pagamentos: Pagamento[]) {
         'Duração (min)': d.durationMinutes,
         'H. extras (h)': d.horasExtras ?? 0,
         'Adicional?': d.isAdicional ? 'Sim' : 'Não',
+        'Peça': d.pecaUsada ?? d.estoqueItemNome ?? '',
+        'Item estoque': d.estoqueItemNome ?? '',
+        'Qtd. estoque': d.estoqueQuantidade ?? '',
         'Valor base (R$)': +valorBase.toFixed(2),
         'H. extras (R$)': +(d.valorHorasExtras ?? 0).toFixed(2),
         'Reembolso peças (R$)': +d.reembolsoPeca.toFixed(2),
@@ -746,7 +829,7 @@ function exportDashboardXlsx(pagamentos: Pagamento[]) {
     })
   );
   const ws = XLSX.utils.json_to_sheet(rows);
-  const colWidths = [20, 10, 14, 8, 28, 12, 10, 10, 14, 12, 16, 14];
+  const colWidths = [20, 10, 14, 8, 28, 12, 10, 10, 22, 22, 12, 14, 12, 16, 14];
   ws['!cols'] = colWidths.map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Pagamentos');
@@ -1085,8 +1168,8 @@ export default function PagamentosPage() {
       setObsPagamento('');
       setComprovanteUrl('');
       fetchPagamentos();
-    } catch {
-      toast.error('Erro ao marcar pagamento.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao marcar pagamento.');
     }
   };
 
@@ -1105,8 +1188,8 @@ export default function PagamentosPage() {
       setCancelandoPagamento(null);
       setMotivoCancelamento('');
       fetchPagamentos();
-    } catch {
-      toast.error('Erro ao cancelar pagamento.');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao cancelar pagamento.');
     }
   };
 

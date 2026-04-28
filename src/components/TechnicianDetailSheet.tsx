@@ -48,9 +48,13 @@ const CHAMADO_STATUS: Record<ChamadoStatus, { label: string; badge: string; icon
   rascunho:           { label: 'Rascunho',           badge: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400',                icon: FileText },
   submetido:          { label: 'Em validação',        badge: 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400',                    icon: Clock },
   validado_operador:  { label: 'Val. Operador',       badge: 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400',          icon: CheckCircle2 },
+  rejeitado_operacional:{ label: 'Rej. Op.',          badge: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400',                         icon: XCircle },
+  rejeitado_financeiro:{ label: 'Rej. Fin.',          badge: 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400',                    icon: XCircle },
   rejeitado:          { label: 'Rejeitado',           badge: 'bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400',                         icon: XCircle },
   validado_financeiro:{ label: 'Aguard. Pagamento',   badge: 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400',               icon: DollarSign },
+  pagamento_pendente: { label: 'Pag. Pendente',       badge: 'bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400',          icon: DollarSign },
   pago:               { label: 'Pago',                badge: 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400',               icon: CheckCircle2 },
+  cancelado:          { label: 'Cancelado',           badge: 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800/40 dark:text-slate-400',              icon: XCircle },
 };
 
 // ─── Geração de comprovante ───────────────────────────────────────────────────
@@ -359,7 +363,11 @@ export function TechnicianDetailSheet({ technician, open, onOpenChange, onEdit }
       .reduce((s, p) => s + p.valor, 0);
 
     // Taxa de rejeição
-    const rejeitados = chamados.filter(c => c.status === 'rejeitado').length;
+    const rejeitados = chamados.filter(c =>
+      c.status === 'rejeitado' ||
+      c.status === 'rejeitado_operacional' ||
+      c.status === 'rejeitado_financeiro'
+    ).length;
     const taxaRejeicao = chamados.length > 0
       ? Math.round((rejeitados / chamados.length) * 100)
       : 0;

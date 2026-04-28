@@ -26,6 +26,7 @@ import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/use-permissions';
 import { listTechnicians } from '../lib/technician-firestore';
 import { listCatalogoServicos } from '../lib/catalogo-firestore';
+import { listEstoqueItens } from '../lib/estoque-firestore';
 import {
   listChamados, createChamado, updateChamado,
   submeterChamado, resubmeterChamado, checkDuplicateChamado,
@@ -34,6 +35,7 @@ import { fetchFsaDetails } from '../lib/fsa';
 import type { Chamado, ChamadoStatus, LoteItem } from '../types/chamado';
 import type { TechnicianProfile } from '../types/technician';
 import type { CatalogoServico } from '../types/catalogo';
+import type { EstoqueItem } from '../types/estoque';
 import { cn } from '../lib/utils';
 import { EmptyState } from '../components/EmptyState';
 import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
@@ -70,7 +72,8 @@ function exportToCSV(chamados: Chamado[]) {
   const headers = ['Código', 'Loja', 'Técnico', 'Data', 'Status', 'Serviço', 'Peça', 'Observações'];
   const rows = chamados.map(c => [
     c.fsa, c.codigoLoja, c.tecnicoNome, c.dataAtendimento,
-    STATUS_CONFIG[c.status].label, c.catalogoServicoNome ?? '', c.pecaUsada ?? '', c.observacoes ?? '',
+    STATUS_CONFIG[c.status].label, c.catalogoServicoNome ?? '',
+    c.pecaUsada ?? c.estoqueItemNome ?? '', c.observacoes ?? '',
   ]);
   const csv = [headers, ...rows]
     .map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
@@ -96,6 +99,86 @@ const STATUS_TABS: { value: string; label: string }[] = [
   { value: 'pagamento_pendente', label: 'Ag. Pagamento' },
   { value: 'pago', label: 'Pagos' },
 ];
+
+const REJECTION_STATUSES: ChamadoStatus[] = ['rejeitado', 'rejeitado_operacional', 'rejeitado_financeiro'];
+
+function isRejectedStatus(status: ChamadoStatus) {
+  return REJECTION_STATUSES.includes(status);
+}
+
+type OperationalFilter =
+  | 'todos'
+  | 'com_lote'
+  | 'com_peca'
+  | 'com_reembolso'
+  | 'sem_servico'
+  | 'sem_link'
+  | 'sem_duracao'
+  | 'pagamento_ao_pai'
+  | 'pronto_pagamento'
+  | 'vinculado_pagamento';
+
+const OPERATIONAL_FILTERS: { value: OperationalFilter; label: string }[] = [
+  { value: 'todos', label: 'Todos os sinais' },
+  { value: 'com_lote', label: 'Com lote' },
+  { value: 'com_peca', label: 'Com peça/spare' },
+  { value: 'com_reembolso', label: 'Com reembolso' },
+  { value: 'sem_servico', label: 'Sem serviço' },
+  { value: 'sem_link', label: 'Sem link Jira/FSA' },
+  { value: 'sem_duracao', label: 'Sem duração' },
+  { value: 'pagamento_ao_pai', label: 'Pagamento ao pai' },
+  { value: 'pronto_pagamento', label: 'Pronto p/ pagamento' },
+  { value: 'vinculado_pagamento', label: 'Vinculado a pagamento' },
+];
+
+function matchesOperationalFilter(c: Chamado, filter: OperationalFilter) {
+  switch (filter) {
+    case 'com_lote':
+      return (c.itensAdicionais?.length ?? 0) > 0;
+    case 'com_peca':
+      return Boolean(c.pecaUsada?.trim() || c.estoqueItemId);
+    case 'com_reembolso':
+      return c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0;
+    case 'sem_servico':
+      return !c.catalogoServicoId;
+    case 'sem_link':
+      return !c.linkPlataforma?.trim();
+    case 'sem_duracao':
+      return !c.durationMinutes || c.durationMinutes <= 0;
+    case 'pagamento_ao_pai':
+      return c.pagamentoDestino === 'parent';
+    case 'pronto_pagamento':
+      return c.status === 'validado_financeiro' && !c.pagamentoId;
+    case 'vinculado_pagamento':
+      return Boolean(c.pagamentoId) || c.status === 'pagamento_pendente' || c.status === 'pago';
+    default:
+      return true;
+  }
+}
+
+function nextActionLabel(c: Chamado): string {
+  if (c.status === 'rascunho') return 'Submeter';
+  if (c.status === 'submetido') return 'Validar operação';
+  if (c.status === 'validado_operador') return 'Validar financeiro';
+  if (isRejectedStatus(c.status)) return 'Corrigir dados';
+  if (c.status === 'validado_financeiro') return c.pagamentoId ? 'Revisar pagamento' : 'Gerar pagamento';
+  if (c.status === 'pagamento_pendente') return 'Confirmar pagamento';
+  if (c.status === 'pago') return 'Consultar histórico';
+  if (c.status === 'cancelado') return 'Cancelado';
+  return 'Revisar';
+}
+
+function getChamadoSignals(c: Chamado): string[] {
+  const signals: string[] = [];
+  if (!c.catalogoServicoId) signals.push('sem serviço');
+  if (!c.linkPlataforma?.trim()) signals.push('sem link');
+  if (!c.durationMinutes || c.durationMinutes <= 0) signals.push('sem duração');
+  if (c.estoqueItemId) signals.push('estoque');
+  if (c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0) signals.push('reembolso');
+  if (c.pagamentoDestino === 'parent') signals.push('pag. ao pai');
+  if (c.pagamentoId) signals.push('em lote');
+  return signals;
+}
 
 function calcDuration(hi?: string, hf?: string): number | undefined {
   if (!hi || !hf) return undefined;
@@ -177,6 +260,8 @@ interface ChamadoFormState {
   pecaUsada: string;
   custoPecaStr: string;
   fornecedorPeca: 'Tecnico' | 'Empresa';
+  estoqueItemId: string;
+  estoqueQuantidadeStr: string;
   linkPlataforma: string;
   observacoes: string;
 }
@@ -186,7 +271,8 @@ const FORM_EMPTY: ChamadoFormState = {
   itensAdicionais: [],
   dataAtendimento: todayStr(),
   horaInicio: '', horaFim: '', pecaUsada: '', custoPecaStr: '',
-  fornecedorPeca: 'Empresa', linkPlataforma: '', observacoes: '',
+  fornecedorPeca: 'Empresa', estoqueItemId: '', estoqueQuantidadeStr: '',
+  linkPlataforma: '', observacoes: '',
 };
 
 function chamadoToForm(c: Chamado): ChamadoFormState {
@@ -206,6 +292,8 @@ function chamadoToForm(c: Chamado): ChamadoFormState {
     pecaUsada: c.pecaUsada ?? '',
     custoPecaStr: c.custoPeca ? String(c.custoPeca) : '',
     fornecedorPeca: c.fornecedorPeca ?? 'Empresa',
+    estoqueItemId: c.estoqueItemId ?? '',
+    estoqueQuantidadeStr: c.estoqueQuantidade ? String(c.estoqueQuantidade) : '',
     linkPlataforma: c.linkPlataforma ? extractTicketId(c.linkPlataforma) : '',
     observacoes: c.observacoes ?? '',
   };
@@ -282,14 +370,18 @@ function LoteItemRow({
 // ─── Preview de valores do lote ───────────────────────────────────────────────
 
 function ValorEstimadoCard({
-  servico, numAdicionais, durationMinutes,
+  servico, numAdicionais, durationMinutes, custoPeca, fornecedorPeca,
 }: {
   servico: CatalogoServico;
   numAdicionais: number;
   durationMinutes?: number;
+  custoPeca?: number;
+  fornecedorPeca?: 'Tecnico' | 'Empresa';
 }) {
   const vals = calcValoresLote(servico, numAdicionais, durationMinutes);
   if (!vals) return null;
+  const custoPecaCalculado = custoPeca && custoPeca > 0 ? custoPeca : 0;
+  const margemEstimada = vals.receita - vals.custo - custoPecaCalculado;
 
   return (
     <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 space-y-2">
@@ -305,6 +397,23 @@ function ValorEstimadoCard({
           <p className="text-xs text-muted-foreground uppercase tracking-wide">Custo técnico</p>
           <p className="text-base font-bold text-blue-700 dark:text-blue-400">
             {servico.pagaTecnico ? `R$ ${fmtBRL(vals.custo)}` : '—'}
+          </p>
+        </div>
+        {custoPecaCalculado > 0 && (
+          <div>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide">
+              {fornecedorPeca === 'Tecnico' ? 'Reembolso peça' : 'Custo peça'}
+            </p>
+            <p className="text-base font-bold text-amber-700 dark:text-amber-400">R$ {fmtBRL(custoPecaCalculado)}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-xs text-muted-foreground uppercase tracking-wide">Margem estimada</p>
+          <p className={cn(
+            'text-base font-bold',
+            margemEstimada >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400',
+          )}>
+            R$ {fmtBRL(margemEstimada)}
           </p>
         </div>
       </div>
@@ -329,13 +438,14 @@ function ValorEstimadoCard({
 // ─── Form de Chamado ──────────────────────────────────────────────────────────
 
 function ChamadoFormDialog({
-  open, onOpenChange, editing, tecnicos, catalogoServicos, onSaved, userName, userId, canViewFinancialValues,
+  open, onOpenChange, editing, tecnicos, catalogoServicos, estoqueItens, onSaved, userName, userId, canViewFinancialValues,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   editing: Chamado | null;
   tecnicos: TechnicianProfile[];
   catalogoServicos: CatalogoServico[];
+  estoqueItens: EstoqueItem[];
   onSaved: () => void;
   userName: string;
   userId: string;
@@ -388,6 +498,7 @@ function ChamadoFormDialog({
 
   const primaryServico = catalogoServicos.find(s => s.id === form.catalogoServicoId) ?? null;
   const tecnico = tecnicos.find(t => t.uid === form.tecnicoId) ?? null;
+  const estoqueItem = estoqueItens.find(i => i.id === form.estoqueItemId) ?? null;
 
   const indisponivel = useMemo(() => {
     if (!tecnico?.periodosIndisponibilidade?.length || !form.dataAtendimento) return null;
@@ -399,7 +510,22 @@ function ChamadoFormDialog({
   // #9: detect invalid hour range
   const horaInvalida = !!(form.horaInicio && form.horaFim && !duration &&
     form.horaFim !== '' && form.horaInicio !== '');
-  const showPecaSection = primaryServico?.exigePeca || showPeca || !!form.pecaUsada;
+  const showPecaSection = primaryServico?.exigePeca || showPeca || !!form.pecaUsada || !!form.estoqueItemId;
+
+  const handleEstoqueItemChange = (itemId: string) => {
+    if (itemId === '__none__') {
+      setForm(f => ({ ...f, estoqueItemId: '', estoqueQuantidadeStr: '' }));
+      return;
+    }
+    const item = estoqueItens.find(i => i.id === itemId);
+    setForm(f => ({
+      ...f,
+      estoqueItemId: itemId,
+      estoqueQuantidadeStr: f.estoqueQuantidadeStr || '1',
+      pecaUsada: f.pecaUsada || item?.nome || '',
+      fornecedorPeca: 'Empresa',
+    }));
+  };
 
   const addItemAoLote = () => {
     setForm(f => ({
@@ -429,8 +555,14 @@ function ChamadoFormDialog({
     if (!form.codigoLoja.trim()) { toast.error('Informe o código da loja principal.'); return; }
     if (!form.dataAtendimento) { toast.error('Informe a data do atendimento.'); return; }
     if (horaInvalida) { toast.error('Hora de fim deve ser posterior ao início.'); return; }
-    if (primaryServico?.exigePeca && !form.pecaUsada.trim()) {
+    if (primaryServico?.exigePeca && !form.pecaUsada.trim() && !form.estoqueItemId) {
       toast.error('Este serviço exige informar a peça utilizada.'); return;
+    }
+    if (form.estoqueItemId) {
+      const qtd = Number(form.estoqueQuantidadeStr || 0);
+      if (!Number.isFinite(qtd) || qtd <= 0) {
+        toast.error('Informe a quantidade da peça vinculada ao estoque.'); return;
+      }
     }
     for (let i = 0; i < form.itensAdicionais.length; i++) {
       const item = form.itensAdicionais[i];
@@ -480,7 +612,10 @@ function ChamadoFormDialog({
         durationMinutes: duration,
         pecaUsada: form.pecaUsada.trim() || undefined,
         custoPeca: form.custoPecaStr ? parseFloat(form.custoPecaStr) : undefined,
-        fornecedorPeca: form.pecaUsada.trim() ? form.fornecedorPeca : undefined,
+        fornecedorPeca: form.pecaUsada.trim() || form.estoqueItemId ? form.fornecedorPeca : undefined,
+        estoqueItemId: form.estoqueItemId || undefined,
+        estoqueItemNome: estoqueItem?.nome,
+        estoqueQuantidade: form.estoqueItemId ? Number(form.estoqueQuantidadeStr || 1) : undefined,
         linkPlataforma: resolveLink(form.linkPlataforma) || undefined,
         observacoes: form.observacoes.trim() || undefined,
         registradoPor: userId,
@@ -491,7 +626,7 @@ function ChamadoFormDialog({
       try { localStorage.setItem(LAST_TECNICO_KEY, form.tecnicoId); } catch {}
 
       if (editing) {
-        if (editing.status === 'rejeitado') {
+        if (isRejectedStatus(editing.status)) {
           await resubmeterChamado(editing.id, userId, userName, payload);
           toast.success('Chamado corrigido e resubmetido.');
         } else {
@@ -519,7 +654,7 @@ function ChamadoFormDialog({
     }
   };
 
-  const isRejeitado = editing?.status === 'rejeitado';
+  const isRejeitado = editing ? isRejectedStatus(editing.status) : false;
   const title = editing
     ? (isRejeitado ? 'Ajustar Chamado Rejeitado' : 'Editar Chamado')
     : 'Registrar Chamado';
@@ -692,6 +827,8 @@ function ChamadoFormDialog({
               servico={primaryServico}
               numAdicionais={form.itensAdicionais.length}
               durationMinutes={duration}
+              custoPeca={form.custoPecaStr ? parseFloat(form.custoPecaStr) : undefined}
+              fornecedorPeca={form.fornecedorPeca}
             />
           )}
 
@@ -709,11 +846,54 @@ function ChamadoFormDialog({
                 {!primaryServico?.exigePeca && (
                   <Button type="button" variant="ghost" size="sm"
                     className="h-6 text-xs text-muted-foreground hover:text-destructive px-2"
-                    onClick={() => { setShowPeca(false); set('pecaUsada', ''); set('custoPecaStr', ''); }}>
+                    onClick={() => {
+                      setShowPeca(false);
+                      setForm(f => ({
+                        ...f,
+                        pecaUsada: '',
+                        custoPecaStr: '',
+                        estoqueItemId: '',
+                        estoqueQuantidadeStr: '',
+                      }));
+                    }}>
                     <X className="w-3 h-3 mr-1" /> Remover
                   </Button>
                 )}
               </div>
+              <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Item do estoque</Label>
+                  <Select value={form.estoqueItemId || '__none__'} onValueChange={handleEstoqueItemChange}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Vincular item cadastrado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sem vínculo de estoque</SelectItem>
+                      {estoqueItens.map(item => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.nome} · saldo {item.quantidadeAtual} {item.unidade}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Qtd.</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.estoqueQuantidadeStr}
+                    disabled={!form.estoqueItemId}
+                    onChange={e => set('estoqueQuantidadeStr', e.target.value)}
+                  />
+                </div>
+              </div>
+              {estoqueItem && (
+                <p className="text-xs text-muted-foreground">
+                  Saldo atual: {estoqueItem.quantidadeAtual} {estoqueItem.unidade}. A baixa do estoque deve ser registrada no módulo Estoque.
+                </p>
+              )}
               <Input placeholder="Descrição da peça" value={form.pecaUsada}
                 onChange={e => set('pecaUsada', e.target.value)} />
               <div className="grid grid-cols-2 gap-2">
@@ -814,6 +994,7 @@ function ChamadoCard({
 }) {
   const cfg = STATUS_CONFIG[chamado.status];
   const totalItens = 1 + (chamado.itensAdicionais?.length ?? 0);
+  const signals = getChamadoSignals(chamado);
 
   return (
     <div className="rounded-xl border border-border bg-card hover:border-primary/30 transition-colors overflow-hidden">
@@ -828,6 +1009,9 @@ function ChamadoCard({
                 </Badge>
               )}
               <Badge className={cn('text-[10px] border', cfg.badge)}>{cfg.label}</Badge>
+              <Badge variant="outline" className="text-[10px] border-primary/25 text-primary">
+                Próx.: {nextActionLabel(chamado)}
+              </Badge>
             </div>
             <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground mt-0.5">
               <span>Loja {chamado.codigoLoja}</span>
@@ -863,7 +1047,7 @@ function ChamadoCard({
               </TooltipTrigger>
               <TooltipContent side="bottom">Ver detalhes</TooltipContent>
             </Tooltip>
-            {canEdit && (chamado.status === 'rascunho' || chamado.status === 'rejeitado') && (
+            {canEdit && (chamado.status === 'rascunho' || isRejectedStatus(chamado.status)) && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(chamado)}>
@@ -895,9 +1079,15 @@ function ChamadoCard({
               <Wrench className="w-2.5 h-2.5 mr-1" />{chamado.catalogoServicoNome}
             </Badge>
           )}
-          {chamado.pecaUsada && (
+          {(chamado.pecaUsada || chamado.estoqueItemId) && (
             <Badge variant="secondary" className="text-[10px]">
-              <Package className="w-2.5 h-2.5 mr-1" />{chamado.pecaUsada}
+              <Package className="w-2.5 h-2.5 mr-1" />{chamado.pecaUsada ?? chamado.estoqueItemNome ?? 'Peça'}
+            </Badge>
+          )}
+          {chamado.estoqueItemId && (
+            <Badge variant="outline" className="text-[10px] border-sky-300 text-sky-700 dark:text-sky-400">
+              <Package className="w-2.5 h-2.5 mr-1" />Estoque
+              {chamado.estoqueQuantidade ? `: ${chamado.estoqueQuantidade}` : ''}
             </Badge>
           )}
           {chamado.linkPlataforma && (
@@ -906,15 +1096,29 @@ function ChamadoCard({
               <LinkIcon className="w-2.5 h-2.5" /> Link
             </a>
           )}
-          {chamado.status === 'rejeitado' && chamado.motivoRejeicao && (
+          {isRejectedStatus(chamado.status) && chamado.motivoRejeicao && (
             <Badge variant="destructive" className="text-[10px] max-w-[200px] truncate">
               {chamado.motivoRejeicao}
             </Badge>
           )}
+          {signals.slice(0, 4).map(signal => (
+            <Badge
+              key={signal}
+              variant="outline"
+              className={cn(
+                'text-[10px]',
+                signal.startsWith('sem ')
+                  ? 'border-red-300 text-red-600 dark:text-red-400'
+                  : 'border-amber-300 text-amber-700 dark:text-amber-400',
+              )}
+            >
+              {signal}
+            </Badge>
+          ))}
         </div>
 
         {/* Quick actions for rejected chamados */}
-        {chamado.status === 'rejeitado' && canEdit && (
+        {isRejectedStatus(chamado.status) && canEdit && (
           <div className="flex gap-2 pt-1 border-t border-border/50 mt-1">
             <Button size="sm" variant="outline" className="flex-1 gap-1.5 text-xs"
               onClick={() => onEdit(chamado)}>
@@ -1043,6 +1247,11 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
 
           {valores && canViewFinancialValues && (
             <div className="rounded-lg bg-muted/40 border border-border p-3 grid grid-cols-2 gap-3 text-sm">
+              {(() => {
+                const custoPeca = chamado.custoPeca && chamado.custoPeca > 0 ? chamado.custoPeca : 0;
+                const margem = valores.receita - valores.custo - custoPeca;
+                return (
+                  <>
               <div>
                 <p className="text-xs uppercase text-muted-foreground font-semibold">Receita</p>
                 <p className="font-bold text-green-700 dark:text-green-400 mt-0.5">R$ {fmtBRL(valores.receita)}</p>
@@ -1053,16 +1262,42 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
                   {primaryServico?.pagaTecnico ? `R$ ${fmtBRL(valores.custo)}` : '—'}
                 </p>
               </div>
+              {custoPeca > 0 && (
+                <div>
+                  <p className="text-xs uppercase text-muted-foreground font-semibold">
+                    {chamado.fornecedorPeca === 'Tecnico' ? 'Reembolso peça' : 'Custo peça'}
+                  </p>
+                  <p className="font-bold text-amber-700 dark:text-amber-400 mt-0.5">R$ {fmtBRL(custoPeca)}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs uppercase text-muted-foreground font-semibold">Margem estimada</p>
+                <p className={cn(
+                  'font-bold mt-0.5',
+                  margem >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400',
+                )}>
+                  R$ {fmtBRL(margem)}
+                </p>
+              </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
-          {chamado.pecaUsada && (
+          {(chamado.pecaUsada || chamado.estoqueItemId) && (
             <div>
               <p className="text-xs uppercase text-muted-foreground font-semibold">Peça</p>
-              <p className="font-medium mt-1 text-sm">{chamado.pecaUsada}
+              <p className="font-medium mt-1 text-sm">{chamado.pecaUsada ?? chamado.estoqueItemNome ?? 'Peça vinculada'}
                 {chamado.custoPeca ? ` · R$ ${chamado.custoPeca.toFixed(2)}` : ''}
                 {chamado.fornecedorPeca === 'Tecnico' ? ' (reembolso)' : ''}
               </p>
+              {chamado.estoqueItemId && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Vinculada ao estoque: {chamado.estoqueItemNome ?? chamado.pecaUsada}
+                  {chamado.estoqueQuantidade ? ` · qtd. ${chamado.estoqueQuantidade}` : ''}
+                </p>
+              )}
             </div>
           )}
           {chamado.linkPlataforma && (
@@ -1128,10 +1363,16 @@ export default function ChamadosPage() {
   const [loading, setLoading] = useState(true);
   const [tecnicos, setTecnicos] = useState<TechnicianProfile[]>([]);
   const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
+  const [estoqueItens, setEstoqueItens] = useState<EstoqueItem[]>([]);
 
   const [tabStatus, setTabStatus] = useState(() => sessionStorage.getItem('ch_tab') ?? 'todos');
   const [search, setSearch] = useState('');
   const [filterTecnico, setFilterTecnico] = useState(() => sessionStorage.getItem('ch_tec') ?? 'todos');
+  const [filterLoja, setFilterLoja] = useState(() => sessionStorage.getItem('ch_loja') ?? '');
+  const [filterServico, setFilterServico] = useState(() => sessionStorage.getItem('ch_servico') ?? 'todos');
+  const [filterOperacional, setFilterOperacional] = useState<OperationalFilter>(
+    () => (sessionStorage.getItem('ch_sinal') as OperationalFilter | null) ?? 'todos',
+  );
   const [filterDe, setFilterDe] = useState(() => sessionStorage.getItem('ch_de') ?? '');
   const [filterAte, setFilterAte] = useState(() => sessionStorage.getItem('ch_ate') ?? '');
   // #12: sort control
@@ -1145,6 +1386,9 @@ export default function ChamadosPage() {
 
   useEffect(() => { sessionStorage.setItem('ch_tab', tabStatus); }, [tabStatus]);
   useEffect(() => { sessionStorage.setItem('ch_tec', filterTecnico); }, [filterTecnico]);
+  useEffect(() => { sessionStorage.setItem('ch_loja', filterLoja); }, [filterLoja]);
+  useEffect(() => { sessionStorage.setItem('ch_servico', filterServico); }, [filterServico]);
+  useEffect(() => { sessionStorage.setItem('ch_sinal', filterOperacional); }, [filterOperacional]);
   useEffect(() => { sessionStorage.setItem('ch_de', filterDe); }, [filterDe]);
   useEffect(() => { sessionStorage.setItem('ch_ate', filterAte); }, [filterAte]);
 
@@ -1164,6 +1408,7 @@ export default function ChamadosPage() {
     fetchChamados();
     listTechnicians().then(setTecnicos).catch(() => {});
     listCatalogoServicos().then(setCatalogoServicos).catch(() => {});
+    listEstoqueItens().then(setEstoqueItens).catch(() => {});
   }, []);
 
   // #3: count per tab for badges
@@ -1171,7 +1416,7 @@ export default function ChamadosPage() {
     todos: chamados.length,
     rascunho: chamados.filter(c => c.status === 'rascunho').length,
     em_validacao: chamados.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
-    rejeitado: chamados.filter(c => c.status === 'rejeitado').length,
+    rejeitado: chamados.filter(c => isRejectedStatus(c.status)).length,
     validado_financeiro: chamados.filter(c => c.status === 'validado_financeiro').length,
     pagamento_pendente: chamados.filter(c => c.status === 'pagamento_pendente').length,
     pago: chamados.filter(c => c.status === 'pago').length,
@@ -1183,10 +1428,15 @@ export default function ChamadosPage() {
       // #1 fix: em_validacao covers submetido + validado_operador
       if (tabStatus === 'em_validacao') {
         if (c.status !== 'submetido' && c.status !== 'validado_operador') return false;
+      } else if (tabStatus === 'rejeitado') {
+        if (!isRejectedStatus(c.status)) return false;
       } else if (tabStatus !== 'todos') {
         if (c.status !== tabStatus) return false;
       }
       if (filterTecnico !== 'todos' && c.tecnicoId !== filterTecnico) return false;
+      if (filterLoja && !c.codigoLoja.toLowerCase().includes(filterLoja.toLowerCase())) return false;
+      if (filterServico !== 'todos' && c.catalogoServicoId !== filterServico) return false;
+      if (!matchesOperationalFilter(c, filterOperacional)) return false;
       // #11: date range filter
       if (filterDe && c.dataAtendimento < filterDe) return false;
       if (filterAte && c.dataAtendimento > filterAte) return false;
@@ -1194,7 +1444,11 @@ export default function ChamadosPage() {
         const matchMain =
           c.fsa.toLowerCase().includes(q) ||
           c.codigoLoja.toLowerCase().includes(q) ||
-          c.tecnicoNome.toLowerCase().includes(q);
+          c.tecnicoNome.toLowerCase().includes(q) ||
+          (c.tecnicoCodigo?.toLowerCase().includes(q) ?? false) ||
+          (c.catalogoServicoNome?.toLowerCase().includes(q) ?? false) ||
+          (c.pecaUsada?.toLowerCase().includes(q) ?? false) ||
+          (c.estoqueItemNome?.toLowerCase().includes(q) ?? false);
         const matchItens = c.itensAdicionais?.some(
           i => i.codigoChamado.toLowerCase().includes(q) || i.codigoLoja.toLowerCase().includes(q),
         ) ?? false;
@@ -1209,13 +1463,13 @@ export default function ChamadosPage() {
       if (sortKey === 'status') return a.status.localeCompare(b.status);
       return b.dataAtendimento.localeCompare(a.dataAtendimento); // data_desc default
     });
-  }, [chamados, tabStatus, search, filterTecnico, filterDe, filterAte, sortKey]);
+  }, [chamados, tabStatus, search, filterTecnico, filterLoja, filterServico, filterOperacional, filterDe, filterAte, sortKey]);
 
   const stats = useMemo(() => ({
     total: chamados.length,
     rascunho: chamados.filter(c => c.status === 'rascunho').length,
     submetido: chamados.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
-    rejeitado: chamados.filter(c => c.status === 'rejeitado').length,
+    rejeitado: chamados.filter(c => isRejectedStatus(c.status)).length,
     aprovado: chamados.filter(c => c.status === 'validado_financeiro').length,
   }), [chamados]);
 
@@ -1240,6 +1494,16 @@ export default function ChamadosPage() {
   };
 
   const hasDateFilter = filterDe || filterAte;
+  const hasAnyFilter = Boolean(search || filterTecnico !== 'todos' || filterLoja || filterServico !== 'todos' || filterOperacional !== 'todos' || hasDateFilter);
+  const clearAllFilters = () => {
+    setSearch('');
+    setFilterTecnico('todos');
+    setFilterLoja('');
+    setFilterServico('todos');
+    setFilterOperacional('todos');
+    setFilterDe('');
+    setFilterAte('');
+  };
 
   return (
     <div className="space-y-6 animate-page-in">
@@ -1327,6 +1591,46 @@ export default function ChamadosPage() {
               <SelectItem value="status">Status</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            placeholder="Filtrar loja"
+            value={filterLoja}
+            onChange={e => setFilterLoja(e.target.value)}
+            className="sm:w-36 shrink-0"
+          />
+          <Select value={filterServico} onValueChange={setFilterServico}>
+            <SelectTrigger className="sm:w-64 shrink-0">
+              <SelectValue placeholder="Todos os serviços" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os serviços</SelectItem>
+              {catalogoServicos.map(s => (
+                <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={filterOperacional} onValueChange={v => setFilterOperacional(v as OperationalFilter)}>
+            <SelectTrigger className="sm:w-56 shrink-0">
+              <SelectValue placeholder="Sinais internos" />
+            </SelectTrigger>
+            <SelectContent>
+              {OPERATIONAL_FILTERS.map(f => (
+                <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {hasAnyFilter && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-10 px-3 text-muted-foreground hover:text-foreground gap-1 shrink-0"
+              onClick={clearAllFilters}
+            >
+              <X className="w-3.5 h-3.5" /> Limpar filtros
+            </Button>
+          )}
         </div>
 
         {/* #11: date range filter */}
@@ -1421,6 +1725,7 @@ export default function ChamadosPage() {
         editing={editing}
         tecnicos={tecnicos}
         catalogoServicos={catalogoServicos}
+        estoqueItens={estoqueItens}
         onSaved={fetchChamados}
         userName={userName}
         userId={userId}

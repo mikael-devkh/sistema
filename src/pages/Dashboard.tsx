@@ -112,7 +112,7 @@ export default function Dashboard() {
       const [snapOp, snapFin, snapRej, snapPag, snapEst] = await Promise.all([
         getDocs(query(chamados,   where("status", "==", "submetido"),         fbLimit(200))),
         getDocs(query(chamados,   where("status", "==", "validado_operador"), fbLimit(200))),
-        getDocs(query(chamados,   where("status", "==", "rejeitado"),         fbLimit(200))),
+        getDocs(query(chamados,   where("status", "in", ["rejeitado", "rejeitado_operacional", "rejeitado_financeiro"]), fbLimit(200))),
         getDocs(query(pagamentos, where("status", "==", "pendente"),          fbLimit(200))),
         getDocs(query(estoque)),
       ]);

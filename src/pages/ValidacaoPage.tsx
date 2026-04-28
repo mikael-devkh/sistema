@@ -26,9 +26,11 @@ import {
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import type { Chamado, HistoricoEntry } from '../types/chamado';
+import type { CatalogoServico } from '../types/catalogo';
 import { cn } from '../lib/utils';
 import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
 import { EmptyState as SharedEmptyState } from '../components/EmptyState';
+import { listCatalogoServicos } from '../lib/catalogo-firestore';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +70,67 @@ function urgenciaSla(c: Chamado): 'critical' | 'warning' | null {
     if (h >= 48) return 'warning';
   }
   return null;
+}
+
+type ValidacaoEtapa = 'operador' | 'financeiro';
+
+interface ChecklistResult {
+  pendencias: string[];
+  avisos: string[];
+}
+
+function buildValidationChecklist(
+  chamado: Chamado,
+  etapa: ValidacaoEtapa,
+  catalogoMap: Map<string, CatalogoServico>,
+): ChecklistResult {
+  const pendencias: string[] = [];
+  const avisos: string[] = [];
+  const servico = chamado.catalogoServicoId ? catalogoMap.get(chamado.catalogoServicoId) : undefined;
+
+  if (!chamado.fsa?.trim()) pendencias.push('Código do chamado ausente');
+  if (!chamado.codigoLoja?.trim()) pendencias.push('Loja ausente');
+  if (!chamado.tecnicoId?.trim()) pendencias.push('Técnico não vinculado');
+  if (!chamado.dataAtendimento?.trim()) pendencias.push('Data de atendimento ausente');
+  if (!chamado.catalogoServicoId) pendencias.push('Serviço do catálogo não selecionado');
+  if (chamado.catalogoServicoId && !servico) pendencias.push('Serviço não encontrado no catálogo');
+  if (!chamado.durationMinutes || chamado.durationMinutes <= 0) pendencias.push('Duração não calculada');
+
+  if (!chamado.linkPlataforma?.trim()) avisos.push('Sem link Jira/FSA');
+  if (!chamado.observacoes?.trim()) avisos.push('Sem observações internas');
+
+  if (servico?.exigePeca && !chamado.pecaUsada?.trim() && !chamado.estoqueItemId) {
+    pendencias.push('Serviço exige peça/spare');
+  }
+
+  if (chamado.estoqueItemId && (!chamado.estoqueQuantidade || chamado.estoqueQuantidade <= 0)) {
+    pendencias.push('Peça vinculada ao estoque sem quantidade');
+  }
+
+  if (chamado.pecaUsada?.trim() || chamado.estoqueItemId) {
+    if (!chamado.fornecedorPeca) pendencias.push('Fornecedor da peça ausente');
+    if (chamado.fornecedorPeca === 'Tecnico' && (!chamado.custoPeca || chamado.custoPeca <= 0)) {
+      pendencias.push('Reembolso de peça sem custo');
+    }
+  }
+
+  if (etapa === 'financeiro') {
+    if (chamado.pagamentoDestino === 'parent' && !chamado.tecnicoPaiId) {
+      pendencias.push('Pagamento ao pai sem técnico pai');
+    }
+    if (servico?.pagaTecnico === false) {
+      avisos.push('Serviço configurado sem repasse ao técnico');
+    }
+    if (!servico) {
+      pendencias.push('Valores não podem ser conferidos sem catálogo');
+    }
+  }
+
+  return { pendencias, avisos };
+}
+
+function isChecklistSafe(result: ChecklistResult) {
+  return result.pendencias.length === 0;
 }
 
 function fmtDate(d: string) {
@@ -142,13 +205,19 @@ function DetalheDialog({ chamado, open, onClose }: {
                 {chamado.durationMinutes != null && <span className="text-xs">({chamado.durationMinutes} min)</span>}
               </div>
             )}
-            {chamado.pecaUsada && (
+            {(chamado.pecaUsada || chamado.estoqueItemId) && (
               <div className="col-span-2 flex items-start gap-2">
                 <Package className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                 <div>
-                  <span className="font-medium">{chamado.pecaUsada}</span>
+                  <span className="font-medium">{chamado.pecaUsada ?? chamado.estoqueItemNome ?? 'Peça vinculada'}</span>
                   {chamado.custoPeca != null && (
                     <span className="text-muted-foreground ml-2">R$ {chamado.custoPeca.toFixed(2)} — {chamado.fornecedorPeca}</span>
+                  )}
+                  {chamado.estoqueItemId && (
+                    <span className="text-muted-foreground ml-2">
+                      Estoque: {chamado.estoqueItemNome ?? chamado.pecaUsada}
+                      {chamado.estoqueQuantidade ? ` · qtd. ${chamado.estoqueQuantidade}` : ''}
+                    </span>
                   )}
                 </div>
               </div>
@@ -398,8 +467,9 @@ function RejeitarDialog({ chamado, open, onClose, onConfirm, loading, motivos, c
 
 // ─── ChamadoValidacaoCard ─────────────────────────────────────────────────────
 
-function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprovar, aprovando, currentUserUid, selected, onToggleSelect }: {
+function ChamadoValidacaoCard({ chamado, checklist, onVer, onAprovar, onRejeitar, canAprovar, aprovando, currentUserUid, selected, onToggleSelect }: {
   chamado: Chamado;
+  checklist: ChecklistResult;
   onVer: () => void;
   onAprovar: () => void;
   onRejeitar: () => void;
@@ -412,6 +482,8 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
   const sla = urgenciaSla(chamado);
   const lockedByOther = chamado.emRevisaoPor && chamado.emRevisaoPor !== currentUserUid;
   const h = Math.floor(horasDesde(chamado.registradoEm));
+  const hasPendencias = checklist.pendencias.length > 0;
+  const hasAvisos = checklist.avisos.length > 0;
 
   return (
     <div className={cn(
@@ -445,6 +517,16 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             {lockedByOther && (
               <Badge variant="outline" className="text-[10px] gap-1 border-slate-400/40 text-slate-500">
                 <Lock className="w-2.5 h-2.5" /> Em revisão por {chamado.emRevisaoPorNome}
+              </Badge>
+            )}
+            {hasPendencias && (
+              <Badge variant="outline" className="text-[10px] gap-1 border-red-400/60 text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20">
+                <AlertTriangle className="w-2.5 h-2.5" /> {checklist.pendencias.length} pendência(s)
+              </Badge>
+            )}
+            {!hasPendencias && hasAvisos && (
+              <Badge variant="outline" className="text-[10px] gap-1 border-amber-400/60 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20">
+                <AlertTriangle className="w-2.5 h-2.5" /> {checklist.avisos.length} aviso(s)
               </Badge>
             )}
           </div>
@@ -483,6 +565,22 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
         </div>
       </div>
 
+      {(hasPendencias || hasAvisos) && (
+        <div className={cn(
+          'rounded-lg border px-3 py-2 text-xs space-y-1.5',
+          hasPendencias
+            ? 'border-red-300/70 bg-red-500/10 text-red-700 dark:text-red-400'
+            : 'border-amber-300/70 bg-amber-500/10 text-amber-700 dark:text-amber-400',
+        )}>
+          {hasPendencias && (
+            <p><span className="font-semibold">Bloqueia aprovação:</span> {checklist.pendencias.join('; ')}</p>
+          )}
+          {!hasPendencias && hasAvisos && (
+            <p><span className="font-semibold">Atenção:</span> {checklist.avisos.join('; ')}</p>
+          )}
+        </div>
+      )}
+
       {/* Badges de serviço / peça */}
       <div className="flex flex-wrap gap-1.5">
         {chamado.catalogoServicoNome && (
@@ -490,10 +588,11 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             <ClipboardList className="w-3 h-3" />{chamado.catalogoServicoNome}
           </Badge>
         )}
-        {chamado.pecaUsada && (
+        {(chamado.pecaUsada || chamado.estoqueItemId) && (
           <Badge variant="outline" className="text-[11px] gap-1 border-orange-300 text-orange-700 dark:text-orange-400">
-            <Package className="w-3 h-3" />{chamado.pecaUsada}
+            <Package className="w-3 h-3" />{chamado.pecaUsada ?? chamado.estoqueItemNome ?? 'Peça'}
             {chamado.custoPeca != null && ` — R$${chamado.custoPeca.toFixed(2)}`}
+            {chamado.estoqueItemId && ` · estoque${chamado.estoqueQuantidade ? ` ${chamado.estoqueQuantidade}` : ''}`}
           </Badge>
         )}
         {chamado.linkPlataforma && (
@@ -520,8 +619,14 @@ function ChamadoValidacaoCard({ chamado, onVer, onAprovar, onRejeitar, canAprova
             size="sm"
             className="flex-1 gap-1.5 bg-green-600 hover:bg-green-700 text-white"
             onClick={onAprovar}
-            disabled={aprovando || !!lockedByOther}
-            title={lockedByOther ? `Em revisão por ${chamado.emRevisaoPorNome}` : undefined}
+            disabled={aprovando || !!lockedByOther || hasPendencias}
+            title={
+              lockedByOther
+                ? `Em revisão por ${chamado.emRevisaoPorNome}`
+                : hasPendencias
+                  ? checklist.pendencias.join('; ')
+                  : undefined
+            }
           >
             {aprovando
               ? <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Aprovando…</>
@@ -627,6 +732,7 @@ export default function ValidacaoPage() {
   const [submetidos, setSubmetidos] = useState<Chamado[]>([]);
   const [validadosOp, setValidadosOp] = useState<Chamado[]>([]);
   const [rejeitados, setRejeitados] = useState<Chamado[]>([]);
+  const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
   const [loading, setLoading] = useState(true);
 
   // IDs sendo aprovados individualmente (spinner no botão)
@@ -651,6 +757,10 @@ export default function ValidacaoPage() {
 
   const canValidateOp  = permissions.canValidateOperador;
   const canValidateFin = permissions.canValidateFinanceiro;
+  const catalogoMap = useMemo(
+    () => new Map(catalogoServicos.map(s => [s.id, s])),
+    [catalogoServicos],
+  );
 
   // Motivos de rejeição configuráveis — carregados do Firestore com fallback
   const [motivos, setMotivos] = useState<string[]>(MOTIVOS_PRESET_DEFAULT);
@@ -693,14 +803,20 @@ export default function ValidacaoPage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [s, v, r] = await Promise.all([
+      const [s, v, r, catalogo] = await Promise.all([
         canValidateOp  ? listChamados({ status: 'submetido' }) : Promise.resolve([]),
         canValidateFin ? listChamados({ status: 'validado_operador' }) : Promise.resolve([]),
-        listChamados({ status: 'rejeitado' }),
+        Promise.all([
+          listChamados({ status: 'rejeitado' }),
+          listChamados({ status: 'rejeitado_operacional' }),
+          listChamados({ status: 'rejeitado_financeiro' }),
+        ]).then(([legacy, op, fin]) => [...legacy, ...op, ...fin]),
+        listCatalogoServicos().catch(() => []),
       ]);
       setSubmetidos(s);
       setValidadosOp(v);
       setRejeitados(r);
+      setCatalogoServicos(catalogo);
     } catch {
       toast.error('Erro ao carregar chamados.');
     } finally {
@@ -715,6 +831,12 @@ export default function ValidacaoPage() {
 
   // Aprovação direta — sem dialog
   async function aprovar(c: Chamado, etapa: 'operador' | 'financeiro') {
+    const checklist = buildValidationChecklist(c, etapa, catalogoMap);
+    if (!isChecklistSafe(checklist)) {
+      toast.error(`Corrija antes de aprovar: ${checklist.pendencias.join('; ')}`);
+      return;
+    }
+
     setAprovandoIds(prev => new Set(prev).add(c.id));
     await acquireLock(c);
     try {
@@ -737,10 +859,20 @@ export default function ValidacaoPage() {
 
   // Aprovar todos da fila de uma vez
   async function aprovarTodos(lista: Chamado[], etapa: 'operador' | 'financeiro') {
+    const seguros = lista.filter(c => isChecklistSafe(buildValidationChecklist(c, etapa, catalogoMap)));
+    const bloqueados = lista.length - seguros.length;
+    if (seguros.length === 0) {
+      toast.error('Nenhum chamado seguro para aprovação em lote.');
+      return;
+    }
+    if (bloqueados > 0) {
+      toast.warning(`${bloqueados} chamado(s) com pendência foram ignorados no lote.`);
+    }
+
     setAprovandoTodos(true);
     let ok = 0;
     let err = 0;
-    for (const c of lista) {
+    for (const c of seguros) {
       try {
         if (etapa === 'operador') await validarOperador(c.id, por, porNome, undefined);
         else await validarFinanceiro(c.id, por, porNome, undefined);
@@ -772,7 +904,13 @@ export default function ValidacaoPage() {
     if (!chamadoRejeitar) return;
     setRejeitando(true);
     try {
-      await rejeitarChamado(chamadoRejeitar.id, por, porNome, motivo);
+      await rejeitarChamado(
+        chamadoRejeitar.id,
+        por,
+        porNome,
+        motivo,
+        etapaRejeitar === 'financeiro' ? 'financeira' : 'operacional',
+      );
       lockedByMeRef.current.delete(chamadoRejeitar.id);
       toast.success(`Chamado ${chamadoRejeitar.fsa} rejeitado — devolvido ao técnico para correção.`);
       setRejeitarOpen(false);
@@ -794,9 +932,21 @@ export default function ValidacaoPage() {
   }
 
   async function aprovarLote(ids: string[], etapa: 'operador' | 'financeiro') {
+    const source = etapa === 'operador' ? submetidos : validadosOp;
+    const selecionados = source.filter(c => ids.includes(c.id));
+    const seguros = selecionados.filter(c => isChecklistSafe(buildValidationChecklist(c, etapa, catalogoMap)));
+    const bloqueados = selecionados.length - seguros.length;
+    if (seguros.length === 0) {
+      toast.error('Nenhum chamado selecionado está seguro para aprovação.');
+      return;
+    }
+    if (bloqueados > 0) {
+      toast.warning(`${bloqueados} chamado(s) com pendência foram ignorados.`);
+    }
+
     setAprovandoTodos(true);
     let ok = 0;
-    for (const id of ids) {
+    for (const { id } of seguros) {
       try {
         etapa === 'operador'
           ? await validarOperador(id, por, porNome)
@@ -815,7 +965,14 @@ export default function ValidacaoPage() {
     let ok = 0;
     for (const item of items) {
       try {
-        await rejeitarChamado(item.id, por, porNome, item.motivo);
+        const chamado = [...submetidos, ...validadosOp].find(c => c.id === item.id);
+        await rejeitarChamado(
+          item.id,
+          por,
+          porNome,
+          item.motivo,
+          chamado?.status === 'validado_operador' ? 'financeira' : 'operacional',
+        );
         lockedByMeRef.current.delete(item.id);
         ok++;
       } catch {}
@@ -953,6 +1110,7 @@ export default function ValidacaoPage() {
                     <ChamadoValidacaoCard
                       key={c.id}
                       chamado={c}
+                      checklist={buildValidationChecklist(c, 'operador', catalogoMap)}
                       canAprovar={canValidateOp}
                       aprovando={aprovandoIds.has(c.id) || aprovandoTodos}
                       currentUserUid={por}
@@ -1029,6 +1187,7 @@ export default function ValidacaoPage() {
                     <ChamadoValidacaoCard
                       key={c.id}
                       chamado={c}
+                      checklist={buildValidationChecklist(c, 'financeiro', catalogoMap)}
                       canAprovar={canValidateFin}
                       aprovando={aprovandoIds.has(c.id) || aprovandoTodos}
                       currentUserUid={por}

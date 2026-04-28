@@ -227,4 +227,27 @@ describe('calcularDetalhesDeChamados', () => {
       expect(resultado[1].valorChamado).toBe(20);
     });
   });
+
+  describe('rastreabilidade do destinatário', () => {
+    it('preserva executor e destino de pagamento nos detalhes do chamado', () => {
+      const resultado = calcularDetalhesDeChamados(
+        [chamado({
+          tecnicoId: 'tec-filho',
+          tecnicoNome: 'Técnico Filho',
+          tecnicoPaiId: 'tec-pai',
+          tecnicoPaiCodigo: 'TEC-PAI',
+          pagamentoDestino: 'parent',
+        })],
+        new Map(),
+      );
+
+      expect(resultado[0]).toMatchObject({
+        tecnicoExecutorId: 'tec-filho',
+        tecnicoExecutorNome: 'Técnico Filho',
+        tecnicoPaiId: 'tec-pai',
+        tecnicoPaiCodigo: 'TEC-PAI',
+        pagamentoDestino: 'parent',
+      });
+    });
+  });
 });

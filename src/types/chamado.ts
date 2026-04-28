@@ -2,10 +2,13 @@ export type ChamadoStatus =
   | 'rascunho'
   | 'submetido'
   | 'validado_operador'
+  | 'rejeitado_operacional'
+  | 'rejeitado_financeiro'
   | 'rejeitado'
   | 'validado_financeiro'
   | 'pagamento_pendente'
-  | 'pago';
+  | 'pago'
+  | 'cancelado';
 
 export interface HistoricoEntry {
   status: ChamadoStatus;
@@ -54,6 +57,9 @@ export interface Chamado {
   pecaUsada?: string;
   custoPeca?: number;
   fornecedorPeca?: 'Tecnico' | 'Empresa';
+  estoqueItemId?: string;
+  estoqueItemNome?: string;
+  estoqueQuantidade?: number;
   // Evidência / link da plataforma do cliente
   linkPlataforma?: string;
   observacoes?: string;
@@ -61,6 +67,7 @@ export interface Chamado {
   status: ChamadoStatus;
   historico: HistoricoEntry[];
   motivoRejeicao?: string;
+  motivoRejeicaoEtapa?: 'operacional' | 'financeira' | 'legado';
   // Pagamento
   pagamentoId?: string | null;
   // Lock otimista de validação — preenchido quando um validador abre o chamado

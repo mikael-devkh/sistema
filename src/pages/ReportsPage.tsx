@@ -49,19 +49,29 @@ const CHAMADO_STATUS_LABEL: Record<ChamadoStatus, string> = {
   rascunho: 'Rascunho',
   submetido: 'Ag. Validação Op.',
   validado_operador: 'Ag. Validação Fin.',
+  rejeitado_operacional: 'Rej. Operacional',
+  rejeitado_financeiro: 'Rej. Financeiro',
   rejeitado: 'Rejeitado',
   validado_financeiro: 'Aprovado',
+  pagamento_pendente: 'Ag. Pagamento',
   pago: 'Pago',
+  cancelado: 'Cancelado',
 };
 
 const CHAMADO_STATUS_BADGE: Record<ChamadoStatus, string> = {
   rascunho: 'bg-muted text-muted-foreground border-border',
   submetido: 'bg-blue-500/10 text-blue-700 border-blue-500/25 dark:text-blue-400',
   validado_operador: 'bg-purple-500/10 text-purple-700 border-purple-500/25 dark:text-purple-400',
+  rejeitado_operacional: 'bg-red-500/10 text-red-700 border-red-500/25 dark:text-red-400',
+  rejeitado_financeiro: 'bg-rose-500/10 text-rose-700 border-rose-500/25 dark:text-rose-400',
   rejeitado: 'bg-red-500/10 text-red-700 border-red-500/25 dark:text-red-400',
   validado_financeiro: 'bg-green-500/10 text-green-700 border-green-500/25 dark:text-green-400',
+  pagamento_pendente: 'bg-amber-500/10 text-amber-700 border-amber-500/25 dark:text-amber-400',
   pago: 'bg-emerald-500/10 text-emerald-700 border-emerald-500/25 dark:text-emerald-400',
+  cancelado: 'bg-slate-500/10 text-slate-600 border-slate-500/25 dark:text-slate-400',
 };
+
+const CHAMADO_REJECTION_STATUSES: ChamadoStatus[] = ['rejeitado', 'rejeitado_operacional', 'rejeitado_financeiro'];
 
 // ─── Componente ───────────────────────────────────────────────────────────────
 
@@ -515,7 +525,7 @@ function ChamadosTab() {
     total: filtered.length,
     aprovados: filtered.filter(c => c.status === 'validado_financeiro' || c.status === 'pago').length,
     emValidacao: filtered.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
-    rejeitados: filtered.filter(c => c.status === 'rejeitado').length,
+    rejeitados: filtered.filter(c => CHAMADO_REJECTION_STATUSES.includes(c.status)).length,
     valorPecas: filtered.reduce((sum, c) => sum + (c.custoPeca ?? 0), 0),
     minutosTotais: filtered.reduce((sum, c) => sum + (c.durationMinutes ?? 0), 0),
   }), [filtered]);
@@ -591,8 +601,12 @@ function ChamadosTab() {
               <SelectItem value="submetido">Ag. Validação Op.</SelectItem>
               <SelectItem value="validado_operador">Ag. Validação Fin.</SelectItem>
               <SelectItem value="rejeitado">Rejeitado</SelectItem>
+              <SelectItem value="rejeitado_operacional">Rej. Operacional</SelectItem>
+              <SelectItem value="rejeitado_financeiro">Rej. Financeiro</SelectItem>
               <SelectItem value="validado_financeiro">Aprovado</SelectItem>
+              <SelectItem value="pagamento_pendente">Ag. Pagamento</SelectItem>
               <SelectItem value="pago">Pago</SelectItem>
+              <SelectItem value="cancelado">Cancelado</SelectItem>
             </SelectContent>
           </Select>
 

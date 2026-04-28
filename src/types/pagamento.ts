@@ -12,12 +12,20 @@ export interface PagamentoChamadoDetalhe {
   serviceReportId: string;
   fsa: string;
   codigoLoja: string;
+  tecnicoExecutorId?: string;
+  tecnicoExecutorNome?: string;
+  tecnicoPaiId?: string;
+  tecnicoPaiCodigo?: string;
+  pagamentoDestino?: 'self' | 'parent';
   durationMinutes: number;
   catalogoServicoId?: string;
   catalogoServicoNome?: string;
   pecaUsada?: string;
   custoPeca?: number;
   fornecedorPeca?: string;
+  estoqueItemId?: string;
+  estoqueItemNome?: string;
+  estoqueQuantidade?: number;
   /** Valor calculado para este chamado (custo técnico, inclui horas extras) */
   valorChamado: number;
   /** Verdadeiro se é chamado adicional no lote da mesma loja */

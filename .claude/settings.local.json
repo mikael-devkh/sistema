@@ -15,7 +15,8 @@
       "Bash(sort -t: -k2 -rn)",
       "Bash(npm install *)",
       "mcp__Claude_in_Chrome__tabs_context_mcp",
-      "Bash(find src *)"
+      "Bash(find src *)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

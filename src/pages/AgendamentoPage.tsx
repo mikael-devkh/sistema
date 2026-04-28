@@ -1101,6 +1101,20 @@ function ChamadosTab({
           <Collapsible open={highlightsOpen} onOpenChange={setHighlightsOpen}>
             <CollapsibleContent>
               <div className="border border-border/50 rounded-lg p-4 bg-card">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <AlertTriangle className="w-4 h-4 text-rose-500" />
+                    Ranking de lojas com múltiplos chamados
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setHighlightsOpen(false)}
+                    className="h-7 gap-1.5 text-xs"
+                  >
+                    <X className="w-3.5 h-3.5" /> Fechar
+                  </Button>
+                </div>
                 <StoreHighlights lojaGroups={allLojaGroups} />
               </div>
             </CollapsibleContent>

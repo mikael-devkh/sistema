@@ -32,6 +32,7 @@ import { toast } from "sonner";
 // pdf-lib is large (~500 kB) – import dynamically so it only loads on first use
 const getPdfGenerator = () => import("../utils/ratPdfGenerator");
 import { jiraAttach, jiraUpdateFields, textToAdf } from "../lib/jira";
+import { apiFetch } from "../lib/apiClient";
 import { RatFormData } from "../types/rat";
 import { searchFsaByNumber } from "../lib/fsa";
 import { CardHeader, CardTitle, CardDescription, CardContent } from "../components/ui/card";
@@ -1674,11 +1675,8 @@ const RatForm = () => {
                               setCreatingJiraIssue(true);
                               setCreatedIssueKey(null);
                               try {
-                                const response = await fetch('/api/gerar-rat', {
+                                const response = await apiFetch('/api/gerar-rat', {
                                   method: 'POST',
-                                  headers: {
-                                    'Content-Type': 'application/json',
-                                  },
                                   body: JSON.stringify(formData)
                                 });
 

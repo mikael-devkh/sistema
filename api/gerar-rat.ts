@@ -1,4 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { applyCors, requireAuth } from './_lib/auth';
+import { jiraAuthHeader, jiraBaseUrl } from './_lib/jira';
 
 // Tipos para o payload da requisição
 interface RatFormData {
@@ -36,20 +38,6 @@ interface CreateIssuePayload {
     // Campos customizados do Jira (opcionais)
     [key: string]: any;
   };
-}
-
-function buildBaseUrl(cloudId?: string, site?: string): string {
-  const useEx = true;
-  
-  if (useEx && cloudId) {
-    return `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3`;
-  }
-  
-  if (site) {
-    return `${site.replace(/\/$/, '')}/rest/api/3`;
-  }
-  
-  throw new Error('Missing Jira base config: JIRA_CLOUD_ID or JIRA_BASE_URL required');
 }
 
 function formatDescription(data: RatFormData): string {
@@ -113,40 +101,30 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-  
-  // Verificar método POST
+  if (applyCors(req, res)) return;
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
   }
-  
+
+  const user = await requireAuth(req, res, { roles: ['admin', 'operador', 'financeiro'] });
+  if (!user) return;
+
   try {
-    // Ler credenciais do Jira das variáveis de ambiente
     const email = process.env.JIRA_USER_EMAIL || process.env.JIRA_EMAIL;
     const token = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN;
     const cloudId = process.env.JIRA_CLOUD_ID;
     const site = process.env.JIRA_BASE_URL || process.env.JIRA_URL;
-    
+
     if (!email || !token) {
-      console.error('Missing JIRA credentials in environment variables');
-      return res.status(500).json({ 
-        error: 'Jira credentials not configured. Please set JIRA_USER_EMAIL and JIRA_API_TOKEN.' 
+      console.error('gerar-rat: missing JIRA credentials');
+      return res.status(500).json({
+        error: 'Jira credentials not configured.'
       });
     }
-    
-    // Construir URL base da API
-    const baseUrl = buildBaseUrl(cloudId, site);
-    
-    // Criar autenticação Basic
-    const auth = 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
+
+    const baseUrl = jiraBaseUrl(cloudId, site);
+    const auth = jiraAuthHeader(email, token);
     
     // Ler dados do RAT do body
     const ratData: RatFormData = req.body;
@@ -208,7 +186,7 @@ export default async function handler(
     const responseData = await jiraResponse.text();
     
     if (!jiraResponse.ok) {
-      console.error('Jira API error:', responseData);
+      console.error('gerar-rat: Jira error', jiraResponse.status);
       let errorMessage = 'Failed to create Jira issue';
       try {
         const errorJson = JSON.parse(responseData);
@@ -217,7 +195,6 @@ export default async function handler(
       
       return res.status(jiraResponse.status).json({
         error: errorMessage,
-        details: responseData
       });
     }
     
@@ -239,10 +216,9 @@ export default async function handler(
     });
     
   } catch (error: any) {
-    console.error('Error creating Jira issue:', error);
+    console.error('gerar-rat: error', error?.message);
     return res.status(500).json({
       error: error?.message || 'Internal server error',
-      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
     });
   }
 }

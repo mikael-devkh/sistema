@@ -3,35 +3,59 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+    // Role é lido do doc /users/{uid}.role. A vulnerabilidade de
+    // auto-promoção é bloqueada pelas regras do match /users/{userId} abaixo
+    // (usuário não consegue editar o próprio campo `role`).
+    //
+    // Optamos por NÃO usar custom claims via Cloud Function porque exige
+    // plano Blaze; a leitura adicional do Firestore por operação é
+    // desprezível no volume atual.
     function isAuth() {
       return request.auth != null;
     }
 
-    // Reads the user's own profile to check the role field.
-    // Works because /users/{uid} allows any authenticated read (see below).
-    function isAdmin() {
-      return isAuth() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    function userRole() {
+      return isAuth()
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : null;
     }
 
-    function userRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    function isAdmin() {
+      return userRole() == 'admin';
     }
 
     function isFinanceiroOrAbove() {
-      return isAuth() && userRole() in ['admin', 'financeiro'];
+      return userRole() in ['admin', 'financeiro'];
     }
 
     function isAnyStaff() {
-      return isAuth() && userRole() in ['admin', 'operador', 'financeiro'];
+      return userRole() in ['admin', 'operador', 'financeiro'];
     }
 
     // ── User profiles ─────────────────────────────────────────────────────────
     // Restrict reads to own profile or admin — prevents cross-user reads of
     // sensitive fields like externalApiKey and webhookUrl.
+    //
+    // Writes:
+    //  - Admins can write any field.
+    //  - The user themselves can update their own profile, but cannot
+    //    elevate privileges (role) or grant themselves new FSA access
+    //    (allowedFsaIds). These are locked to the prior value.
     match /users/{userId} {
-      allow read:  if request.auth.uid == userId || isAdmin();
-      allow write: if request.auth.uid == userId || isAdmin();
+      allow read: if request.auth.uid == userId || isAdmin();
+
+      allow create: if isAdmin() ||
+        (request.auth.uid == userId &&
+         (!('role' in request.resource.data) ||
+           request.resource.data.role == 'visualizador') &&
+         !('allowedFsaIds' in request.resource.data));
+
+      allow update: if isAdmin() ||
+        (request.auth.uid == userId &&
+         request.resource.data.role == resource.data.role &&
+         request.resource.data.allowedFsaIds == resource.data.allowedFsaIds);
+
+      allow delete: if isAdmin();
     }
 
     // ── Técnicos ──────────────────────────────────────────────────────────────

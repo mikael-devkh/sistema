@@ -14,11 +14,11 @@ export const api = functions.runWith({
   secrets: ["JIRA_EMAIL", "JIRA_TOKEN", "JIRA_CLOUD_ID", "JIRA_URL"],
   timeoutSeconds: 60,
   memory: '256MB'
-}).https.onRequest(async (req, res) => {
+}).https.onRequest(async (req, res): Promise<void> => {
   // Basic CORS
   res.set('Access-Control-Allow-Origin', '*');
   res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.status(204).send('');
+  if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
 
   const email = process.env.JIRA_EMAIL || '';
   const token = process.env.JIRA_TOKEN || '';
@@ -34,13 +34,14 @@ export const api = functions.runWith({
       const url = `${base}/search?jql=${encodeURIComponent(jql)}&fields=${encodeURIComponent(fields)}&maxResults=50`;
       const r = await fetch(url, { headers: { 'Accept': 'application/json', 'Authorization': auth } });
       const data = await r.text();
-      return res.status(r.status).type('application/json').send(data);
+      res.status(r.status).type('application/json').send(data);
+      return;
     }
 
     if (req.path.endsWith('/jira/transition')) {
-      if (req.method !== 'POST') return res.status(405).send('POST only');
+      if (req.method !== 'POST') { res.status(405).send('POST only'); return; }
       const { issueKey, transitionId } = req.body || {};
-      if (!issueKey || !transitionId) return res.status(400).json({ error: 'Missing issueKey/transitionId' });
+      if (!issueKey || !transitionId) { res.status(400).json({ error: 'Missing issueKey/transitionId' }); return; }
       const url = `${base}/issue/${encodeURIComponent(issueKey)}/transitions`;
       const r = await fetch(url, {
         method: 'POST',
@@ -48,22 +49,24 @@ export const api = functions.runWith({
         body: JSON.stringify({ transition: { id: transitionId } })
       });
       const data = await r.text();
-      return res.status(r.status).type('application/json').send(data || '{}');
+      res.status(r.status).type('application/json').send(data || '{}');
+      return;
     }
 
     if (req.path.endsWith('/jira/transitions')) {
       const issueKey = String(req.query.issueKey || '');
-      if (!issueKey) return res.status(400).json({ error: 'Missing issueKey' });
+      if (!issueKey) { res.status(400).json({ error: 'Missing issueKey' }); return; }
       const url = `${base}/issue/${encodeURIComponent(issueKey)}/transitions`;
       const r = await fetch(url, { headers: { 'Accept': 'application/json', 'Authorization': auth } });
       const data = await r.text();
-      return res.status(r.status).type('application/json').send(data);
+      res.status(r.status).type('application/json').send(data);
+      return;
     }
 
     if (req.path.endsWith('/jira/attach')) {
-      if (req.method !== 'POST') return res.status(405).send('POST only');
+      if (req.method !== 'POST') { res.status(405).send('POST only'); return; }
       const { issueKey, fileName, fileBase64 } = req.body || {};
-      if (!issueKey || !fileName || !fileBase64) return res.status(400).json({ error: 'Missing issueKey/fileName/fileBase64' });
+      if (!issueKey || !fileName || !fileBase64) { res.status(400).json({ error: 'Missing issueKey/fileName/fileBase64' }); return; }
       const url = `${base}/issue/${encodeURIComponent(issueKey)}/attachments`;
       const buf = Buffer.from(String(fileBase64), 'base64');
       const form = new FormData();
@@ -74,13 +77,14 @@ export const api = functions.runWith({
         body: form as any,
       });
       const data = await r.text();
-      return res.status(r.status).type('application/json').send(data || '{}');
+      res.status(r.status).type('application/json').send(data || '{}');
+      return;
     }
 
-    return res.status(404).json({ error: 'Not found' });
+    res.status(404).json({ error: 'Not found' });
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e?.message || 'error' });
+    res.status(500).json({ error: e?.message || 'error' });
   }
 });
 

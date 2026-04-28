@@ -1,6 +1,8 @@
 // Jira client — all calls are routed through server-side proxy endpoints.
 // Credentials are NEVER included in client-side code.
 
+import { apiFetch } from './apiClient';
+
 const PROXY_BASE = import.meta.env.VITE_JIRA_PROXY_BASE as string | undefined;
 
 export interface JiraIssue {
@@ -19,17 +21,10 @@ export async function jiraSearch(jql: string, fields: string[] = ['summary','ass
     return (data.issues || []) as JiraIssue[];
   }
   // Usa o proxy da Vercel Function (novo) - agora usa POST
-  const res = await fetch('/api/buscar-fsa', {
+  const res = await apiFetch('/api/buscar-fsa', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json',
-    },
-    body: JSON.stringify({
-      jql: jql,
-      fields: fields,
-      maxResults: 50,
-    }),
+    headers: { Accept: 'application/json' },
+    body: JSON.stringify({ jql, fields, maxResults: 50 }),
   });
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({ error: `Jira search failed: ${res.status}` }));
@@ -98,9 +93,8 @@ export function textToAdf(text: string) {
  * `fields` should be an object like { customfield_14811: adfDoc, customfield_12351: "text" }.
  */
 export async function jiraUpdateFields(issueKey: string, fields: Record<string, unknown>): Promise<void> {
-  const res = await fetch('/api/atualizar-fsa', {
+  const res = await apiFetch('/api/atualizar-fsa', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ issueKey, fields }),
   });
   if (!res.ok) {

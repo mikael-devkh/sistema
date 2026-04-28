@@ -17,61 +17,17 @@ const TemplatesRatPage = React.lazy(() => import("./pages/TemplatesRatPage"));
 const AgendamentoPage = React.lazy(() => import("./pages/AgendamentoPage"));
 const Loja360 = React.lazy(() => import("./pages/Loja360"));
 const DiarioBordoPage = React.lazy(() => import("./pages/DiarioBordoPage"));
-// Função helper para retry em caso de erro de carregamento (404, cache antigo, etc)
-const lazyWithRetry = (componentImport: () => Promise<any>, retries = 2) => {
-  return React.lazy(async () => {
-    let lastError: any;
-    
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const module = await componentImport();
-        // Se chegou aqui, sucesso! Limpar flag de refresh
-        if (i > 0) {
-          sessionStorage.removeItem('pageRefreshed');
-        }
-        return module;
-      } catch (error: any) {
-        lastError = error;
-        console.warn(`⚠️ Tentativa ${i + 1} de carregar módulo falhou:`, error);
-        
-        // Se é erro 404 ou erro de módulo, tentar recarregar a página
-        if (i < retries && (error?.message?.includes('404') || error?.message?.includes('Failed to fetch') || error?.message?.includes('dynamically imported'))) {
-          const pageAlreadyRefreshed = sessionStorage.getItem('pageRefreshed') === 'true';
-          
-          if (!pageAlreadyRefreshed && i === retries - 1) {
-            // Última tentativa: recarregar a página
-            console.log('🔄 Recarregando página para limpar cache...');
-            sessionStorage.setItem('pageRefreshed', 'true');
-            setTimeout(() => {
-              window.location.reload();
-            }, 100);
-            // Aguardar um pouco antes de lançar o erro
-            await new Promise(resolve => setTimeout(resolve, 500));
-          } else {
-            // Aguardar um pouco antes de tentar novamente
-            await new Promise(resolve => setTimeout(resolve, 300 * (i + 1)));
-          }
-        } else {
-          break;
-        }
-      }
-    }
-    
-    throw lastError;
-  });
-};
-
-const TechnicianRegisterPage = lazyWithRetry(() => import("./pages/TechnicianRegisterPage"));
-const TechniciansManagementPage = lazyWithRetry(() => import("./pages/TechniciansManagementPage"));
-const TechniciansMapPage = lazyWithRetry(() => import("./pages/TechniciansMapPage"));
-const SeedPage = lazyWithRetry(() => import("./pages/SeedPage"));
-const CatalogoServicosPage = lazyWithRetry(() => import("./pages/CatalogoServicosPage"));
-const PagamentosPage = lazyWithRetry(() => import("./pages/PagamentosPage"));
-const ChamadosPage = lazyWithRetry(() => import("./pages/ChamadosPage"));
-const ValidacaoPage = lazyWithRetry(() => import("./pages/ValidacaoPage"));
-const EstoquePage = lazyWithRetry(() => import("./pages/EstoquePage"));
-const ReportsPage = lazyWithRetry(() => import("./pages/ReportsPage"));
-const ConfigPage = lazyWithRetry(() => import("./pages/ConfigPage"));
+const TechnicianRegisterPage = React.lazy(() => import("./pages/TechnicianRegisterPage"));
+const TechniciansManagementPage = React.lazy(() => import("./pages/TechniciansManagementPage"));
+const TechniciansMapPage = React.lazy(() => import("./pages/TechniciansMapPage"));
+const SeedPage = React.lazy(() => import("./pages/SeedPage"));
+const CatalogoServicosPage = React.lazy(() => import("./pages/CatalogoServicosPage"));
+const PagamentosPage = React.lazy(() => import("./pages/PagamentosPage"));
+const ChamadosPage = React.lazy(() => import("./pages/ChamadosPage"));
+const ValidacaoPage = React.lazy(() => import("./pages/ValidacaoPage"));
+const EstoquePage = React.lazy(() => import("./pages/EstoquePage"));
+const ReportsPage = React.lazy(() => import("./pages/ReportsPage"));
+const ConfigPage = React.lazy(() => import("./pages/ConfigPage"));
 import { RatAutofillProvider } from "./context/RatAutofillContext";
 import { FocusModeProvider } from "./context/FocusModeContext";
 import { useAuth } from "./context/AuthContext";
@@ -83,11 +39,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000, // 5 minutos
-      // gcTime no v5, cacheTime no v4
       gcTime: 10 * 60 * 1000, // 10 minutos
       refetchOnWindowFocus: false,
       retry: 1,
-      refetchOnMount: true, // Sempre refazer fetch ao montar componente
     },
   },
 });
@@ -126,7 +80,7 @@ class ErrorBoundary extends Component<
             </p>
             <button
               onClick={() => {
-                sessionStorage.removeItem('pageRefreshed');
+                sessionStorage.removeItem('__chunk_reload_done__');
                 window.location.reload();
               }}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition"

@@ -4,15 +4,15 @@
  */
 import { CF, SCHED_FIELDS, SLA_HOURS } from './schedulingConstants';
 import type { SchedulingIssue, TransitionOption } from '../types/scheduling';
+import { apiFetch } from './apiClient';
 
 const API = '/api/jira-scheduling';
 
 // ─── Raw API calls ─────────────────────────────────────────────────────────────
 
 async function post(body: Record<string, unknown>) {
-  const res = await fetch(API, {
+  const res = await apiFetch(API, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -24,7 +24,7 @@ async function get(params: Record<string, string | number>) {
   const qs = new URLSearchParams(
     Object.entries(params).map(([k, v]) => [k, String(v)])
   ).toString();
-  const res = await fetch(`${API}?${qs}`);
+  const res = await apiFetch(`${API}?${qs}`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as any).error || `HTTP ${res.status}`);
   return data;

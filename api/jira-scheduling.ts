@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { applyCors, requireAuth } from './_lib/auth';
+import { jiraAuthHeader, jiraBaseUrl, resolveJiraCloudId } from './_lib/jira';
 
-// ─── Jira API helper (server-side) ────────────────────────────────────────────
 class JiraAPI {
   private email: string;
   private token: string;
@@ -9,29 +10,28 @@ class JiraAPI {
   constructor(email: string, token: string, cloudId?: string, site?: string) {
     this.email = email;
     this.token = token.trim().replace(/\s+/g, '');
-    this.base = cloudId
-      ? `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3`
-      : `${(site || 'https://delfia.atlassian.net').replace(/\/$/, '')}/rest/api/3`;
+    this.base = jiraBaseUrl(cloudId, site || 'https://delfia.atlassian.net');
   }
 
   private headers() {
-    const auth = 'Basic ' + Buffer.from(`${this.email}:${this.token}`).toString('base64');
-    return { 'Accept': 'application/json', 'Content-Type': 'application/json', Authorization: auth };
+    return {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      Authorization: jiraAuthHeader(this.email, this.token),
+    };
   }
 
   private async req(path: string, method = 'GET', body?: unknown) {
-    const res = await fetch(`${this.base}${path}`, {
+    return fetch(`${this.base}${path}`, {
       method,
       headers: this.headers(),
       body: body ? JSON.stringify(body) : undefined,
     });
-    return res;
   }
 
-  /** Paginated search – fetches all pages up to maxResults using POST /search/jql (cursor pagination) */
   async searchAll(jql: string, fields: string, maxResults = 600) {
     const pageSize = Math.min(maxResults, 100);
-    const fieldList = fields ? fields.split(',').map(f => f.trim()) : undefined;
+    const fieldList = fields ? fields.split(',').map((f) => f.trim()) : undefined;
     const all: any[] = [];
     let nextPageToken: string | undefined;
 
@@ -54,14 +54,12 @@ class JiraAPI {
     return all.slice(0, maxResults);
   }
 
-  /** Get a single issue */
   async getIssue(key: string) {
     const res = await this.req(`/issue/${encodeURIComponent(key)}`);
     if (!res.ok) throw new Error(`getIssue failed (${res.status})`);
     return res.json();
   }
 
-  /** Get available transitions for an issue */
   async getTransitions(key: string) {
     const res = await this.req(`/issue/${encodeURIComponent(key)}/transitions`);
     if (!res.ok) throw new Error(`getTransitions failed (${res.status})`);
@@ -69,13 +67,8 @@ class JiraAPI {
     return data.transitions as Array<{ id: string; name: string; to: { name: string; id: string } }>;
   }
 
-  /**
-   * Execute a transition, optionally setting scheduling fields.
-   * fields: { dataAgenda?: ISO string, tecnico?: string }
-   */
   async transition(key: string, transitionId: string, scheduleFields?: { dataAgenda?: string; tecnico?: string }) {
     const body: any = { transition: { id: transitionId } };
-
     if (scheduleFields?.dataAgenda || scheduleFields?.tecnico) {
       body.update = {};
       body.fields = {};
@@ -90,40 +83,27 @@ class JiraAPI {
         };
       }
     }
-
     const res = await this.req(`/issue/${encodeURIComponent(key)}/transitions`, 'POST', body);
     return res.status;
   }
 
-  /** Update issue fields (e.g. technician) */
   async updateIssue(key: string, fields: Record<string, unknown>) {
     const res = await this.req(`/issue/${encodeURIComponent(key)}`, 'PUT', { fields });
     return res.status;
   }
 }
 
-// ─── Resolve Cloud ID from site URL ──────────────────────────────────────────
-async function resolveCloudId(email: string, token: string, site: string): Promise<string | undefined> {
-  try {
-    const auth = 'Basic ' + Buffer.from(`${email}:${token.trim()}`).toString('base64');
-    const res = await fetch('https://api.atlassian.com/oauth/token/accessible-resources', {
-      headers: { Authorization: auth, Accept: 'application/json' },
-    });
-    if (!res.ok) return undefined;
-    const resources = await res.json() as Array<{ id: string; url: string }>;
-    const match = resources.find((r) => r.url && site && r.url.includes(new URL(site).hostname));
-    return match?.id;
-  } catch {
-    return undefined;
-  }
-}
-
-// ─── Handler ──────────────────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (applyCors(req, res)) return;
+
+  const action = (req.method === 'GET' ? req.query.action : req.body?.action) as string;
+  const writeActions = new Set(['transition', 'updateIssue']);
+  const requiredRoles = writeActions.has(action)
+    ? (['admin', 'operador', 'financeiro'] as const)
+    : (['admin', 'operador', 'financeiro', 'visualizador'] as const);
+
+  const user = await requireAuth(req, res, { roles: [...requiredRoles] });
+  if (!user) return;
 
   const email = process.env.JIRA_USER_EMAIL || process.env.JIRA_EMAIL || '';
   const token = process.env.JIRA_API_TOKEN || process.env.JIRA_TOKEN || '';
@@ -133,15 +113,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!email || !token) return res.status(500).json({ error: 'Missing JIRA_EMAIL or JIRA_TOKEN env vars' });
 
   if (!cloudId) {
-    cloudId = (await resolveCloudId(email, token, site)) || '';
+    cloudId = (await resolveJiraCloudId(email, token, site)) || '';
   }
 
   const jira = new JiraAPI(email, token, cloudId || undefined, site);
-  const action = (req.method === 'GET' ? req.query.action : req.body?.action) as string;
 
   try {
     switch (action) {
-      // ── READ ──────────────────────────────────────────────────────────────
       case 'search': {
         const jql = req.method === 'GET' ? (req.query.jql as string) : req.body.jql;
         const fields = req.method === 'GET' ? (req.query.fields as string) : req.body.fields;
@@ -165,7 +143,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(200).json({ transitions });
       }
 
-      // ── WRITE ─────────────────────────────────────────────────────────────
       case 'transition': {
         const { key, transitionId, dataAgenda, tecnico } = req.body || {};
         if (!key || !transitionId) return res.status(400).json({ error: 'Missing key or transitionId' });

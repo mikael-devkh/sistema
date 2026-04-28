@@ -1,5 +1,6 @@
 import type { JiraIssue, JiraSearchResult } from '../types/rat';
 import { jiraSearch } from './jira';
+import { apiFetch } from './apiClient';
 import { getFsaById, createOrUpdateFsa } from './workflow-firestore';
 import { loadPreferences } from '../utils/settings';
 import { getCachedFsa, setCachedFsa } from './fsa-cache';
@@ -233,11 +234,8 @@ export async function searchFsaByNumber(fsaNumber: string): Promise<JiraIssue> {
   console.log('FRONTEND: Enviando para /api/buscar-fsa (POST) com body:', { jql, fieldsToRequest });
   // ---------------
 
-  const response = await fetch(`/api/buscar-fsa`, {
-    method: 'POST', // Corrigido para POST
-    headers: {
-      'Content-Type': 'application/json',
-    },
+  const response = await apiFetch(`/api/buscar-fsa`, {
+    method: 'POST',
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,
@@ -335,11 +333,8 @@ export async function searchAllFsa(maxResults: number = 50): Promise<JiraIssue[]
   console.log('FRONTEND: Buscando todas as FSAs. Enviando para /api/buscar-fsa (POST) com body:', { jql, fieldsToRequest, maxResults });
   // ---------------
 
-  const response = await fetch(`/api/buscar-fsa`, {
+  const response = await apiFetch(`/api/buscar-fsa`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
     body: JSON.stringify({
       jql: jql,
       fields: fieldsToRequest,

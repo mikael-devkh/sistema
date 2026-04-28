@@ -606,9 +606,25 @@ const RatForm = () => {
         };
         try {
           await addDoc(collection(db, "serviceReports"), entry);
-        } catch (err) {
+        } catch (err: any) {
           console.error("[RAT] Falha ao salvar histórico no Firestore:", err);
-          toast.error("PDF gerado, mas a RAT não foi salva no sistema. Verifique a conexão e tente novamente.");
+          const code = err?.code ? ` [${err.code}]` : "";
+          const msg = err?.message || String(err);
+          toast.error(`RAT não foi salva no sistema${code}`, {
+            description: msg,
+            duration: 15000,
+            action: {
+              label: "Copiar erro",
+              onClick: () => {
+                try {
+                  navigator.clipboard.writeText(
+                    `RAT save error\nuser=${user.uid}\nfsa=${entry.fsa ?? ""}\ncode=${err?.code ?? ""}\nmessage=${msg}`,
+                  );
+                  toast.success("Erro copiado. Envie ao admin.");
+                } catch {/* noop */}
+              },
+            },
+          });
         }
       }
 

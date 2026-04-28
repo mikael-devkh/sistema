@@ -5,6 +5,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.Default.css';
+import { getCityCoords } from '../../lib/brazilCityCoords';
 import type { LojaGroup } from '../../types/scheduling';
 import {
   ExternalLink,
@@ -123,13 +124,13 @@ function createClusterIcon(cluster: any): L.DivIcon {
 interface MappedLoja extends LojaGroup {
   lat: number;
   lng: number;
-  geocodeSource: 'cep' | 'address';
+  geocodeSource: 'address' | 'cep' | 'city';
 }
 
 interface CachedCoord {
   lat: number;
   lng: number;
-  source: 'cep' | 'address';
+  source: 'address' | 'cep';
   savedAt: number;
 }
 
@@ -426,12 +427,15 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
     return () => { cancelled = true; };
   }, [uniqueGroups]);
 
-  // Only plot stores with address/CEP coordinates. No artificial city jitter.
+  // Plot every store immediately. Exact address/CEP coordinates replace the city fallback as they resolve.
   const mappedGroups = useMemo<MappedLoja[]>(() => {
     return groups.flatMap(g => {
       const coord = coordCache[coordCacheKey(g)];
-      if (!coord) return [];
-      return [{ ...g, lat: coord.lat, lng: coord.lng, geocodeSource: coord.source }];
+      if (coord) return [{ ...g, lat: coord.lat, lng: coord.lng, geocodeSource: coord.source }];
+
+      const city = getCityCoords(g.cidade, g.uf);
+      if (!city) return [];
+      return [{ ...g, lat: city[1], lng: city[0], geocodeSource: 'city' }];
     });
   }, [coordCache, groups]);
 
@@ -465,7 +469,8 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
   const criticalCount = useMemo(() => visibleMarkers.filter(g => g.isCritical).length, [visibleMarkers]);
   const unmappedCount = groups.length - mappedGroups.length;
   const addressCount = useMemo(() => mappedGroups.filter(g => g.geocodeSource === 'address').length, [mappedGroups]);
-  const cepCount = mappedGroups.length - addressCount;
+  const cepCount = useMemo(() => mappedGroups.filter(g => g.geocodeSource === 'cep').length, [mappedGroups]);
+  const cityCount = mappedGroups.length - addressCount - cepCount;
 
   const rankedVisibleMarkers = useMemo(
     () => [...visibleMarkers].sort((a, b) => {
@@ -542,7 +547,7 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
           { label: 'Chamados visíveis', value: visibleIssues,         sub: `${totalIssues} no total`, color: 'text-primary' },
           { label: 'Estados visíveis',  value: byUf.size,             sub: selectedUf ? `Filtro ${selectedUf}` : 'com chamados', color: '' },
           { label: 'Lojas críticas',    value: criticalCount,         sub: 'na visão atual', color: 'text-red-500' },
-          { label: 'Lojas plotadas',    value: visibleMarkers.length, sub: `${addressCount} endereço · ${cepCount} CEP`, color: 'text-green-600' },
+          { label: 'Lojas plotadas',    value: visibleMarkers.length, sub: `${addressCount + cepCount} exatas · ${cityCount} por cidade`, color: 'text-green-600' },
         ] as const).map(({ label, value, sub, color }) => (
           <div key={label} className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
             <span className={cn('text-2xl font-bold', color)}>{value}</span>
@@ -552,14 +557,15 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
         ))}
       </div>
 
-      {(geocoding || unmappedCount > 0) && (
+      {(geocoding || cityCount > 0 || unmappedCount > 0) && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <MapPinned className={cn('h-3.5 w-3.5', geocoding && 'animate-pulse')} />
           <span>
-            {geocoding ? 'Localizando endereços em segundo plano.' : 'Localização concluída.'}
+            {geocoding ? 'Mostrando todas as lojas e refinando endereços em segundo plano.' : 'Todas as lojas possíveis estão no mapa.'}
             {' '}
-            <strong>{mappedGroups.length}</strong> lojas com coordenada
-            {unmappedCount > 0 && <> · <strong>{unmappedCount}</strong> aguardando ou sem coordenada disponível</>}.
+            <strong>{mappedGroups.length}</strong> lojas plotadas
+            {cityCount > 0 && <> · <strong>{cityCount}</strong> ainda aproximada{cityCount !== 1 ? 's' : ''} pela cidade</>}
+            {unmappedCount > 0 && <> · <strong>{unmappedCount}</strong> sem cidade/endereço reconhecido</>}.
           </span>
         </div>
       )}
@@ -944,9 +950,14 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
             {SLA_LABELS[status]}
           </span>
         ))}
-        {unmappedCount > 0 && (
+        {cityCount > 0 && (
           <span className="text-amber-600">
-            ⚠️ {unmappedCount} loja{unmappedCount !== 1 ? 's' : ''} aguardando geocodificação
+            ⚠️ {cityCount} loja{cityCount !== 1 ? 's' : ''} por cidade até resolver endereço
+          </span>
+        )}
+        {unmappedCount > 0 && (
+          <span className="text-red-500">
+            {unmappedCount} loja{unmappedCount !== 1 ? 's' : ''} sem coordenada
           </span>
         )}
         <span className="w-full text-[11px] sm:ml-auto sm:w-auto">

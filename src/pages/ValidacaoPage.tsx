@@ -106,6 +106,11 @@ function buildValidationChecklist(
   if (chamado.estoqueItemId && (!chamado.estoqueQuantidade || chamado.estoqueQuantidade <= 0)) {
     pendencias.push('Peça vinculada ao estoque sem quantidade');
   }
+  if (chamado.estoqueItemId && !chamado.estoqueBaixadoEm && etapa === 'financeiro') {
+    pendencias.push('Saída de estoque não registrada');
+  } else if (chamado.estoqueItemId && !chamado.estoqueBaixadoEm) {
+    avisos.push('Saída de estoque ainda não registrada');
+  }
 
   if (chamado.pecaUsada?.trim() || chamado.estoqueItemId) {
     if (!chamado.fornecedorPeca) pendencias.push('Fornecedor da peça ausente');

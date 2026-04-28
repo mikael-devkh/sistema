@@ -34,6 +34,7 @@ const mockReports = [
 
 type Report = typeof mockReports[number];
 type StatusFilter = "all" | "Emitida" | "Pendente" | "Finalizada";
+type ChamadoSignalFilter = 'todos' | 'com_peca' | 'com_reembolso' | 'estoque_pendente' | 'estoque_baixado';
 
 const PAGE_SIZE = 12;
 
@@ -490,6 +491,7 @@ function ChamadosTab() {
   // Filtros
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'todos' | ChamadoStatus>('todos');
+  const [signalFilter, setSignalFilter] = useState<ChamadoSignalFilter>('todos');
   const [dateStart, setDateStart] = useState('');
   const [dateEnd, setDateEnd] = useState('');
 
@@ -511,15 +513,19 @@ function ChamadosTab() {
     const q = search.toLowerCase();
     return chamados.filter(c => {
       if (statusFilter !== 'todos' && c.status !== statusFilter) return false;
+      if (signalFilter === 'com_peca' && !(c.pecaUsada || c.estoqueItemId)) return false;
+      if (signalFilter === 'com_reembolso' && !(c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0)) return false;
+      if (signalFilter === 'estoque_pendente' && !(c.estoqueItemId && !c.estoqueBaixadoEm)) return false;
+      if (signalFilter === 'estoque_baixado' && !c.estoqueBaixadoEm) return false;
       if (dateStart && c.dataAtendimento < dateStart) return false;
       if (dateEnd && c.dataAtendimento > dateEnd) return false;
       if (q) {
-        const hay = `${c.fsa} ${c.codigoLoja} ${c.tecnicoNome} ${c.tecnicoCodigo ?? ''} ${c.catalogoServicoNome ?? ''}`.toLowerCase();
+        const hay = `${c.fsa} ${c.codigoLoja} ${c.tecnicoNome} ${c.tecnicoCodigo ?? ''} ${c.catalogoServicoNome ?? ''} ${c.pecaUsada ?? ''} ${c.estoqueItemNome ?? ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [chamados, search, statusFilter, dateStart, dateEnd]);
+  }, [chamados, search, statusFilter, signalFilter, dateStart, dateEnd]);
 
   const stats = useMemo(() => ({
     total: filtered.length,
@@ -527,25 +533,30 @@ function ChamadosTab() {
     emValidacao: filtered.filter(c => c.status === 'submetido' || c.status === 'validado_operador').length,
     rejeitados: filtered.filter(c => CHAMADO_REJECTION_STATUSES.includes(c.status)).length,
     valorPecas: filtered.reduce((sum, c) => sum + (c.custoPeca ?? 0), 0),
+    valorReembolso: filtered.reduce((sum, c) => sum + (c.fornecedorPeca === 'Tecnico' ? (c.custoPeca ?? 0) : 0), 0),
+    estoquePendente: filtered.filter(c => c.estoqueItemId && !c.estoqueBaixadoEm).length,
     minutosTotais: filtered.reduce((sum, c) => sum + (c.durationMinutes ?? 0), 0),
   }), [filtered]);
 
-  const activeFilters = search || statusFilter !== 'todos' || dateStart || dateEnd;
+  const activeFilters = search || statusFilter !== 'todos' || signalFilter !== 'todos' || dateStart || dateEnd;
 
   const clearFilters = () => {
-    setSearch(''); setStatusFilter('todos'); setDateStart(''); setDateEnd('');
+    setSearch(''); setStatusFilter('todos'); setSignalFilter('todos'); setDateStart(''); setDateEnd('');
   };
 
   const handleExportCsv = () => {
     if (!filtered.length) { toast.info('Nenhum chamado para exportar.'); return; }
     const header = [
       'fsa', 'codigoLoja', 'data', 'tecnicoCodigo', 'tecnicoNome',
-      'tecnicoPaiCodigo', 'servico', 'peca', 'custoPeca', 'duracaoMin', 'status',
+      'tecnicoPaiCodigo', 'servico', 'peca', 'custoPeca', 'fornecedorPeca',
+      'estoqueItem', 'estoqueQtd', 'estoqueBaixadoEm', 'duracaoMin', 'status',
     ];
     const rows = filtered.map(c => [
       c.fsa, c.codigoLoja, c.dataAtendimento, c.tecnicoCodigo ?? '', c.tecnicoNome,
-      c.tecnicoPaiCodigo ?? '', c.catalogoServicoNome ?? '', c.pecaUsada ?? '',
-      c.custoPeca ?? '', c.durationMinutes ?? '', CHAMADO_STATUS_LABEL[c.status],
+      c.tecnicoPaiCodigo ?? '', c.catalogoServicoNome ?? '', c.pecaUsada ?? c.estoqueItemNome ?? '',
+      c.custoPeca ?? '', c.fornecedorPeca ?? '', c.estoqueItemNome ?? '', c.estoqueQuantidade ?? '',
+      c.estoqueBaixadoEm ? new Date(c.estoqueBaixadoEm).toLocaleString('pt-BR') : '',
+      c.durationMinutes ?? '', CHAMADO_STATUS_LABEL[c.status],
     ]);
     const csv = [
       header.join(','),
@@ -569,10 +580,20 @@ function ChamadosTab() {
         <KpiCard label="Rejeitados" value={stats.rejeitados} color="red" />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground mb-1">Total em peças</p>
           <p className="text-2xl font-bold">R$ {stats.valorPecas.toFixed(2)}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground mb-1">Reembolsos</p>
+          <p className="text-2xl font-bold">R$ {stats.valorReembolso.toFixed(2)}</p>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <p className="text-xs text-muted-foreground mb-1">Estoque sem baixa</p>
+          <p className={cn('text-2xl font-bold', stats.estoquePendente > 0 && 'text-amber-600 dark:text-amber-400')}>
+            {stats.estoquePendente}
+          </p>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground mb-1">Minutos acumulados</p>
@@ -607,6 +628,17 @@ function ChamadosTab() {
               <SelectItem value="pagamento_pendente">Ag. Pagamento</SelectItem>
               <SelectItem value="pago">Pago</SelectItem>
               <SelectItem value="cancelado">Cancelado</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={signalFilter} onValueChange={v => setSignalFilter(v as ChamadoSignalFilter)}>
+            <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="todos">Todos os sinais</SelectItem>
+              <SelectItem value="com_peca">Com peça/spare</SelectItem>
+              <SelectItem value="com_reembolso">Com reembolso</SelectItem>
+              <SelectItem value="estoque_pendente">Estoque sem baixa</SelectItem>
+              <SelectItem value="estoque_baixado">Estoque baixado</SelectItem>
             </SelectContent>
           </Select>
 
@@ -681,9 +713,24 @@ function ChamadosTab() {
                     <Wrench className="w-2.5 h-2.5 mr-1" />{c.catalogoServicoNome}
                   </Badge>
                 )}
-                {c.pecaUsada && (
+                {(c.pecaUsada || c.estoqueItemId) && (
                   <Badge variant="secondary" className="text-[10px]">
-                    <Package className="w-2.5 h-2.5 mr-1" />{c.pecaUsada}
+                    <Package className="w-2.5 h-2.5 mr-1" />{c.pecaUsada ?? c.estoqueItemNome ?? 'Peça'}
+                  </Badge>
+                )}
+                {c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0 && (
+                  <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 dark:text-amber-400">
+                    Reembolso R$ {c.custoPeca?.toFixed(2)}
+                  </Badge>
+                )}
+                {c.estoqueItemId && (
+                  <Badge variant="outline" className={cn(
+                    'text-[10px]',
+                    c.estoqueBaixadoEm
+                      ? 'border-green-300 text-green-700 dark:text-green-400'
+                      : 'border-red-300 text-red-600 dark:text-red-400',
+                  )}>
+                    {c.estoqueBaixadoEm ? 'Estoque baixado' : 'Estoque sem baixa'}
                   </Badge>
                 )}
               </div>
@@ -731,13 +778,23 @@ function ChamadosTab() {
                     <p className="font-medium mt-1">{selected.catalogoServicoNome}</p>
                   </div>
                 )}
-                {selected.pecaUsada && (
+                {(selected.pecaUsada || selected.estoqueItemId) && (
                   <div className="col-span-2">
                     <p className="text-[10px] uppercase text-muted-foreground font-semibold">Peça</p>
                     <p className="font-medium mt-1">
-                      {selected.pecaUsada}
+                      {selected.pecaUsada ?? selected.estoqueItemNome ?? 'Peça vinculada'}
                       {selected.custoPeca ? ` · R$ ${selected.custoPeca.toFixed(2)}` : ''}
+                      {selected.fornecedorPeca === 'Tecnico' ? ' · reembolso' : ''}
                     </p>
+                    {selected.estoqueItemId && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Estoque: {selected.estoqueItemNome ?? selected.pecaUsada}
+                        {selected.estoqueQuantidade ? ` · qtd. ${selected.estoqueQuantidade}` : ''}
+                        {selected.estoqueBaixadoEm
+                          ? ` · baixado em ${new Date(selected.estoqueBaixadoEm).toLocaleString('pt-BR')}`
+                          : ' · saída pendente'}
+                      </p>
+                    )}
                   </div>
                 )}
                 {selected.durationMinutes != null && (

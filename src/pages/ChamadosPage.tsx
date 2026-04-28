@@ -20,13 +20,14 @@ import {
   Plus, Search, ClipboardList, FileText, Wrench, Package, Link as LinkIcon,
   Clock, Eye, Pencil, Send, History, Wand2, Trash2, Layers, Calculator,
   AlertCircle, AlertTriangle, X, Download, ArrowUpDown, CalendarDays, User, ChevronDown, Loader2,
+  ArrowUpFromLine,
 } from 'lucide-react';
 import { CHAMADOS_EXEMPLO } from '../lib/seed-data';
 import { useAuth } from '../context/AuthContext';
 import { usePermissions } from '../hooks/use-permissions';
 import { listTechnicians } from '../lib/technician-firestore';
 import { listCatalogoServicos } from '../lib/catalogo-firestore';
-import { listEstoqueItens } from '../lib/estoque-firestore';
+import { listEstoqueItens, registrarMovimento } from '../lib/estoque-firestore';
 import {
   listChamados, createChamado, updateChamado,
   submeterChamado, resubmeterChamado, checkDuplicateChamado,
@@ -114,6 +115,7 @@ type OperationalFilter =
   | 'sem_servico'
   | 'sem_link'
   | 'sem_duracao'
+  | 'estoque_pendente'
   | 'pagamento_ao_pai'
   | 'pronto_pagamento'
   | 'vinculado_pagamento';
@@ -126,6 +128,7 @@ const OPERATIONAL_FILTERS: { value: OperationalFilter; label: string }[] = [
   { value: 'sem_servico', label: 'Sem serviço' },
   { value: 'sem_link', label: 'Sem link Jira/FSA' },
   { value: 'sem_duracao', label: 'Sem duração' },
+  { value: 'estoque_pendente', label: 'Estoque sem baixa' },
   { value: 'pagamento_ao_pai', label: 'Pagamento ao pai' },
   { value: 'pronto_pagamento', label: 'Pronto p/ pagamento' },
   { value: 'vinculado_pagamento', label: 'Vinculado a pagamento' },
@@ -145,6 +148,8 @@ function matchesOperationalFilter(c: Chamado, filter: OperationalFilter) {
       return !c.linkPlataforma?.trim();
     case 'sem_duracao':
       return !c.durationMinutes || c.durationMinutes <= 0;
+    case 'estoque_pendente':
+      return Boolean(c.estoqueItemId && !c.estoqueBaixadoEm);
     case 'pagamento_ao_pai':
       return c.pagamentoDestino === 'parent';
     case 'pronto_pagamento':
@@ -173,7 +178,8 @@ function getChamadoSignals(c: Chamado): string[] {
   if (!c.catalogoServicoId) signals.push('sem serviço');
   if (!c.linkPlataforma?.trim()) signals.push('sem link');
   if (!c.durationMinutes || c.durationMinutes <= 0) signals.push('sem duração');
-  if (c.estoqueItemId) signals.push('estoque');
+  if (c.estoqueItemId && !c.estoqueBaixadoEm) signals.push('estoque pendente');
+  if (c.estoqueBaixadoEm) signals.push('estoque baixado');
   if (c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0) signals.push('reembolso');
   if (c.pagamentoDestino === 'parent') signals.push('pag. ao pai');
   if (c.pagamentoId) signals.push('em lote');
@@ -1141,19 +1147,63 @@ function ChamadoCard({
 
 // ─── Dialog de Detalhes / Histórico ──────────────────────────────────────────
 
-function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewFinancialValues }: {
+function DetalheDialog({
+  chamado, open, onOpenChange, catalogoServicos, estoqueItens, canViewFinancialValues,
+  canManageEstoque, userId, userName, onSaved,
+}: {
   chamado: Chamado | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   catalogoServicos: CatalogoServico[];
+  estoqueItens: EstoqueItem[];
   canViewFinancialValues: boolean;
+  canManageEstoque: boolean;
+  userId: string;
+  userName: string;
+  onSaved: () => void;
 }) {
+  const [registrandoSaida, setRegistrandoSaida] = useState(false);
+
   if (!chamado) return null;
   const cfg = STATUS_CONFIG[chamado.status];
   const primaryServico = catalogoServicos.find(s => s.id === chamado.catalogoServicoId) ?? null;
+  const estoqueItem = estoqueItens.find(i => i.id === chamado.estoqueItemId) ?? null;
   const totalItens = 1 + (chamado.itensAdicionais?.length ?? 0);
   const duration = chamado.durationMinutes;
   const valores = calcValoresLote(primaryServico, chamado.itensAdicionais?.length ?? 0, duration);
+  const canRegistrarSaidaEstoque = canManageEstoque && !!chamado.estoqueItemId && !chamado.estoqueBaixadoEm;
+
+  const handleRegistrarSaidaEstoque = async () => {
+    if (!chamado.estoqueItemId) return;
+    const quantidade = chamado.estoqueQuantidade ?? 1;
+    setRegistrandoSaida(true);
+    try {
+      await registrarMovimento({
+        itemId: chamado.estoqueItemId,
+        tipo: 'saida',
+        quantidade,
+        chamadoId: chamado.id,
+        chamadoFsa: chamado.fsa,
+        tecnicoId: chamado.tecnicoId,
+        tecnicoNome: chamado.tecnicoNome,
+        observacao: `Saída vinculada ao chamado ${chamado.fsa}`,
+        registradoPor: userId,
+        registradoPorNome: userName,
+      });
+      await updateChamado(chamado.id, {
+        estoqueBaixadoEm: Date.now(),
+        estoqueBaixadoPor: userId,
+        estoqueBaixadoPorNome: userName,
+      });
+      toast.success('Saída de estoque registrada para o chamado.');
+      onSaved();
+      onOpenChange(false);
+    } catch (e: any) {
+      toast.error(e?.message ?? 'Erro ao registrar saída de estoque.');
+    } finally {
+      setRegistrandoSaida(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1298,6 +1348,34 @@ function DetalheDialog({ chamado, open, onOpenChange, catalogoServicos, canViewF
                   {chamado.estoqueQuantidade ? ` · qtd. ${chamado.estoqueQuantidade}` : ''}
                 </p>
               )}
+              {estoqueItem && !chamado.estoqueBaixadoEm && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Saldo atual: {estoqueItem.quantidadeAtual} {estoqueItem.unidade}
+                </p>
+              )}
+              {chamado.estoqueBaixadoEm && (
+                <Badge variant="outline" className="mt-2 text-[10px] border-green-300 text-green-700 dark:text-green-400">
+                  Saída registrada em {new Date(chamado.estoqueBaixadoEm).toLocaleString('pt-BR')}
+                  {chamado.estoqueBaixadoPorNome ? ` por ${chamado.estoqueBaixadoPorNome}` : ''}
+                </Badge>
+              )}
+              {canRegistrarSaidaEstoque && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 gap-1.5 border-red-300 text-red-600 hover:bg-red-500/10"
+                  onClick={handleRegistrarSaidaEstoque}
+                  disabled={registrandoSaida}
+                >
+                  {registrandoSaida ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <ArrowUpFromLine className="w-3.5 h-3.5" />
+                  )}
+                  Registrar saída do estoque
+                </Button>
+              )}
             </div>
           )}
           {chamado.linkPlataforma && (
@@ -1404,11 +1482,22 @@ export default function ChamadosPage() {
     finally { setLoading(false); }
   };
 
+  const fetchEstoqueItens = async () => {
+    try {
+      const data = await listEstoqueItens();
+      setEstoqueItens(data);
+    } catch { /* Estoque é apoio operacional; não bloqueia chamados. */ }
+  };
+
+  const refreshChamadosAndEstoque = async () => {
+    await Promise.all([fetchChamados(), fetchEstoqueItens()]);
+  };
+
   useEffect(() => {
     fetchChamados();
     listTechnicians().then(setTecnicos).catch(() => {});
     listCatalogoServicos().then(setCatalogoServicos).catch(() => {});
-    listEstoqueItens().then(setEstoqueItens).catch(() => {});
+    fetchEstoqueItens();
   }, []);
 
   // #3: count per tab for badges
@@ -1737,7 +1826,12 @@ export default function ChamadosPage() {
         open={detalheOpen}
         onOpenChange={open => { setDetalheOpen(open); if (!open) setDetalhe(null); }}
         catalogoServicos={catalogoServicos}
+        estoqueItens={estoqueItens}
         canViewFinancialValues={permissions.canViewFinancialValues}
+        canManageEstoque={permissions.canManageEstoque}
+        userId={userId}
+        userName={userName}
+        onSaved={refreshChamadosAndEstoque}
       />
     </div>
   );

@@ -401,6 +401,9 @@ function HistoricoDialog({
                   {m.chamadoFsa && (
                     <p className="text-xs text-muted-foreground">FSA: {m.chamadoFsa}</p>
                   )}
+                  {m.tecnicoNome && (
+                    <p className="text-xs text-muted-foreground">Técnico: {m.tecnicoNome}</p>
+                  )}
                   <p className="text-xs text-muted-foreground/70 mt-0.5">
                     {m.registradoPorNome} · {fmtTs(m.registradoEm)}
                   </p>
@@ -760,8 +763,12 @@ export default function EstoquePage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{m.itemNome}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {m.observacao || m.chamadoFsa ? (m.observacao ?? `FSA: ${m.chamadoFsa}`) : m.registradoPorNome}
-                      {' · '}{fmtTs(m.registradoEm)}
+                      {m.observacao || m.chamadoFsa || m.tecnicoNome
+                        ? [m.observacao, m.chamadoFsa ? `FSA: ${m.chamadoFsa}` : undefined, m.tecnicoNome].filter(Boolean).join(' · ')
+                        : m.registradoPorNome}
+                    </p>
+                    <p className="text-xs text-muted-foreground/70 truncate">
+                      {m.registradoPorNome} · {fmtTs(m.registradoEm)}
                     </p>
                   </div>
                   <div className="shrink-0 text-right">

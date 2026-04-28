@@ -41,6 +41,8 @@ interface BackofficeMetrics {
   chamadosRejeitados: number;
   pagamentosPendentes: number;
   estoqueBaixo: number;
+  estoquePendente: number;
+  chamadosComReembolso: number;
 }
 
 interface RatRecente {
@@ -109,13 +111,24 @@ export default function Dashboard() {
       const chamados  = collection(db, "chamados");
       const pagamentos = collection(db, "pagamentos");
       const estoque   = collection(db, "estoqueItens");
-      const [snapOp, snapFin, snapRej, snapPag, snapEst] = await Promise.all([
-        getDocs(query(chamados,   where("status", "==", "submetido"),         fbLimit(200))),
-        getDocs(query(chamados,   where("status", "==", "validado_operador"), fbLimit(200))),
-        getDocs(query(chamados,   where("status", "in", ["rejeitado", "rejeitado_operacional", "rejeitado_financeiro"]), fbLimit(200))),
+      const [snapChamados, snapPag, snapEst] = await Promise.all([
+        getDocs(query(chamados, fbLimit(500))),
         getDocs(query(pagamentos, where("status", "==", "pendente"),          fbLimit(200))),
         getDocs(query(estoque)),
       ]);
+      let chamadosPendentesOp = 0;
+      let chamadosPendentesFin = 0;
+      let chamadosRejeitados = 0;
+      let estoquePendente = 0;
+      let chamadosComReembolso = 0;
+      snapChamados.forEach(d => {
+        const data = d.data();
+        if (data.status === "submetido") chamadosPendentesOp++;
+        if (data.status === "validado_operador") chamadosPendentesFin++;
+        if (["rejeitado", "rejeitado_operacional", "rejeitado_financeiro"].includes(data.status)) chamadosRejeitados++;
+        if (data.estoqueItemId && !data.estoqueBaixadoEm) estoquePendente++;
+        if (data.fornecedorPeca === "Tecnico" && (data.custoPeca ?? 0) > 0) chamadosComReembolso++;
+      });
       let estoqueBaixo = 0;
       snapEst.forEach(d => {
         const atual = d.data().quantidadeAtual ?? 0;
@@ -123,11 +136,13 @@ export default function Dashboard() {
         if (min > 0 && atual <= min) estoqueBaixo++;
       });
       return {
-        chamadosPendentesOp:  snapOp.size,
-        chamadosPendentesFin: snapFin.size,
-        chamadosRejeitados:   snapRej.size,
+        chamadosPendentesOp,
+        chamadosPendentesFin,
+        chamadosRejeitados,
         pagamentosPendentes:  snapPag.size,
         estoqueBaixo,
+        estoquePendente,
+        chamadosComReembolso,
       };
     },
     staleTime: 5 * 60 * 1000,
@@ -137,6 +152,7 @@ export default function Dashboard() {
   const boData: BackofficeMetrics = bo ?? {
     chamadosPendentesOp: 0, chamadosPendentesFin: 0,
     chamadosRejeitados: 0,  pagamentosPendentes: 0, estoqueBaixo: 0,
+    estoquePendente: 0, chamadosComReembolso: 0,
   };
 
   // ── Tiles de métricas ─────────────────────────────────────────────────────
@@ -200,6 +216,20 @@ export default function Dashboard() {
       icon: Package,
       signal: boData.estoqueBaixo > 0 ? "critical" : "neutral",
       href: "/estoque",
+    },
+    {
+      label: "Estoque sem baixa",
+      value: loadingBo ? null : String(boData.estoquePendente),
+      icon: AlertTriangle,
+      signal: boData.estoquePendente > 0 ? "attention" : "neutral",
+      href: "/chamados",
+    },
+    {
+      label: "Com reembolso",
+      value: loadingBo ? null : String(boData.chamadosComReembolso),
+      icon: Package,
+      signal: boData.chamadosComReembolso > 0 ? "attention" : "neutral",
+      href: "/chamados",
     },
   ];
 

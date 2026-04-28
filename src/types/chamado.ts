@@ -60,6 +60,9 @@ export interface Chamado {
   estoqueItemId?: string;
   estoqueItemNome?: string;
   estoqueQuantidade?: number;
+  estoqueBaixadoEm?: number;
+  estoqueBaixadoPor?: string;
+  estoqueBaixadoPorNome?: string;
   // Evidência / link da plataforma do cliente
   linkPlataforma?: string;
   observacoes?: string;

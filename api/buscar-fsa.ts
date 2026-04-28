@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors, requireAuth } from './_lib/auth';
-import { jiraAuthHeader, jiraBaseUrl, resolveJiraCloudId, debugLog } from './_lib/jira';
+import { applyCors, requireAuth } from './_lib/auth.js';
+import { jiraAuthHeader, jiraBaseUrl, resolveJiraCloudId, debugLog } from './_lib/jira.js';
 
 class JiraAPI {
   private email: string;

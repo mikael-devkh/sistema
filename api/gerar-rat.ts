@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors, requireAuth } from './_lib/auth';
-import { jiraAuthHeader, jiraBaseUrl } from './_lib/jira';
+import { applyCors, requireAuth } from './_lib/auth.js';
+import { jiraAuthHeader, jiraBaseUrl } from './_lib/jira.js';
 
 // Tipos para o payload da requisição
 interface RatFormData {

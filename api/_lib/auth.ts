@@ -19,6 +19,12 @@ function ensureAdmin() {
     const privateKey = privateKeyRaw.replace(/\\n/g, '\n');
     initializeApp({ credential: cert({ projectId, clientEmail, privateKey }) });
   } else {
+    console.error('[firebase-admin] env vars ausentes:', {
+      hasProjectId: !!projectId,
+      hasClientEmail: !!clientEmail,
+      hasPrivateKey: !!privateKeyRaw,
+      privateKeyLen: privateKeyRaw?.length || 0,
+    });
     initializeApp({ credential: applicationDefault() });
   }
   initialized = true;
@@ -105,6 +111,8 @@ export async function requireAuth(
 
     return { uid: decoded.uid, email: decoded.email, role };
   } catch (err: any) {
+    // log no servidor pra diagnosticar (sem vazar pro cliente)
+    console.error('[requireAuth] verifyIdToken failed:', err?.code, err?.message);
     res.status(401).json({ error: 'Invalid token' });
     return null;
   }

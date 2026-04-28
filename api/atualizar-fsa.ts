@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { applyCors, requireAuth } from './_lib/auth';
-import { jiraAuthHeader, jiraBaseUrl } from './_lib/jira';
+import { applyCors, requireAuth } from './_lib/auth.js';
+import { jiraAuthHeader, jiraBaseUrl } from './_lib/jira.js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (applyCors(req, res)) return;

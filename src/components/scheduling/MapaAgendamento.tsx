@@ -5,7 +5,6 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.Default.css';
-import { getCityCoords } from '../../lib/brazilCityCoords';
 import type { LojaGroup } from '../../types/scheduling';
 import {
   ExternalLink,
@@ -124,33 +123,115 @@ function createClusterIcon(cluster: any): L.DivIcon {
 interface MappedLoja extends LojaGroup {
   lat: number;
   lng: number;
+  geocodeSource: 'cep' | 'address';
 }
 
-function distributeAroundCity(
-  lat: number,
-  lng: number,
-  index: number,
-  total: number,
-): { lat: number; lng: number } {
-  if (total <= 1) return { lat, lng };
-
-  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-  const radiusMeters = Math.min(90 + Math.sqrt(index + 1) * 95, 850);
-  const angle = index * goldenAngle;
-  const dy = Math.sin(angle) * radiusMeters;
-  const dx = Math.cos(angle) * radiusMeters;
-
-  return {
-    lat: lat + dy / 111_320,
-    lng: lng + dx / (111_320 * Math.cos((lat * Math.PI) / 180)),
-  };
+interface CachedCoord {
+  lat: number;
+  lng: number;
+  source: 'cep' | 'address';
+  savedAt: number;
 }
+
+const GEOCODE_CACHE_KEY = 'schedulingAddressCoords:v1';
+const GEOCODE_CACHE_TTL = 1000 * 60 * 60 * 24 * 90;
 
 function normalizeText(value: unknown): string {
   return String(value ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
+}
+
+function normalizedKey(value: unknown): string {
+  return normalizeText(value).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function coordCacheKey(g: LojaGroup): string {
+  return [
+    g.loja,
+    g.cep?.replace(/\D/g, ''),
+    normalizedKey(g.endereco),
+    normalizedKey(g.cidade),
+    g.uf?.toUpperCase(),
+  ].filter(Boolean).join('|');
+}
+
+function readCoordCache(): Record<string, CachedCoord> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(GEOCODE_CACHE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, CachedCoord>;
+    const now = Date.now();
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, value]) => (
+        Number.isFinite(value.lat) &&
+        Number.isFinite(value.lng) &&
+        now - value.savedAt < GEOCODE_CACHE_TTL
+      )),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeCoordCache(cache: Record<string, CachedCoord>) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(GEOCODE_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    // Cache é otimização; se o navegador negar, o mapa continua funcionando.
+  }
+}
+
+function isBrazilCoord(lat: number, lng: number): boolean {
+  return Number.isFinite(lat) && Number.isFinite(lng) &&
+    lat >= -35 && lat <= 6 &&
+    lng >= -75 && lng <= -32;
+}
+
+function buildAddressQuery(g: LojaGroup): string {
+  return [g.endereco, g.cidade, g.uf, g.cep, 'Brasil']
+    .filter(Boolean)
+    .join(', ');
+}
+
+async function fetchJsonWithTimeout(url: string, timeoutMs = 8000): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal, headers: { 'Accept-Language': 'pt-BR,pt;q=0.9' } });
+    if (!res.ok) return null;
+    return await res.json();
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function geocodeByCep(cep: string): Promise<CachedCoord | null> {
+  const clean = cep.replace(/\D/g, '');
+  if (clean.length !== 8) return null;
+  const data = await fetchJsonWithTimeout(`https://brasilapi.com.br/api/cep/v2/${clean}`);
+  const coords = (data as { location?: { coordinates?: { latitude?: string; longitude?: string } } } | null)
+    ?.location?.coordinates;
+  const lat = Number(coords?.latitude);
+  const lng = Number(coords?.longitude);
+  if (!isBrazilCoord(lat, lng)) return null;
+  return { lat, lng, source: 'cep', savedAt: Date.now() };
+}
+
+async function geocodeByAddress(g: LojaGroup): Promise<CachedCoord | null> {
+  const query = encodeURIComponent(buildAddressQuery(g));
+  const data = await fetchJsonWithTimeout(
+    `https://nominatim.openstreetmap.org/search?q=${query}&countrycodes=br&format=json&limit=1`,
+    10000,
+  );
+  const first = Array.isArray(data) ? data[0] : null;
+  const lat = Number(first?.lat);
+  const lng = Number(first?.lon);
+  if (!isBrazilCoord(lat, lng)) return null;
+  return { lat, lng, source: 'address', savedAt: Date.now() };
 }
 
 function matchesQuery(g: MappedLoja, query: string): boolean {
@@ -280,31 +361,79 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
   const [slaFilter, setSlaFilter] = useState<SlaStatus | 'all'>('all');
   const [tileStyle, setTileStyle] = useState<TileStyle>('streets');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [coordCache, setCoordCache] = useState<Record<string, CachedCoord>>(() => readCoordCache());
+  const [geocoding, setGeocoding] = useState(false);
 
   const markerRefs = useRef<Map<string, L.Marker>>(new Map());
+  const coordCacheRef = useRef(coordCache);
 
-  // Geocode every LojaGroup using city+UF lookup
-  const mappedGroups = useMemo<MappedLoja[]>(() => {
-    const totalsByCity = new Map<string, number>();
+  useEffect(() => {
+    coordCacheRef.current = coordCache;
+  }, [coordCache]);
+
+  const uniqueGroups = useMemo(() => {
+    const seen = new Map<string, LojaGroup>();
     for (const g of groups) {
-      const coords = getCityCoords(g.cidade, g.uf);
-      if (!coords) continue;
-      const key = `${g.cidade}|${g.uf}`.toUpperCase();
-      totalsByCity.set(key, (totalsByCity.get(key) ?? 0) + 1);
+      seen.set(coordCacheKey(g), g);
+    }
+    return [...seen.values()];
+  }, [groups]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const missing = uniqueGroups.filter(g => !coordCacheRef.current[coordCacheKey(g)]);
+    if (!missing.length) return;
+
+    async function run() {
+      setGeocoding(true);
+      const nextCache = { ...readCoordCache(), ...coordCacheRef.current };
+      let changed = false;
+      let pendingFlush = 0;
+
+      const flush = () => {
+        coordCacheRef.current = { ...nextCache };
+        setCoordCache(coordCacheRef.current);
+        writeCoordCache(nextCache);
+        pendingFlush = 0;
+      };
+
+      for (const g of missing) {
+        if (cancelled) break;
+        const key = coordCacheKey(g);
+        if (nextCache[key]) continue;
+
+        try {
+          const byAddress = g.endereco?.trim() ? await geocodeByAddress(g) : null;
+          const coord = byAddress ?? await geocodeByCep(g.cep);
+          if (coord) {
+            nextCache[key] = coord;
+            changed = true;
+            pendingFlush += 1;
+            if (pendingFlush >= 8) flush();
+          }
+        } catch {
+          // Falhas individuais de geocoding não devem travar o mapa.
+        }
+      }
+
+      if (!cancelled) {
+        if (changed) flush();
+        setGeocoding(false);
+      }
     }
 
-    const seenByCity = new Map<string, number>();
+    run();
+    return () => { cancelled = true; };
+  }, [uniqueGroups]);
+
+  // Only plot stores with address/CEP coordinates. No artificial city jitter.
+  const mappedGroups = useMemo<MappedLoja[]>(() => {
     return groups.flatMap(g => {
-      const coords = getCityCoords(g.cidade, g.uf);
-      if (!coords) return [];
-      // brazilCityCoords returns [lng, lat]; Leaflet wants [lat, lng]
-      const key = `${g.cidade}|${g.uf}`.toUpperCase();
-      const idx = seenByCity.get(key) ?? 0;
-      seenByCity.set(key, idx + 1);
-      const distributed = distributeAroundCity(coords[1], coords[0], idx, totalsByCity.get(key) ?? 1);
-      return [{ ...g, ...distributed }];
+      const coord = coordCache[coordCacheKey(g)];
+      if (!coord) return [];
+      return [{ ...g, lat: coord.lat, lng: coord.lng, geocodeSource: coord.source }];
     });
-  }, [groups]);
+  }, [coordCache, groups]);
 
   const markersBeforeUf = useMemo(
     () => mappedGroups.filter(g => (
@@ -335,6 +464,8 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
   const visibleIssues = useMemo(() => visibleMarkers.reduce((s, g) => s + g.qtd, 0), [visibleMarkers]);
   const criticalCount = useMemo(() => visibleMarkers.filter(g => g.isCritical).length, [visibleMarkers]);
   const unmappedCount = groups.length - mappedGroups.length;
+  const addressCount = useMemo(() => mappedGroups.filter(g => g.geocodeSource === 'address').length, [mappedGroups]);
+  const cepCount = mappedGroups.length - addressCount;
 
   const rankedVisibleMarkers = useMemo(
     () => [...visibleMarkers].sort((a, b) => {
@@ -411,7 +542,7 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
           { label: 'Chamados visíveis', value: visibleIssues,         sub: `${totalIssues} no total`, color: 'text-primary' },
           { label: 'Estados visíveis',  value: byUf.size,             sub: selectedUf ? `Filtro ${selectedUf}` : 'com chamados', color: '' },
           { label: 'Lojas críticas',    value: criticalCount,         sub: 'na visão atual', color: 'text-red-500' },
-          { label: 'Lojas plotadas',    value: visibleMarkers.length, sub: `${mappedGroups.length} mapeadas`, color: 'text-green-600' },
+          { label: 'Lojas plotadas',    value: visibleMarkers.length, sub: `${addressCount} endereço · ${cepCount} CEP`, color: 'text-green-600' },
         ] as const).map(({ label, value, sub, color }) => (
           <div key={label} className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
             <span className={cn('text-2xl font-bold', color)}>{value}</span>
@@ -420,6 +551,18 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
           </div>
         ))}
       </div>
+
+      {(geocoding || unmappedCount > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <MapPinned className={cn('h-3.5 w-3.5', geocoding && 'animate-pulse')} />
+          <span>
+            {geocoding ? 'Localizando endereços em segundo plano.' : 'Localização concluída.'}
+            {' '}
+            <strong>{mappedGroups.length}</strong> lojas com coordenada
+            {unmappedCount > 0 && <> · <strong>{unmappedCount}</strong> aguardando ou sem coordenada disponível</>}.
+          </span>
+        </div>
+      )}
 
       {/* Controles */}
       <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-2 shadow-sm">
@@ -803,7 +946,7 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
         ))}
         {unmappedCount > 0 && (
           <span className="text-amber-600">
-            ⚠️ {unmappedCount} loja{unmappedCount !== 1 ? 's' : ''} sem coordenadas no cadastro
+            ⚠️ {unmappedCount} loja{unmappedCount !== 1 ? 's' : ''} aguardando geocodificação
           </span>
         )}
         <span className="w-full text-[11px] sm:ml-auto sm:w-auto">

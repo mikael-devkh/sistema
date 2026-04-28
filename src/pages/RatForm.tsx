@@ -604,7 +604,12 @@ const RatForm = () => {
           formData: cloneRatFormData(formData),
           userId: user.uid,
         };
-        addDoc(collection(db, "serviceReports"), entry).catch(() => {/* non-critical */});
+        try {
+          await addDoc(collection(db, "serviceReports"), entry);
+        } catch (err) {
+          console.error("[RAT] Falha ao salvar histórico no Firestore:", err);
+          toast.error("PDF gerado, mas a RAT não foi salva no sistema. Verifique a conexão e tente novamente.");
+        }
       }
 
       // ── Subir ao Jira ──────────────────────────────────────────────────────

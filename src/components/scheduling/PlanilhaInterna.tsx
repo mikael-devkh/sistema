@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronsUpDown,
   FileSpreadsheet,
+  MapPin,
   TableProperties,
   X,
   Loader2,
@@ -87,9 +88,12 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-interface Props { issues: SchedulingIssue[] }
+interface Props {
+  issues: SchedulingIssue[];
+  onMapFocus?: (loja: string) => void;
+}
 
-export function PlanilhaInterna({ issues }: Props) {
+export function PlanilhaInterna({ issues, onMapFocus }: Props) {
   // ── Estado ──
   const [notes, setNotes] = useState<Map<string, InternalNote>>(new Map());
   const [notesLoading, setNotesLoading] = useState(true);
@@ -538,7 +542,7 @@ export function PlanilhaInterna({ issues }: Props) {
       <div
         ref={tableScrollRef}
         className="overflow-auto bg-white dark:bg-gray-950"
-        style={{ maxHeight: '60vh' }}
+        style={{ maxHeight: 'calc(100vh - 310px)', minHeight: 420 }}
       >
         {notesLoading ? (
           <div className="flex items-center justify-center py-16 gap-2 text-sm text-gray-400">
@@ -547,7 +551,7 @@ export function PlanilhaInterna({ issues }: Props) {
         ) : (
         <table
           className="border-collapse"
-          style={{ minWidth: '1020px', width: '100%' }}
+          style={{ minWidth: onMapFocus ? '1064px' : '1020px', width: '100%' }}
         >
           <thead className="sticky top-0 z-10 group">
             <tr>
@@ -557,6 +561,14 @@ export function PlanilhaInterna({ issues }: Props) {
               >
                 #
               </th>
+              {onMapFocus && (
+                <th
+                  className="border-r border-b px-2 py-[7px] text-center text-[11px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide select-none w-10"
+                  style={{ borderColor: '#c6c7c8', background: '#e9eaeb' }}
+                >
+                  Mapa
+                </th>
+              )}
               <ColHeader colKey="key"            className="w-[90px]">FSA</ColHeader>
               <ColHeader colKey="loja"           className="w-[80px]">Loja</ColHeader>
               <ColHeader colKey="cidade"         className="w-[130px]">Cidade</ColHeader>
@@ -585,7 +597,7 @@ export function PlanilhaInterna({ issues }: Props) {
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={12}
+                  colSpan={onMapFocus ? 13 : 12}
                   className="py-16 text-center border-b"
                   style={{ borderColor: '#e2e3e4' }}
                 >
@@ -606,7 +618,7 @@ export function PlanilhaInterna({ issues }: Props) {
             ) : (
               <>
                 {paddingTop > 0 && (
-                  <tr><td colSpan={12} style={{ height: paddingTop }} /></tr>
+                  <tr><td colSpan={onMapFocus ? 13 : 12} style={{ height: paddingTop }} /></tr>
                 )}
                 {virtualItems.map(vItem => {
                 const { issue, note } = rows[vItem.index];
@@ -633,6 +645,19 @@ export function PlanilhaInterna({ issues }: Props) {
                     >
                       {idx + 1}
                     </td>
+
+                    {onMapFocus && (
+                      <td className={cn(CELL, CELL_COLOR, 'w-10 text-center')}>
+                        <button
+                          type="button"
+                          onClick={() => onMapFocus(issue.loja)}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-primary/10 hover:text-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                          title={`Abrir loja ${issue.loja} no mapa`}
+                        >
+                          <MapPin className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    )}
 
                     <td className={cn(CELL, CELL_COLOR, 'w-[90px]')}>
                       <div className="flex items-center gap-1">
@@ -742,7 +767,7 @@ export function PlanilhaInterna({ issues }: Props) {
                 );
               })}
                 {paddingBottom > 0 && (
-                  <tr><td colSpan={12} style={{ height: paddingBottom }} /></tr>
+                  <tr><td colSpan={onMapFocus ? 13 : 12} style={{ height: paddingBottom }} /></tr>
                 )}
               </>
             )}

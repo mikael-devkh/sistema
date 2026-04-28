@@ -1166,6 +1166,7 @@ export default function AgendamentoPage() {
 
   const onMapFocus = useCallback((loja: string) => {
     startTransition(() => setActiveTab('mapa'));
+    setMapUfFilter(null);
     setMapFocusLoja(loja);
   }, []);
 
@@ -1403,7 +1404,7 @@ export default function AgendamentoPage() {
 
         {/* ── Planilha ── */}
         <TabsContent value="planilha" className="mt-4">
-          <PlanilhaInterna issues={allIssues} />
+          <PlanilhaInterna issues={allIssues} onMapFocus={onMapFocus} />
         </TabsContent>
 
         {/* ── Mapa ── */}

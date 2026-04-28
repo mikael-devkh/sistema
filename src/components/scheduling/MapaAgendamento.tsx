@@ -7,7 +7,18 @@ import 'react-leaflet-cluster/lib/assets/MarkerCluster.css';
 import 'react-leaflet-cluster/lib/assets/MarkerCluster.Default.css';
 import { getCityCoords } from '../../lib/brazilCityCoords';
 import type { LojaGroup } from '../../types/scheduling';
-import { Search, Maximize2 } from 'lucide-react';
+import {
+  ExternalLink,
+  Layers,
+  ListFilter,
+  MapPinned,
+  Maximize2,
+  Navigation,
+  PanelRightClose,
+  PanelRightOpen,
+  Search,
+  X,
+} from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { cn } from '../../lib/utils';
@@ -35,6 +46,28 @@ const SLA_LABELS: Record<SlaStatus, string> = {
   warning: 'Alerta SLA',
   critical: 'SLA Crítico',
 };
+
+const STATUS_FILTERS: { value: SlaStatus | 'all'; label: string; color?: string }[] = [
+  { value: 'all', label: 'Todos' },
+  { value: 'critical', label: 'Crítico', color: 'bg-red-500' },
+  { value: 'warning', label: 'Alerta', color: 'bg-amber-500' },
+  { value: 'ok', label: 'OK', color: 'bg-green-500' },
+];
+
+const TILE_STYLES = {
+  streets: {
+    label: 'Ruas',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  },
+  light: {
+    label: 'Claro',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a> &copy; OpenStreetMap contributors',
+  },
+} as const;
+
+type TileStyle = keyof typeof TILE_STYLES;
 
 function pinIcon(status: SlaStatus, count: number): L.DivIcon {
   const color = SLA_COLORS[status];
@@ -93,6 +126,60 @@ interface MappedLoja extends LojaGroup {
   lng: number;
 }
 
+function distributeAroundCity(
+  lat: number,
+  lng: number,
+  index: number,
+  total: number,
+): { lat: number; lng: number } {
+  if (total <= 1) return { lat, lng };
+
+  const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+  const radiusMeters = Math.min(90 + Math.sqrt(index + 1) * 95, 850);
+  const angle = index * goldenAngle;
+  const dy = Math.sin(angle) * radiusMeters;
+  const dx = Math.cos(angle) * radiusMeters;
+
+  return {
+    lat: lat + dy / 111_320,
+    lng: lng + dx / (111_320 * Math.cos((lat * Math.PI) / 180)),
+  };
+}
+
+function normalizeText(value: unknown): string {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function matchesQuery(g: MappedLoja, query: string): boolean {
+  const q = normalizeText(query);
+  if (!q) return true;
+  const searchable = [
+    g.loja,
+    g.cidade,
+    g.uf,
+    g.cep,
+    g.endereco,
+    ...g.issues.flatMap(issue => [
+      issue.key,
+      issue.pdv,
+      issue.ativo,
+      issue.problema,
+      issue.tecnico,
+      issue.req,
+      issue.status,
+    ]),
+  ].map(normalizeText).join(' ');
+  return searchable.includes(q);
+}
+
+function mapsUrl(g: MappedLoja): string {
+  const q = encodeURIComponent(`${g.endereco || `Loja ${g.loja}`} ${g.cidade} ${g.uf} ${g.cep}`.trim());
+  return `https://www.google.com/maps/search/?api=1&query=${q}`;
+}
+
 // Must live inside <MapContainer> — controls map view via useMap()
 function MapEffects({
   target,
@@ -106,6 +193,21 @@ function MapEffects({
   const map = useMap();
   const prevTarget = useRef<typeof target>(null);
   const prevFit = useRef(0);
+
+  useEffect(() => {
+    const invalidate = () => map.invalidateSize();
+    const timer = window.setTimeout(invalidate, 120);
+    const container = map.getContainer();
+    const observer = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(invalidate)
+      : null;
+    observer?.observe(container);
+
+    return () => {
+      window.clearTimeout(timer);
+      observer?.disconnect();
+    };
+  }, [map]);
 
   useEffect(() => {
     if (target && target !== prevTarget.current) {
@@ -140,7 +242,11 @@ function FocusEffect({
   useEffect(() => {
     if (!focusLoja) return;
     const marker = markerRefs.current.get(focusLoja);
-    if (!marker) return;
+    if (!marker) {
+      toast.warning(`Loja ${focusLoja} não está plotada no mapa`);
+      onFocusConsumed?.();
+      return;
+    }
 
     map.flyTo(marker.getLatLng(), 15, { duration: 1.2 });
     const timer = setTimeout(() => {
@@ -171,45 +277,84 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
   const [mapTarget, setMapTarget] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
   const [searchMarker, setSearchMarker] = useState<{ lat: number; lng: number; label: string } | null>(null);
   const [fitTrigger, setFitTrigger] = useState(0);
+  const [slaFilter, setSlaFilter] = useState<SlaStatus | 'all'>('all');
+  const [tileStyle, setTileStyle] = useState<TileStyle>('streets');
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const markerRefs = useRef<Map<string, L.Marker>>(new Map());
 
   // Geocode every LojaGroup using city+UF lookup
   const mappedGroups = useMemo<MappedLoja[]>(() => {
-    const seen = new Map<string, number>();
+    const totalsByCity = new Map<string, number>();
+    for (const g of groups) {
+      const coords = getCityCoords(g.cidade, g.uf);
+      if (!coords) continue;
+      const key = `${g.cidade}|${g.uf}`.toUpperCase();
+      totalsByCity.set(key, (totalsByCity.get(key) ?? 0) + 1);
+    }
+
+    const seenByCity = new Map<string, number>();
     return groups.flatMap(g => {
       const coords = getCityCoords(g.cidade, g.uf);
       if (!coords) return [];
       // brazilCityCoords returns [lng, lat]; Leaflet wants [lat, lng]
-      const key = `${g.cidade}|${g.uf}`;
-      const idx = seen.get(key) ?? 0;
-      seen.set(key, idx + 1);
-      // Tiny jitter so overlapping pins in same city are clickable
-      const jit = idx * 0.0025;
-      return [{ ...g, lat: coords[1] + jit, lng: coords[0] + jit }];
+      const key = `${g.cidade}|${g.uf}`.toUpperCase();
+      const idx = seenByCity.get(key) ?? 0;
+      seenByCity.set(key, idx + 1);
+      const distributed = distributeAroundCity(coords[1], coords[0], idx, totalsByCity.get(key) ?? 1);
+      return [{ ...g, ...distributed }];
     });
   }, [groups]);
 
+  const markersBeforeUf = useMemo(
+    () => mappedGroups.filter(g => (
+      (slaFilter === 'all' || g.slaGroupStatus === slaFilter) &&
+      matchesQuery(g, searchQuery)
+    )),
+    [mappedGroups, searchQuery, slaFilter],
+  );
+
+  const visibleMarkers = useMemo(
+    () => selectedUf ? markersBeforeUf.filter(m => m.uf.toUpperCase() === selectedUf) : markersBeforeUf,
+    [markersBeforeUf, selectedUf],
+  );
+
   const byUf = useMemo(() => {
     const m = new Map<string, { count: number; critical: number }>();
-    for (const g of groups) {
+    for (const g of markersBeforeUf) {
       const uf = g.uf?.toUpperCase() ?? '';
       if (!uf) continue;
       const prev = m.get(uf) ?? { count: 0, critical: 0 };
       m.set(uf, { count: prev.count + g.qtd, critical: prev.critical + (g.isCritical ? 1 : 0) });
     }
     return m;
-  }, [groups]);
+  }, [markersBeforeUf]);
 
   const maxCount      = useMemo(() => Math.max(...[...byUf.values()].map(v => v.count), 1), [byUf]);
   const totalIssues   = useMemo(() => groups.reduce((s, g) => s + g.qtd, 0), [groups]);
-  const criticalCount = useMemo(() => groups.filter(g => g.isCritical).length, [groups]);
+  const visibleIssues = useMemo(() => visibleMarkers.reduce((s, g) => s + g.qtd, 0), [visibleMarkers]);
+  const criticalCount = useMemo(() => visibleMarkers.filter(g => g.isCritical).length, [visibleMarkers]);
   const unmappedCount = groups.length - mappedGroups.length;
 
-  const visibleMarkers = useMemo(
-    () => selectedUf ? mappedGroups.filter(m => m.uf.toUpperCase() === selectedUf) : mappedGroups,
-    [mappedGroups, selectedUf],
+  const rankedVisibleMarkers = useMemo(
+    () => [...visibleMarkers].sort((a, b) => {
+      const statusDiff =
+        (b.slaGroupStatus === 'critical' ? 2 : b.slaGroupStatus === 'warning' ? 1 : 0) -
+        (a.slaGroupStatus === 'critical' ? 2 : a.slaGroupStatus === 'warning' ? 1 : 0);
+      if (statusDiff) return statusDiff;
+      return b.qtd - a.qtd;
+    }),
+    [visibleMarkers],
   );
+
+  const hasMapFilters = Boolean(searchQuery.trim()) || slaFilter !== 'all' || Boolean(selectedUf) || Boolean(searchMarker);
+
+  const clearMapFilters = () => {
+    setSearchQuery('');
+    setSlaFilter('all');
+    setSearchMarker(null);
+    onUfClick?.(null);
+  };
 
   // Busca por CEP ou nome de cidade via Nominatim (OpenStreetMap gratuito)
   const handleSearch = async () => {
@@ -237,7 +382,7 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
   };
 
   const handleUfClick = (uf: string) => {
-    const lojas = mappedGroups.filter(m => m.uf.toUpperCase() === uf);
+    const lojas = markersBeforeUf.filter(m => m.uf.toUpperCase() === uf);
     if (lojas.length) {
       if (lojas.length === 1) {
         setMapTarget({ lat: lojas[0].lat, lng: lojas[0].lng, zoom: 11 });
@@ -250,65 +395,123 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
     onUfClick?.(selectedUf === uf ? null : uf);
   };
 
+  const focusMarker = (loja: MappedLoja, zoom = 14) => {
+    setMapTarget({ lat: loja.lat, lng: loja.lng, zoom });
+    const marker = markerRefs.current.get(loja.loja);
+    if (marker) {
+      window.setTimeout(() => marker.openPopup(), 500);
+    }
+  };
+
   return (
     <div className="space-y-3">
       {/* KPIs */}
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {([
-          { label: 'Chamados abertos',  value: totalIssues,         color: 'text-primary'    },
-          { label: 'Estados afetados',  value: byUf.size,           color: ''                },
-          { label: 'Lojas críticas',    value: criticalCount,       color: 'text-red-500'    },
-          { label: 'Plotadas no mapa',  value: mappedGroups.length, color: 'text-green-600'  },
-        ] as const).map(({ label, value, color }) => (
+          { label: 'Chamados visíveis', value: visibleIssues,         sub: `${totalIssues} no total`, color: 'text-primary' },
+          { label: 'Estados visíveis',  value: byUf.size,             sub: selectedUf ? `Filtro ${selectedUf}` : 'com chamados', color: '' },
+          { label: 'Lojas críticas',    value: criticalCount,         sub: 'na visão atual', color: 'text-red-500' },
+          { label: 'Lojas plotadas',    value: visibleMarkers.length, sub: `${mappedGroups.length} mapeadas`, color: 'text-green-600' },
+        ] as const).map(({ label, value, sub, color }) => (
           <div key={label} className="rounded-lg border border-border bg-card px-4 py-2 flex flex-col">
             <span className={cn('text-2xl font-bold', color)}>{value}</span>
             <span className="text-xs text-muted-foreground">{label}</span>
+            <span className="text-[10px] text-muted-foreground/80">{sub}</span>
           </div>
         ))}
-        {selectedUf && (
-          <button
-            onClick={() => onUfClick?.(null)}
-            className="ml-auto self-center text-xs text-primary underline underline-offset-2"
-          >
-            Limpar filtro ({selectedUf})
-          </button>
-        )}
       </div>
 
-      {/* Barra de busca */}
-      <div className="flex gap-2">
-        <div className="relative flex-1 max-w-sm">
+      {/* Controles */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-2 shadow-sm">
+        <div className="relative min-w-[240px] flex-1 lg:max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
           <Input
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder="Buscar CEP (01310-100) ou cidade…"
+            placeholder="Filtrar loja, FSA, cidade, UF, CEP…"
             className="pl-9"
           />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              title="Limpar busca"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
-        <Button size="sm" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
-          {searching ? <span className="animate-spin inline-block">⟳</span> : <><Search className="w-3.5 h-3.5 mr-1" />Buscar</>}
+
+        <div className="flex items-center gap-1 rounded-lg border border-border bg-background p-1">
+          <ListFilter className="mx-1 h-3.5 w-3.5 text-muted-foreground" />
+          {STATUS_FILTERS.map(filter => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setSlaFilter(filter.value)}
+              className={cn(
+                'inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors',
+                slaFilter === filter.value
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+              )}
+            >
+              {filter.color && <span className={cn('h-2 w-2 rounded-full', filter.color)} />}
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
+        <Button size="sm" variant="outline" onClick={handleSearch} disabled={searching || !searchQuery.trim()} className="gap-1.5">
+          {searching ? <span className="animate-spin inline-block">⟳</span> : <MapPinned className="w-3.5 h-3.5" />}
+          Localizar
         </Button>
-        {searchMarker && (
-          <Button size="sm" variant="outline" onClick={() => setSearchMarker(null)}>
-            ✕ Limpar
-          </Button>
-        )}
+
         <Button
           size="sm"
           variant="outline"
           onClick={() => setFitTrigger(t => t + 1)}
+          disabled={visibleMarkers.length === 0}
+          className="gap-1.5"
+        >
+          <Maximize2 className="w-3.5 h-3.5" /> Enquadrar
+        </Button>
+
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setTileStyle(v => v === 'streets' ? 'light' : 'streets')}
+          className="gap-1.5"
+        >
+          <Layers className="w-3.5 h-3.5" /> {TILE_STYLES[tileStyle].label}
+        </Button>
+
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => setSidebarOpen(v => !v)}
           className="ml-auto gap-1.5"
         >
-          <Maximize2 className="w-3.5 h-3.5" /> Ver todos
+          {sidebarOpen ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+          Lista
         </Button>
+
+        {hasMapFilters && (
+          <Button size="sm" variant="ghost" onClick={clearMapFilters} className="gap-1.5 text-muted-foreground">
+            <X className="w-3.5 h-3.5" /> Limpar
+          </Button>
+        )}
       </div>
 
       {/* Mapa + Sidebar */}
-      <div className="flex gap-0 rounded-xl overflow-hidden border border-border shadow-sm" style={{ height: 580 }}>
+      <div
+        className="flex min-h-[520px] flex-col gap-0 overflow-hidden rounded-xl border border-border shadow-sm lg:min-h-[580px] lg:flex-row"
+        style={{ height: 'clamp(520px, calc(100vh - 300px), 720px)' }}
+      >
         {/* Leaflet Map */}
-        <div className="flex-1" style={{ minWidth: 0 }}>
+        <div className="relative min-h-[380px] flex-1" style={{ minWidth: 0 }}>
           <MapContainer
             center={[-14.235, -51.925]}
             zoom={4}
@@ -316,15 +519,15 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
             zoomControl
           >
             <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution={TILE_STYLES[tileStyle].attribution}
+              url={TILE_STYLES[tileStyle].url}
               maxZoom={19}
             />
 
             <MapEffects
               target={mapTarget}
               fitTrigger={fitTrigger}
-              allMarkers={mappedGroups}
+              allMarkers={visibleMarkers}
             />
 
             <FocusEffect
@@ -411,6 +614,26 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
                           )}
                         </div>
                       )}
+
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <a
+                          href={mapsUrl(m)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            color: '#2563eb',
+                            fontSize: 11,
+                            fontWeight: 700,
+                            textDecoration: 'none',
+                          }}
+                        >
+                          <ExternalLink style={{ width: 12, height: 12 }} />
+                          Abrir no Google Maps
+                        </a>
+                      </div>
                     </div>
                   </Popup>
                 </Marker>
@@ -426,27 +649,49 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
               </Marker>
             )}
           </MapContainer>
+          {visibleMarkers.length === 0 && !searchMarker && (
+            <div className="pointer-events-none absolute inset-0 z-[400] flex items-center justify-center bg-background/55 backdrop-blur-[1px]">
+              <div className="pointer-events-auto rounded-lg border border-border bg-card px-4 py-3 text-center shadow-lg">
+                <p className="text-sm font-semibold">Nenhuma loja para os filtros atuais</p>
+                <button
+                  type="button"
+                  onClick={clearMapFilters}
+                  className="mt-1 text-xs font-medium text-primary underline underline-offset-2"
+                >
+                  Limpar filtros
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sidebar de ranking por estado */}
-        <div style={{
-          width: 200,
-          display: 'flex',
-          flexDirection: 'column',
-          flexShrink: 0,
-          background: 'hsl(var(--card))',
-          borderLeft: '1px solid hsl(var(--border))',
-        }}>
+        {sidebarOpen && (
+        <div
+          className="flex shrink-0 flex-col border-t border-border bg-card lg:w-[320px] lg:border-l lg:border-t-0"
+          style={{ minHeight: 0 }}
+        >
           <div style={{
-            padding: '8px 12px',
+            padding: '10px 12px',
             background: 'hsl(var(--muted) / 0.5)',
             borderBottom: '1px solid hsl(var(--border))',
           }}>
-            <p style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'hsl(var(--muted-foreground))', margin: 0 }}>
-              Por estado
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="m-0 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                Estados
+              </p>
+              {selectedUf && (
+                <button
+                  type="button"
+                  onClick={() => onUfClick?.(null)}
+                  className="text-[11px] font-medium text-primary hover:underline"
+                >
+                  remover {selectedUf}
+                </button>
+              )}
+            </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+          <div className="max-h-36 overflow-y-auto border-b border-border">
             {[...byUf.entries()]
               .sort(([, a], [, b]) => b.count - a.count)
               .map(([uf, data]) => {
@@ -492,11 +737,64 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
                 );
               })}
           </div>
+
+          <div className="flex items-center justify-between border-b border-border bg-muted/25 px-3 py-2">
+            <p className="m-0 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+              Lojas visíveis
+            </p>
+            <span className="text-[11px] font-semibold tabular-nums text-foreground">
+              {visibleMarkers.length}
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            {rankedVisibleMarkers.slice(0, 80).map(loja => {
+              const color = SLA_COLORS[loja.slaGroupStatus];
+              return (
+                <button
+                  key={loja.loja}
+                  type="button"
+                  onClick={() => focusMarker(loja)}
+                  className="flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors hover:bg-secondary/60"
+                >
+                  <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-foreground">Loja {loja.loja}</span>
+                      <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                        {loja.qtd}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      {loja.cidade} - {loja.uf}
+                    </span>
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {loja.issues.slice(0, 3).map(issue => (
+                        <span key={issue.key} className="rounded border border-border bg-background px-1 py-0.5 font-mono text-[9px] text-primary">
+                          {issue.key}
+                        </span>
+                      ))}
+                      {loja.issues.length > 3 && (
+                        <span className="px-1 py-0.5 text-[9px] text-muted-foreground">+{loja.issues.length - 3}</span>
+                      )}
+                    </span>
+                  </span>
+                  <Navigation className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+              );
+            })}
+            {rankedVisibleMarkers.length > 80 && (
+              <div className="px-3 py-2 text-center text-[11px] text-muted-foreground">
+                Mostrando 80 de {rankedVisibleMarkers.length} lojas. Use a busca para refinar.
+              </div>
+            )}
+          </div>
         </div>
+        )}
       </div>
 
       {/* Legenda */}
-      <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-1 text-xs text-muted-foreground">
         {(Object.entries(SLA_COLORS) as [SlaStatus, string][]).map(([status, color]) => (
           <span key={status} className="flex items-center gap-1.5">
             <span className="w-3 h-3 rounded-full inline-block" style={{ background: color }} />
@@ -508,7 +806,7 @@ export function MapaAgendamento({ groups, onUfClick, selectedUf, focusLoja, onFo
             ⚠️ {unmappedCount} loja{unmappedCount !== 1 ? 's' : ''} sem coordenadas no cadastro
           </span>
         )}
-        <span className="ml-auto text-[11px]">
+        <span className="w-full text-[11px] sm:ml-auto sm:w-auto">
           Clique no estado → zoom · Clique no pin → detalhes · Scroll → zoom
         </span>
       </div>

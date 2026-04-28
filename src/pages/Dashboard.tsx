@@ -146,36 +146,28 @@ export default function Dashboard() {
       label: "RATs este mês",
       value: loadingRats ? null : String(thisMonthCount),
       icon: FileText,
-      color: "text-emerald-600 dark:text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
+      signal: "success",
       href: "/rat",
     },
     {
       label: "Agendamentos",
       value: "Ver",
       icon: CalendarClock,
-      color: "text-violet-600 dark:text-violet-400",
-      bg: "bg-violet-500/10",
-      border: "border-violet-500/20",
+      signal: "neutral",
       href: "/agendamento",
     },
     {
       label: "Gerador de IP",
       value: "Usar",
       icon: Network,
-      color: "text-cyan-600 dark:text-cyan-400",
-      bg: "bg-cyan-500/10",
-      border: "border-cyan-500/20",
+      signal: "neutral",
       href: "/gerador-ip",
     },
     {
       label: "Função",
       value: roleLabel,
       icon: User,
-      color: "text-violet-600 dark:text-violet-400",
-      bg: "bg-violet-500/10",
-      border: "border-violet-500/20",
+      signal: "neutral",
       href: "/perfil",
     },
   ];
@@ -185,36 +177,28 @@ export default function Dashboard() {
       label: "Ag. Validação Op.",
       value: loadingBo ? null : String(boData.chamadosPendentesOp),
       icon: ShieldCheck,
-      color: "text-blue-600 dark:text-blue-400",
-      bg: boData.chamadosPendentesOp > 0 ? "bg-blue-500/10" : "bg-card",
-      border: boData.chamadosPendentesOp > 0 ? "border-blue-500/20" : "border-border",
+      signal: boData.chamadosPendentesOp > 0 ? "attention" : "neutral",
       href: "/validacao",
     },
     {
       label: "Ag. Validação Fin.",
       value: loadingBo ? null : String(boData.chamadosPendentesFin),
       icon: CheckCircle2,
-      color: "text-purple-600 dark:text-purple-400",
-      bg: boData.chamadosPendentesFin > 0 ? "bg-purple-500/10" : "bg-card",
-      border: boData.chamadosPendentesFin > 0 ? "border-purple-500/20" : "border-border",
+      signal: boData.chamadosPendentesFin > 0 ? "attention" : "neutral",
       href: "/validacao",
     },
     {
       label: "Pagamentos pend.",
       value: loadingBo ? null : String(boData.pagamentosPendentes),
       icon: DollarSign,
-      color: "text-amber-600 dark:text-amber-400",
-      bg: boData.pagamentosPendentes > 0 ? "bg-amber-500/10" : "bg-card",
-      border: boData.pagamentosPendentes > 0 ? "border-amber-500/20" : "border-border",
+      signal: boData.pagamentosPendentes > 0 ? "attention" : "neutral",
       href: "/pagamentos",
     },
     {
       label: "Estoque baixo",
       value: loadingBo ? null : String(boData.estoqueBaixo),
       icon: Package,
-      color: boData.estoqueBaixo > 0 ? "text-red-600 dark:text-red-400" : "text-muted-foreground",
-      bg: boData.estoqueBaixo > 0 ? "bg-red-500/10" : "bg-card",
-      border: boData.estoqueBaixo > 0 ? "border-red-500/20" : "border-border",
+      signal: boData.estoqueBaixo > 0 ? "critical" : "neutral",
       href: "/estoque",
     },
   ];
@@ -224,21 +208,21 @@ export default function Dashboard() {
   // ── Quick actions ─────────────────────────────────────────────────────────
 
   const quickActionsTecnico = [
-    { href: "/rat",               icon: PlusCircle,    label: "Nova RAT",            description: "Abrir relatório de atendimento",      accent: "text-emerald-500 bg-emerald-500/10" },
-    { href: "/agendamento",       icon: CalendarClock, label: "Agendamentos",         description: "Ver agenda de visitas",               accent: "text-violet-500 bg-violet-500/10"  },
-    { href: "/gerador-ip",        icon: Network,       label: "Gerador de IP",        description: "Calcular endereços de rede",          accent: "text-cyan-500 bg-cyan-500/10"      },
-    { href: "/base-conhecimento", icon: BookText,      label: "Base de Conhecimento", description: "Artigos e procedimentos técnicos",    accent: "text-rose-500 bg-rose-500/10"      },
-    { href: "/templates-rat",     icon: LayoutTemplate,label: "Templates RAT",        description: "Modelos de relatório",                accent: "text-indigo-500 bg-indigo-500/10"  },
+    { href: "/rat",               icon: PlusCircle,    label: "Nova RAT",            description: "Abrir relatório de atendimento",      accent: "text-primary bg-primary/10" },
+    { href: "/agendamento",       icon: CalendarClock, label: "Agendamentos",         description: "Ver agenda de visitas",               accent: "text-muted-foreground bg-secondary"  },
+    { href: "/gerador-ip",        icon: Network,       label: "Gerador de IP",        description: "Calcular endereços de rede",          accent: "text-muted-foreground bg-secondary"      },
+    { href: "/base-conhecimento", icon: BookText,      label: "Base de Conhecimento", description: "Artigos e procedimentos técnicos",    accent: "text-muted-foreground bg-secondary"      },
+    { href: "/templates-rat",     icon: LayoutTemplate,label: "Templates RAT",        description: "Modelos de relatório",                accent: "text-muted-foreground bg-secondary"  },
     { href: "/perfil",            icon: User,          label: "Meu Perfil",           description: "Dados e preferências",                accent: "text-muted-foreground bg-muted"    },
   ];
 
   const quickActionsBackoffice = [
-    { href: "/chamados",          icon: ClipboardList, label: "Chamados",             description: "Registrar e acompanhar chamados",     accent: "text-blue-500 bg-blue-500/10"      },
-    { href: "/validacao",         icon: ShieldCheck,   label: "Fila de Validação",    description: "Aprovar ou rejeitar chamados",        accent: "text-purple-500 bg-purple-500/10"  },
-    { href: "/pagamentos",        icon: DollarSign,    label: "Pagamentos",           description: "Gerar e controlar pagamentos",        accent: "text-amber-500 bg-amber-500/10"    },
-    { href: "/estoque",           icon: Package,       label: "Estoque",              description: "Controle de peças e materiais",       accent: "text-green-500 bg-green-500/10"    },
-    { href: "/agendamento",       icon: CalendarClock, label: "Agendamentos",         description: "Ver agenda de visitas",               accent: "text-violet-500 bg-violet-500/10"  },
-    { href: "/gerador-ip",        icon: Network,       label: "Gerador de IP",        description: "Calcular endereços de rede",          accent: "text-cyan-500 bg-cyan-500/10"      },
+    { href: "/chamados",          icon: ClipboardList, label: "Chamados",             description: "Registrar e acompanhar chamados",     accent: "text-primary bg-primary/10"      },
+    { href: "/validacao",         icon: ShieldCheck,   label: "Fila de Validação",    description: "Aprovar ou rejeitar chamados",        accent: "text-muted-foreground bg-secondary"  },
+    { href: "/pagamentos",        icon: DollarSign,    label: "Pagamentos",           description: "Gerar e controlar pagamentos",        accent: "text-muted-foreground bg-secondary"    },
+    { href: "/estoque",           icon: Package,       label: "Estoque",              description: "Controle de peças e materiais",       accent: "text-muted-foreground bg-secondary"    },
+    { href: "/agendamento",       icon: CalendarClock, label: "Agendamentos",         description: "Ver agenda de visitas",               accent: "text-muted-foreground bg-secondary"  },
+    { href: "/gerador-ip",        icon: Network,       label: "Gerador de IP",        description: "Calcular endereços de rede",          accent: "text-muted-foreground bg-secondary"      },
   ];
 
   const quickActions = isBackoffice ? quickActionsBackoffice : quickActionsTecnico;
@@ -246,8 +230,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 pb-6 animate-page-in">
       {/* ── Hero ── */}
-      <div className="rounded-2xl border border-border bg-card shadow-card overflow-hidden">
-        <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-primary to-primary/40" />
+      <div className="surface-panel overflow-hidden">
+        <div className="card-top-bar" />
 
         <div className="p-5 sm:p-6">
           {/* Saudação */}
@@ -277,7 +261,7 @@ export default function Dashboard() {
                     {getGreeting()}, {nomeDisplay}!
                   </h1>
                   <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-primary/10 text-primary">
+                    <span className="inline-flex h-[22px] items-center rounded-full px-2.5 text-[11px] font-semibold bg-primary/10 text-primary">
                       {roleLabel}
                     </span>
                     {isBackoffice
@@ -298,23 +282,39 @@ export default function Dashboard() {
               : stats.map(s => {
                   const Icon = s.icon;
                   const loading = isBackoffice ? loadingBo : loadingRats;
+                  const isInverted = s.signal === "critical";
+                  const signalClass =
+                    s.signal === "success" ? "text-success" :
+                    s.signal === "attention" ? "text-foreground" :
+                    s.signal === "critical" ? "text-primary-foreground" :
+                    "text-foreground";
+                  const dotClass =
+                    s.signal === "success" ? "bg-success" :
+                    s.signal === "attention" ? "bg-warning" :
+                    s.signal === "critical" ? "bg-critical" :
+                    "bg-muted-foreground/35";
                   const tile = (
                     <div className={cn(
-                      "rounded-xl border p-4 space-y-2.5 transition-all duration-200",
-                      s.border, s.bg,
+                      "kpi-card min-h-[112px] space-y-4 transition-all duration-200",
+                      isInverted && "kpi-card-inverted",
                       s.href && "hover:scale-[1.02] hover:shadow-card-md cursor-pointer active:scale-[0.99]",
                     )}>
                       <div className="flex items-center justify-between">
-                        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground leading-none">
+                        <p className={cn("t-eyebrow leading-tight", isInverted ? "text-primary-foreground/65" : "text-muted-foreground")}>
                           {s.label}
                         </p>
-                        <Icon className={cn("w-4 h-4 shrink-0", s.color)} />
+                        <span className={cn("status-dot", dotClass)} />
                       </div>
                       {loading
                         ? <Skeleton className="h-7 w-12" />
-                        : <p className={cn("text-2xl font-bold tabular-nums leading-none", s.color)}>
-                            {s.value ?? "—"}
-                          </p>
+                        : (
+                          <div className="flex items-end justify-between gap-3">
+                            <p className={cn("text-[34px] font-extrabold tabular-nums leading-none", signalClass)}>
+                              {s.value ?? "—"}
+                            </p>
+                            <Icon className={cn("w-4 h-4 shrink-0 mb-1", isInverted ? "text-primary-foreground/55" : "text-muted-foreground")} />
+                          </div>
+                        )
                       }
                     </div>
                   );
@@ -329,7 +329,7 @@ export default function Dashboard() {
 
         {/* Coluna esquerda: chamados recentes (backoffice) ou RATs (técnico) */}
         {isBackoffice ? (
-          <Card className="shadow-card">
+          <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
@@ -352,10 +352,10 @@ export default function Dashboard() {
                   <p className="text-sm">Nenhum chamado rejeitado.</p>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-500/5 dark:border-red-800 p-4">
-                  <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+                <div className="flex items-center gap-3 rounded-[10px] border border-critical/25 bg-critical/5 p-4">
+                  <AlertTriangle className="w-5 h-5 text-critical shrink-0" />
                   <div>
-                    <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                    <p className="text-sm font-semibold text-critical">
                       {boData.chamadosRejeitados} chamado{boData.chamadosRejeitados > 1 ? "s" : ""} rejeitado{boData.chamadosRejeitados > 1 ? "s" : ""}
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">Requerem correção e resubmissão</p>
@@ -368,7 +368,7 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         ) : (
-          <Card className="shadow-card">
+          <Card>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
@@ -390,7 +390,7 @@ export default function Dashboard() {
                   {recentRats.map(r => (
                     <li key={r.id} className="flex items-center justify-between py-2.5 px-2.5 rounded-lg hover:bg-secondary/50 transition-colors">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <div className="w-8 h-8 rounded-[8px] bg-primary/10 flex items-center justify-center shrink-0">
                           <FileText className="h-[15px] w-[15px] text-primary" />
                         </div>
                         <div>
@@ -403,10 +403,10 @@ export default function Dashboard() {
                         <Badge className={cn(
                           "text-[10px] border font-semibold",
                           r.status === "Finalizada"
-                            ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/25 dark:text-emerald-400"
+                            ? "bg-success/10 text-success border-success/20"
                             : r.status === "Pendente"
-                            ? "bg-amber-500/10 text-amber-600 border-amber-500/25 dark:text-amber-400"
-                            : "bg-blue-500/10 text-blue-600 border-blue-500/25 dark:text-blue-400",
+                            ? "bg-warning/15 text-foreground border-warning/20"
+                            : "bg-info/10 text-info border-info/20",
                         )}>
                           {r.status}
                         </Badge>
@@ -431,7 +431,7 @@ export default function Dashboard() {
         )}
 
         {/* Acesso rápido */}
-        <Card className="shadow-card">
+        <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
               <Wrench className="w-4 h-4 text-primary" />
@@ -446,9 +446,9 @@ export default function Dashboard() {
                   <Link
                     key={a.href + a.label}
                     to={a.href}
-                    className="group flex items-start gap-3 rounded-xl border border-border/60 bg-secondary/20 hover:bg-secondary hover:border-border transition-all p-3"
+                    className="group flex items-start gap-3 rounded-[10px] border border-border bg-card hover:bg-secondary/60 transition-all p-3"
                   >
-                    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5", a.accent)}>
+                    <div className={cn("w-8 h-8 rounded-[8px] flex items-center justify-center shrink-0 mt-0.5", a.accent)}>
                       <Icon className="w-[15px] h-[15px]" />
                     </div>
                     <div className="min-w-0">
@@ -461,7 +461,7 @@ export default function Dashboard() {
               {permissions.canManageUsers && !isBackoffice && (
                 <Link
                   to="/tecnicos"
-                  className="group flex items-start gap-3 rounded-xl border border-border/60 bg-secondary/20 hover:bg-secondary hover:border-border transition-all p-3"
+                  className="group flex items-start gap-3 rounded-[10px] border border-border bg-card hover:bg-secondary/60 transition-all p-3"
                 >
                   <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
                     <Users className="w-[15px] h-[15px] text-muted-foreground" />

@@ -132,11 +132,11 @@ function buildGroups(
 // ─── NavItem ──────────────────────────────────────────────────────────────────
 
 const BADGE_TONE_CLASS: Record<NonNullable<NavItemDef['badgeTone']>, string> = {
-  blue:    'bg-blue-500 text-white',
-  amber:   'bg-amber-500 text-white',
-  red:     'bg-red-500 text-white',
-  emerald: 'bg-emerald-500 text-white',
-  primary: 'bg-primary text-primary-foreground',
+  blue:    'bg-secondary text-muted-foreground',
+  amber:   'bg-secondary text-muted-foreground',
+  red:     'bg-critical text-critical-foreground',
+  emerald: 'bg-secondary text-muted-foreground',
+  primary: 'bg-secondary text-muted-foreground',
 };
 
 function NavItem({
@@ -156,13 +156,13 @@ function NavItem({
       end={to === "/"}
       className={({ isActive }) =>
         cn(
-          "group/item relative flex items-center rounded-lg text-[13px] font-medium transition-all duration-150 select-none",
+          "group/item relative flex items-center rounded-[8px] text-[13px] font-medium transition-all duration-150 select-none",
           !collapsed && "gap-2.5 px-3 h-9",
           collapsed && "h-9 w-9 justify-center mx-auto",
           isActive
             ? "bg-primary/10 text-primary"
             : "text-foreground/60 hover:text-foreground hover:bg-secondary/60",
-          isActive && !collapsed && "border-l-2 border-primary pl-[10px]",
+          isActive && !collapsed && "font-semibold",
         )
       }
     >
@@ -180,7 +180,7 @@ function NavItem({
       {!collapsed && <span className="flex-1 truncate leading-none">{label}</span>}
       {!collapsed && showBadge && (
         <span className={cn(
-          "shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold px-1.5 leading-none",
+          "shrink-0 min-w-[18px] h-[18px] rounded-full flex items-center justify-center text-[10px] font-bold px-1.5 leading-none tabular-nums",
           badgeClass,
         )}>
           {badge! > 99 ? '99+' : badge}
@@ -286,7 +286,7 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
           "flex items-center h-14 border-b border-border shrink-0",
           collapsed ? "justify-center px-0" : "px-4 gap-3",
         )}>
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0 shadow-sm">
+          <div className="w-7 h-7 rounded-[8px] bg-primary flex items-center justify-center shrink-0 shadow-sm">
             <Wrench className="w-[14px] h-[14px] text-primary-foreground" />
           </div>
           {!collapsed && (

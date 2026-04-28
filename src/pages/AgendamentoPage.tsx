@@ -1258,15 +1258,15 @@ export default function AgendamentoPage() {
       )}
 
       {/* ── Hero header ── */}
-      <div className="rounded-2xl border border-border/60 bg-card overflow-hidden shadow-sm">
-        <div className="h-[3px] w-full bg-primary" />
+      <div className="surface-panel overflow-hidden">
+        <div className="card-top-bar" />
         <div className="p-6">
           <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
             <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Operação
               </p>
-              <h1 className="text-3xl font-bold tracking-tight mt-1 leading-none">Agendamentos</h1>
+              <h1 className="t-title mt-1">Agendamentos</h1>
               <p className="text-xs text-muted-foreground mt-2 tabular-nums">
                 <span className="font-semibold text-foreground">{totalAtivos}</span> ativos
                 <span className="mx-2 text-border">·</span>

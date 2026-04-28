@@ -38,7 +38,7 @@ function slaChip(slaBadge?: string) {
   if (!slaBadge) return null;
   let dot = 'bg-muted-foreground';
   let text = slaBadge.replace(/^[🔴🟡🟢]/u, '').trim() || 'SLA';
-  if (slaBadge.startsWith('🔴')) { dot = 'bg-rose-500';   text = text || 'estourado'; }
+  if (slaBadge.startsWith('🔴')) { dot = 'bg-critical';   text = text || 'estourado'; }
   else if (slaBadge.startsWith('🟡')) { dot = 'bg-amber-500'; text = text || 'alerta'; }
   else if (slaBadge.startsWith('🟢')) { dot = 'bg-emerald-500'; text = text || 'ok'; }
   return (
@@ -156,10 +156,7 @@ export function IssueSection({
         <span className={`text-[11px] font-semibold uppercase tracking-wide ${isTerminal ? 'text-violet-400' : 'text-primary'}`}>
           {label}
         </span>
-        <Badge
-          variant="secondary"
-          className={`text-[10px] tabular-nums ${isTerminal ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : ''}`}
-        >
+        <Badge variant={isTerminal ? "terminal" : "secondary"} className="text-[10px] tabular-nums">
           {issues.length}
         </Badge>
         <ChevronDown
@@ -228,16 +225,16 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   // Sinal único de SLA: chip com dot colorido + tempo
   const slaSignal: { dot: string; label: string; hint?: string } =
     hasCriticalSla || group.slaGroupStatus === 'critical'
-      ? { dot: 'bg-rose-500',    label: hasCriticalSla ? 'SLA estourado' : '+7d sem update', hint: lastUpdatedLabel ?? undefined }
+      ? { dot: 'bg-critical',    label: hasCriticalSla ? 'SLA estourado' : '+7d sem update', hint: lastUpdatedLabel ?? undefined }
       : hasWarnSla || group.slaGroupStatus === 'warning'
-      ? { dot: 'bg-amber-500',   label: hasWarnSla ? 'Alerta SLA' : '+3d sem update',        hint: lastUpdatedLabel ?? undefined }
+      ? { dot: 'bg-warning',     label: hasWarnSla ? 'Alerta SLA' : '+3d sem update',        hint: lastUpdatedLabel ?? undefined }
       : group.isCritical
-      ? { dot: 'bg-rose-500',    label: 'crítica',                                            hint: lastUpdatedLabel ?? undefined }
-      : { dot: 'bg-emerald-500', label: 'SLA ok',                                             hint: lastUpdatedLabel ?? undefined };
+      ? { dot: 'bg-critical',    label: 'crítica',                                            hint: lastUpdatedLabel ?? undefined }
+      : { dot: 'bg-success',     label: 'SLA ok',                                             hint: lastUpdatedLabel ?? undefined };
 
   // Manter borda esquerda sutil só em estado crítico (1 sinal a mais, opcional)
   const borderEdge = (hasCriticalSla || group.slaGroupStatus === 'critical')
-    ? 'border-l-rose-500/60'
+    ? 'border-l-critical'
     : 'border-l-transparent';
 
   const bgHover = open ? 'bg-card' : 'bg-card/50 hover:bg-card';
@@ -267,7 +264,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
             toggle();
           }
         }}
-        className={`w-full grid grid-cols-[minmax(0,1fr)_84px_172px_140px_auto] items-center gap-x-4 px-5 py-3.5 rounded-xl border border-l-4 cursor-pointer ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}
+        className={`w-full grid grid-cols-[minmax(0,1fr)_84px_172px_140px_auto] items-center gap-x-4 px-5 py-3.5 rounded-[10px] border border-l-4 cursor-pointer ${borderEdge} ${bgHover} transition-all duration-200 text-left group shadow-card focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50`}
       >
         {/* 1. Nome + cidade */}
         <div className="min-w-0">
@@ -338,7 +335,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
       </div>
 
       <CollapsibleContent>
-        <div className="mt-1 rounded-xl border border-border/50 bg-card p-4 space-y-4 shadow-sm">
+        <div className="mt-2 rounded-[10px] border border-border/50 bg-card p-4 space-y-4 shadow-card">
           {warningText && (
             <div className="flex items-start gap-2.5 p-3 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />

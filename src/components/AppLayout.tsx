@@ -161,7 +161,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       <div className="flex-1 flex flex-col min-h-screen overflow-hidden min-w-0">
         {/* ── Header ── */}
-        <header className="sticky top-0 z-20 border-b border-border bg-card/90 backdrop-blur-md">
+        <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur-md">
           <div className="flex items-center gap-1.5 px-3 h-14">
 
             {/* ── Mobile: hamburger ── */}
@@ -307,7 +307,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* ── Conteúdo ── */}
-        <main id="main-content" className="flex-1 px-4 py-6 max-w-6xl w-full mx-auto animate-page-in">
+        <main id="main-content" className="flex-1 px-4 py-6 max-w-7xl w-full mx-auto animate-page-in">
           {children}
         </main>
       </div>

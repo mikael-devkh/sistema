@@ -29,8 +29,12 @@ const CHAMADOS_PENDING_STATUSES = [
   'validado_financeiro',
 ] as const;
 
-export function usePendingCounts(enabled = true): PendingCounts {
+export function usePendingCounts(
+  enabled = true,
+  options: { includePayments?: boolean } = {},
+): PendingCounts {
   const [counts, setCounts] = useState<PendingCounts>(INITIAL);
+  const includePayments = options.includePayments ?? true;
 
   useEffect(() => {
     if (!enabled) return;
@@ -56,14 +60,18 @@ export function usePendingCounts(enabled = true): PendingCounts {
       ));
     } catch {}
 
-    // Pagamentos pendentes
-    try {
-      unsubs.push(onSnapshot(
-        query(collection(db, 'pagamentos'), where('status', '==', 'pendente')),
-        snap => setCounts(c => ({ ...c, pagamentosPendentes: snap.size })),
-        (err) => console.warn('[pending-counts]', err.code, err.message),
-      ));
-    } catch {}
+    if (includePayments) {
+      // Pagamentos pendentes
+      try {
+        unsubs.push(onSnapshot(
+          query(collection(db, 'pagamentos'), where('status', '==', 'pendente')),
+          snap => setCounts(c => ({ ...c, pagamentosPendentes: snap.size })),
+          (err) => console.warn('[pending-counts]', err.code, err.message),
+        ));
+      } catch {}
+    } else {
+      setCounts(c => ({ ...c, pagamentosPendentes: 0 }));
+    }
 
     // Estoque — itens abaixo do mínimo (no Firestore operator for this comparison)
     try {
@@ -84,7 +92,7 @@ export function usePendingCounts(enabled = true): PendingCounts {
     } catch {}
 
     return () => { unsubs.forEach(u => u()); };
-  }, [enabled]);
+  }, [enabled, includePayments]);
 
   return counts;
 }

@@ -69,6 +69,7 @@ export default function Dashboard() {
   const roleLabel = ROLE_LABEL[profile?.role ?? ""] ?? "Técnico";
 
   const isBackoffice = role === "admin" || role === "operador" || role === "financeiro";
+  const canViewFinancialValues = permissions.canViewFinancialValues;
   const isLoading    = loadingAuth || loadingProfile;
 
   // ── RATs recentes (React Query com cache de 10min) ────────────────────────
@@ -106,14 +107,16 @@ export default function Dashboard() {
 
   // ── Métricas de backoffice (React Query) ─────────────────────────────────
   const { data: bo, isLoading: loadingBo } = useQuery({
-    queryKey: ["dashboard-backoffice"],
+    queryKey: ["dashboard-backoffice", canViewFinancialValues],
     queryFn: async () => {
       const chamados  = collection(db, "chamados");
-      const pagamentos = collection(db, "pagamentos");
       const estoque   = collection(db, "estoqueItens");
+      const pagamentosPromise = canViewFinancialValues
+        ? getDocs(query(collection(db, "pagamentos"), where("status", "==", "pendente"), fbLimit(200)))
+        : Promise.resolve(null);
       const [snapChamados, snapPag, snapEst] = await Promise.all([
         getDocs(query(chamados, fbLimit(500))),
-        getDocs(query(pagamentos, where("status", "==", "pendente"),          fbLimit(200))),
+        pagamentosPromise,
         getDocs(query(estoque)),
       ]);
       let chamadosPendentesOp = 0;
@@ -139,7 +142,7 @@ export default function Dashboard() {
         chamadosPendentesOp,
         chamadosPendentesFin,
         chamadosRejeitados,
-        pagamentosPendentes:  snapPag.size,
+        pagamentosPendentes:  snapPag?.size ?? 0,
         estoqueBaixo,
         estoquePendente,
         chamadosComReembolso,
@@ -194,22 +197,24 @@ export default function Dashboard() {
       value: loadingBo ? null : String(boData.chamadosPendentesOp),
       icon: ShieldCheck,
       signal: boData.chamadosPendentesOp > 0 ? "attention" : "neutral",
-      href: "/validacao",
+      href: "/validacao?etapa=operador",
     },
     {
       label: "Ag. Validação Fin.",
       value: loadingBo ? null : String(boData.chamadosPendentesFin),
       icon: CheckCircle2,
       signal: boData.chamadosPendentesFin > 0 ? "attention" : "neutral",
-      href: "/validacao",
+      href: "/validacao?etapa=financeiro",
     },
-    {
-      label: "Pagamentos pend.",
-      value: loadingBo ? null : String(boData.pagamentosPendentes),
-      icon: DollarSign,
-      signal: boData.pagamentosPendentes > 0 ? "attention" : "neutral",
-      href: "/pagamentos",
-    },
+    ...(permissions.canViewFinancialValues
+      ? [{
+          label: "Pagamentos pend.",
+          value: loadingBo ? null : String(boData.pagamentosPendentes),
+          icon: DollarSign,
+          signal: boData.pagamentosPendentes > 0 ? "attention" : "neutral",
+          href: "/pagamentos",
+        }]
+      : []),
     {
       label: "Estoque baixo",
       value: loadingBo ? null : String(boData.estoqueBaixo),
@@ -222,14 +227,14 @@ export default function Dashboard() {
       value: loadingBo ? null : String(boData.estoquePendente),
       icon: AlertTriangle,
       signal: boData.estoquePendente > 0 ? "attention" : "neutral",
-      href: "/chamados",
+      href: "/chamados?sinal=estoque_pendente",
     },
     {
       label: "Com reembolso",
       value: loadingBo ? null : String(boData.chamadosComReembolso),
       icon: Package,
       signal: boData.chamadosComReembolso > 0 ? "attention" : "neutral",
-      href: "/chamados",
+      href: "/chamados?sinal=com_reembolso",
     },
   ];
 
@@ -249,7 +254,9 @@ export default function Dashboard() {
   const quickActionsBackoffice = [
     { href: "/chamados",          icon: ClipboardList, label: "Chamados",             description: "Registrar e acompanhar chamados",     accent: "text-primary bg-primary/10"      },
     { href: "/validacao",         icon: ShieldCheck,   label: "Fila de Validação",    description: "Aprovar ou rejeitar chamados",        accent: "text-muted-foreground bg-secondary"  },
-    { href: "/pagamentos",        icon: DollarSign,    label: "Pagamentos",           description: "Gerar e controlar pagamentos",        accent: "text-muted-foreground bg-secondary"    },
+    ...(permissions.canViewFinancialValues
+      ? [{ href: "/pagamentos", icon: DollarSign, label: "Pagamentos", description: "Gerar e controlar pagamentos", accent: "text-muted-foreground bg-secondary" }]
+      : []),
     { href: "/estoque",           icon: Package,       label: "Estoque",              description: "Controle de peças e materiais",       accent: "text-muted-foreground bg-secondary"    },
     { href: "/agendamento",       icon: CalendarClock, label: "Agendamentos",         description: "Ver agenda de visitas",               accent: "text-muted-foreground bg-secondary"  },
     { href: "/gerador-ip",        icon: Network,       label: "Gerador de IP",        description: "Calcular endereços de rede",          accent: "text-muted-foreground bg-secondary"      },
@@ -366,7 +373,7 @@ export default function Dashboard() {
                   <ClipboardList className="w-4 h-4 text-primary" />
                   Chamados rejeitados
                 </CardTitle>
-                <Link to="/chamados" className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 transition-colors">
+                <Link to="/chamados?status=rejeitado" className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 transition-colors">
                   Ver todos <ArrowRight className="w-3 h-3" />
                 </Link>
               </div>
@@ -390,7 +397,7 @@ export default function Dashboard() {
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">Requerem correção e resubmissão</p>
                   </div>
-                  <Link to="/chamados" className="ml-auto shrink-0">
+                  <Link to="/chamados?status=rejeitado" className="ml-auto shrink-0">
                     <ArrowRight className="w-4 h-4 text-muted-foreground" />
                   </Link>
                 </div>
@@ -510,7 +517,7 @@ export default function Dashboard() {
       {/* ── CTA contextual ── */}
       {isBackoffice ? (
         <Link
-          to="/validacao"
+          to={boData.chamadosPendentesFin > 0 ? "/validacao?etapa=financeiro" : "/validacao?etapa=operador"}
           className="flex items-center justify-between rounded-xl border border-border/60 bg-card hover:bg-secondary/30 transition-all px-5 py-4 shadow-card group"
         >
           <div className="flex items-center gap-3">

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
 import { Button } from '../components/ui/button';
@@ -52,6 +53,9 @@ import {
   TrendingUp,
   Layers,
   RefreshCcw,
+  AlertTriangle,
+  Search,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { listTechnicians } from '../lib/technician-firestore';
@@ -73,12 +77,63 @@ import { EmptyState } from '../components/EmptyState';
 
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmtH = (h: number) => h < 1 ? `${Math.round(h * 60)}min` : `${h.toFixed(1)}h`;
+const hasEstoquePendente = (d: PagamentoChamadoDetalhe) => Boolean(d.estoqueItemId && !d.estoqueBaixadoEm);
+const estoqueStatusLabel = (d: PagamentoChamadoDetalhe) => {
+  if (!d.estoqueItemId) return 'Não se aplica';
+  return d.estoqueBaixadoEm ? 'Baixado' : 'Sem baixa';
+};
+const fmtDateTimeBR = (ms?: number) => ms ? new Date(ms).toLocaleString('pt-BR') : '';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const firstOfMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 };
+
+type PaymentTab = 'pendentes' | 'historico' | 'dashboard';
+type PaymentSignalFilter = 'todos' | 'estoque_pendente' | 'com_reembolso' | 'horas_extras' | 'adicionais';
+
+function normalizePaymentTab(value: string | null): PaymentTab {
+  return value === 'historico' || value === 'dashboard' ? value : 'pendentes';
+}
+
+const PAYMENT_SIGNAL_LABEL: Record<PaymentSignalFilter, string> = {
+  todos: 'Todos os sinais',
+  estoque_pendente: 'Estoque sem baixa',
+  com_reembolso: 'Com reembolso',
+  horas_extras: 'Horas extras',
+  adicionais: 'Adicionais',
+};
+
+function pagamentoMatchesSearch(pagamento: Pagamento, search: string) {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const hay = [
+    pagamento.tecnicoNome,
+    pagamento.status,
+    pagamento.periodo.de,
+    pagamento.periodo.ate,
+    ...pagamento.detalhesChamados.flatMap(d => [
+      d.fsa,
+      d.codigoLoja,
+      d.catalogoServicoNome,
+      d.pecaUsada,
+      d.estoqueItemNome,
+      d.tecnicoExecutorNome,
+    ]),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return hay.includes(q);
+}
+
+function pagamentoMatchesSignal(pagamento: Pagamento, signal: PaymentSignalFilter) {
+  if (signal === 'todos') return true;
+  const detalhes = pagamento.detalhesChamados;
+  if (signal === 'estoque_pendente') return detalhes.some(hasEstoquePendente);
+  if (signal === 'com_reembolso') return detalhes.some(d => d.reembolsoPeca > 0);
+  if (signal === 'horas_extras') return detalhes.some(d => (d.horasExtras ?? 0) > 0);
+  if (signal === 'adicionais') return detalhes.some(d => d.isAdicional);
+  return true;
+}
 
 function statusConfig(status: string) {
   switch (status) {
@@ -225,7 +280,15 @@ function GerarPagamentoDialog({
     try {
       const result = await gerarPreviewPagamentos(de, ate, catalogoServicos, nomesTecnicos);
       setPreviews(result);
-      setSelectedChamadoIds(new Set(result.flatMap(p => p.detalhesChamados.map(d => d.serviceReportId))));
+      const bloqueados = result.flatMap(p => p.detalhesChamados).filter(hasEstoquePendente);
+      setSelectedChamadoIds(new Set(
+        result.flatMap(p => p.detalhesChamados)
+          .filter(d => !hasEstoquePendente(d))
+          .map(d => d.serviceReportId),
+      ));
+      if (bloqueados.length > 0) {
+        toast.warning(`${bloqueados.length} chamado(s) com estoque sem baixa foram bloqueados na prévia.`);
+      }
       if (result.length === 0) toast.info('Nenhum relatório pendente encontrado no período.');
     } catch (e) {
       console.error(e);
@@ -253,6 +316,11 @@ function GerarPagamentoDialog({
   const handleConfirmar = async () => {
     const selecionados = selectedPreviews;
     if (selecionados.length === 0) { toast.error('Selecione ao menos um chamado.'); return; }
+    const bloqueados = selecionados.flatMap(p => p.detalhesChamados).filter(hasEstoquePendente);
+    if (bloqueados.length > 0) {
+      toast.error(`Não é possível confirmar: ${bloqueados.length} chamado(s) com estoque sem baixa.`);
+      return;
+    }
 
     // Validação de dados bancários — avisa (não bloqueia) se algum técnico estiver sem PIX/banco
     const semDados = selecionados.filter(p => {
@@ -290,11 +358,29 @@ function GerarPagamentoDialog({
     () => selectedPreviews.flatMap(p => p.detalhesChamados),
     [selectedPreviews]
   );
+  const allPreviewDetails = useMemo(
+    () => previews.flatMap(p => p.detalhesChamados),
+    [previews],
+  );
+  const previewSummary = useMemo(() => {
+    const bloqueados = allPreviewDetails.filter(hasEstoquePendente);
+    const disponiveis = allPreviewDetails.filter(d => !hasEstoquePendente(d));
+    const selecionados = allPreviewDetails.filter(d => selectedChamadoIds.has(d.serviceReportId));
+    return {
+      bloqueados: bloqueados.length,
+      disponiveis: disponiveis.length,
+      selecionados: selecionados.length,
+      totalDisponivel: disponiveis.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0),
+      totalBloqueado: bloqueados.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0),
+    };
+  }, [allPreviewDetails, selectedChamadoIds]);
 
   const toggleTecnico = (preview: PagamentoPreview) =>
     setSelectedChamadoIds(prev => {
       const next = new Set(prev);
-      const ids = preview.detalhesChamados.map(d => d.serviceReportId);
+      const ids = preview.detalhesChamados
+        .filter(d => !hasEstoquePendente(d))
+        .map(d => d.serviceReportId);
       const allSelected = ids.every(id => next.has(id));
       ids.forEach(id => allSelected ? next.delete(id) : next.add(id));
       return next;
@@ -302,6 +388,8 @@ function GerarPagamentoDialog({
 
   const toggleChamado = (id: string) =>
     setSelectedChamadoIds(prev => {
+      const detail = previews.flatMap(p => p.detalhesChamados).find(d => d.serviceReportId === id);
+      if (detail && hasEstoquePendente(detail)) return prev;
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
@@ -341,29 +429,51 @@ function GerarPagamentoDialog({
           {/* Prévia por técnico */}
           {previews.length > 0 && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-semibold">{previews.length} técnico(s) com saldo</span>
-                <div className="flex items-center gap-3">
+              <div className="sticky top-0 z-10 -mx-1 rounded-lg border border-border bg-background/95 p-3 shadow-sm backdrop-blur">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">{previews.length} técnico(s) com saldo</p>
+                    <p className="text-xs text-muted-foreground">
+                      {previewSummary.selecionados}/{previewSummary.disponiveis} chamado(s) disponível(is) selecionado(s)
+                      {previewSummary.bloqueados > 0 && ` · ${previewSummary.bloqueados} bloqueado(s) por estoque`}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="gap-1.5">
+                      <DollarSign className="w-3 h-3" /> {brl(totalSelecionado)}
+                    </Badge>
+                    {previewSummary.bloqueados > 0 && (
+                      <Badge variant="destructive" className="gap-1.5">
+                        <AlertTriangle className="w-3 h-3" /> {brl(previewSummary.totalBloqueado)} bloqueado
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
                   <button type="button" className="text-xs text-primary hover:underline"
-                    onClick={() => setSelectedChamadoIds(new Set(previews.flatMap(p => p.detalhesChamados.map(d => d.serviceReportId))))}>
-                    Selecionar todos
+                    onClick={() => setSelectedChamadoIds(new Set(
+                      previews.flatMap(p => p.detalhesChamados)
+                        .filter(d => !hasEstoquePendente(d))
+                        .map(d => d.serviceReportId),
+                    ))}>
+                    Selecionar disponíveis
                   </button>
                   <span className="text-border">|</span>
                   <button type="button" className="text-xs text-muted-foreground hover:underline"
                     onClick={() => setSelectedChamadoIds(new Set())}>
                     Nenhum
                   </button>
-                  <span className="text-muted-foreground">
-                    Total: <span className="font-bold text-foreground">{brl(totalSelecionado)}</span>
-                  </span>
+                  <span className="text-muted-foreground">Disponível: {brl(previewSummary.totalDisponivel)}</span>
                 </div>
               </div>
 
               <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                 {previews.map(p => {
                   const selectedDetails = p.detalhesChamados.filter(d => selectedChamadoIds.has(d.serviceReportId));
+                  const selectableDetails = p.detalhesChamados.filter(d => !hasEstoquePendente(d));
                   const selectedValue = selectedDetails.reduce((sum, d) => sum + d.valorChamado + d.reembolsoPeca, 0);
-                  const allSelected = selectedDetails.length === p.detalhesChamados.length;
+                  const allSelected = selectableDetails.length > 0 && selectableDetails.every(d => selectedChamadoIds.has(d.serviceReportId));
                   const someSelected = selectedDetails.length > 0 && !allSelected;
 
                   return (
@@ -382,6 +492,7 @@ function GerarPagamentoDialog({
                           className="accent-primary w-4 h-4 shrink-0"
                           checked={allSelected}
                           onChange={() => toggleTecnico(p)}
+                          disabled={p.detalhesChamados.every(hasEstoquePendente)}
                         />
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm truncate">{p.tecnicoNome}</p>
@@ -401,11 +512,13 @@ function GerarPagamentoDialog({
                       <div className="space-y-1.5">
                         {p.detalhesChamados.map(d => {
                           const totalChamado = d.valorChamado + d.reembolsoPeca;
+                          const estoquePendente = hasEstoquePendente(d);
                           return (
                             <label
                               key={d.serviceReportId}
                               className={cn(
                                 'flex items-start gap-2 rounded-md border px-3 py-2 text-xs cursor-pointer transition-colors',
+                                estoquePendente && 'cursor-not-allowed opacity-70',
                                 selectedChamadoIds.has(d.serviceReportId)
                                   ? 'border-primary/30 bg-background'
                                   : 'border-border/60 bg-muted/20 text-muted-foreground',
@@ -416,6 +529,7 @@ function GerarPagamentoDialog({
                                 className="accent-primary w-3.5 h-3.5 mt-0.5 shrink-0"
                                 checked={selectedChamadoIds.has(d.serviceReportId)}
                                 onChange={() => toggleChamado(d.serviceReportId)}
+                                disabled={estoquePendente}
                               />
                               <span className="flex-1 min-w-0">
                                 <span className="font-medium text-foreground">FSA #{d.fsa} · Loja {d.codigoLoja}</span>
@@ -426,6 +540,11 @@ function GerarPagamentoDialog({
                                   {d.estoqueItemId ? ` · estoque: ${d.estoqueItemNome ?? d.pecaUsada ?? 'peça'}${d.estoqueQuantidade ? ` (${d.estoqueQuantidade})` : ''}` : ''}
                                   {d.pagamentoDestino === 'parent' && d.tecnicoExecutorNome ? ` · executor ${d.tecnicoExecutorNome}` : ''}
                                 </span>
+                                {estoquePendente && (
+                                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-red-600 dark:text-red-400">
+                                    <AlertTriangle className="w-3 h-3" /> Bloqueado: saída de estoque pendente
+                                  </span>
+                                )}
                               </span>
                               <span className="font-semibold text-foreground shrink-0">{brl(totalChamado)}</span>
                             </label>
@@ -499,6 +618,19 @@ function ChamadoDetalheRow({ d }: { d: PagamentoChamadoDetalhe }) {
               {d.fornecedorPeca === 'Tecnico' && ' (reimb.)'}
               {d.estoqueItemId && ` · estoque${d.estoqueQuantidade ? ` ${d.estoqueQuantidade}` : ''}`}
             </span>
+          )}
+          {d.estoqueItemId && (
+            <Badge
+              variant="outline"
+              className={cn(
+                'text-[10px] gap-1',
+                hasEstoquePendente(d)
+                  ? 'border-red-300 text-red-700 dark:text-red-400'
+                  : 'border-green-300 text-green-700 dark:text-green-400',
+              )}
+            >
+              <Package className="w-2.5 h-2.5" /> {estoqueStatusLabel(d)}
+            </Badge>
           )}
           <span>{d.durationMinutes} min</span>
           {d.pagamentoDestino === 'parent' && d.tecnicoExecutorNome && (
@@ -734,6 +866,7 @@ function exportDashboardPDF(
         <td>${d.isAdicional ? 'Sim' : '—'}</td>
         <td>${d.pecaUsada ?? d.estoqueItemNome ?? '—'}</td>
         <td>${d.estoqueItemId ? `${d.estoqueItemNome ?? d.pecaUsada ?? 'Sim'}${d.estoqueQuantidade ? ` (${d.estoqueQuantidade})` : ''}` : '—'}</td>
+        <td>${estoqueStatusLabel(d)}</td>
         <td>${d.reembolsoPeca > 0 ? brl(d.reembolsoPeca) : '—'}</td>
         <td class="total">${brl(d.valorChamado + d.reembolsoPeca)}</td>
       </tr>`)
@@ -789,7 +922,7 @@ function exportDashboardPDF(
 
   <h2>Chamados — Links de Referência</h2>
   <table>
-    <thead><tr><th>Técnico</th><th>FSA</th><th>Loja</th><th>Serviço</th><th>Duração</th><th>Adicional</th><th>Peça</th><th>Estoque</th><th>Reembolso</th><th>Total</th></tr></thead>
+    <thead><tr><th>Técnico</th><th>FSA</th><th>Loja</th><th>Serviço</th><th>Duração</th><th>Adicional</th><th>Peça</th><th>Estoque</th><th>Status estoque</th><th>Reembolso</th><th>Total</th></tr></thead>
     <tbody>${chamadoRows}</tbody>
   </table>
 
@@ -821,6 +954,8 @@ function exportDashboardXlsx(pagamentos: Pagamento[]) {
         'Peça': d.pecaUsada ?? d.estoqueItemNome ?? '',
         'Item estoque': d.estoqueItemNome ?? '',
         'Qtd. estoque': d.estoqueQuantidade ?? '',
+        'Status estoque': estoqueStatusLabel(d),
+        'Baixa estoque em': fmtDateTimeBR(d.estoqueBaixadoEm),
         'Valor base (R$)': +valorBase.toFixed(2),
         'H. extras (R$)': +(d.valorHorasExtras ?? 0).toFixed(2),
         'Reembolso peças (R$)': +d.reembolsoPeca.toFixed(2),
@@ -829,7 +964,7 @@ function exportDashboardXlsx(pagamentos: Pagamento[]) {
     })
   );
   const ws = XLSX.utils.json_to_sheet(rows);
-  const colWidths = [20, 10, 14, 8, 28, 12, 10, 10, 22, 22, 12, 14, 12, 16, 14];
+  const colWidths = [20, 10, 14, 8, 28, 12, 10, 10, 22, 22, 12, 16, 18, 14, 12, 16, 14];
   ws['!cols'] = colWidths.map(w => ({ wch: w }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Pagamentos');
@@ -870,6 +1005,7 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
 
   const allDetalhes = useMemo(() => pagamentos.flatMap(p => p.detalhesChamados), [pagamentos]);
   const bTotal      = useMemo(() => calcBreakdown(allDetalhes), [allDetalhes]);
+  const qtdEstoquePendente = useMemo(() => allDetalhes.filter(hasEstoquePendente).length, [allDetalhes]);
 
   const porTecnico = useMemo(() => {
     const map = new Map<string, { nome: string; detalhes: PagamentoChamadoDetalhe[]; valor: number }>();
@@ -978,12 +1114,13 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
       {pagamentos.length > 0 && (
         <>
           {/* KPIs globais */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             {[
               { label: 'Total filtrado', value: brl(bTotal.total), sub: `${allDetalhes.length} chamados`, color: 'border-primary/20 text-primary' },
               { label: 'Chamados adicionais', value: bTotal.qtdAdicionais.toString(), sub: brl(bTotal.totalAdicionais), color: 'border-amber-500/20 text-amber-700 dark:text-amber-400' },
               { label: 'Horas extras', value: fmtH(bTotal.horasExtrasTotal), sub: `${bTotal.qtdComHorasExtras} cham. · ${brl(bTotal.totalHorasExtras)}`, color: 'border-orange-500/20 text-orange-700 dark:text-orange-400' },
               { label: 'Reembolso peças', value: brl(bTotal.totalReembolso), sub: '', color: 'border-blue-500/20 text-blue-700 dark:text-blue-400' },
+              { label: 'Estoque sem baixa', value: qtdEstoquePendente.toString(), sub: 'em lotes filtrados', color: qtdEstoquePendente > 0 ? 'border-red-500/20 text-red-700 dark:text-red-400' : 'border-green-500/20 text-green-700 dark:text-green-400' },
             ].map(k => (
               <div key={k.label} className={cn('p-4 rounded-xl border-2 bg-background shadow-sm', k.color.split(' ')[0])}>
                 <p className="text-xs font-medium text-muted-foreground mb-1">{k.label}</p>
@@ -1105,7 +1242,10 @@ function DashboardTab({ pagamentosTodos, tecnicosList }: {
 export default function PagamentosPage() {
   const { user, profile } = useAuth();
   const { permissions } = usePermissions();
+  const canAccessPagamentos = permissions.canViewFinancialValues;
   const isAdmin = permissions.canGeneratePayment;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = normalizePaymentTab(searchParams.get('tab'));
 
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1119,8 +1259,14 @@ export default function PagamentosPage() {
   const [obsPagamento, setObsPagamento] = useState('');
   const [comprovanteUrl, setComprovanteUrl] = useState('');
   const [motivoCancelamento, setMotivoCancelamento] = useState('');
+  const [paymentSearch, setPaymentSearch] = useState('');
+  const [paymentSignalFilter, setPaymentSignalFilter] = useState<PaymentSignalFilter>('todos');
 
   const fetchPagamentos = async () => {
+    if (!canAccessPagamentos) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const data = isAdmin ? await listPagamentos() : await listPagamentos(user?.uid);
@@ -1133,6 +1279,10 @@ export default function PagamentosPage() {
   };
 
   useEffect(() => {
+    if (!canAccessPagamentos) {
+      setLoading(false);
+      return;
+    }
     fetchPagamentos();
     listCatalogoServicos().then(setCatalogoServicos).catch(() => {});
     listTechnicians().then(techs => {
@@ -1141,16 +1291,51 @@ export default function PagamentosPage() {
       setNomesTecnicos(map);
       setTecnicos(techs);
     }).catch(() => {});
-  }, [user?.uid, isAdmin]);
+  }, [user?.uid, isAdmin, canAccessPagamentos]);
 
   const pendentes = useMemo(() => pagamentos.filter(p => p.status === 'pendente'), [pagamentos]);
   const historico  = useMemo(() => pagamentos.filter(p => p.status !== 'pendente'), [pagamentos]);
+  const visiblePendentes = useMemo(
+    () => pendentes.filter(p => pagamentoMatchesSearch(p, paymentSearch) && pagamentoMatchesSignal(p, paymentSignalFilter)),
+    [pendentes, paymentSearch, paymentSignalFilter],
+  );
+  const visibleHistorico = useMemo(
+    () => historico.filter(p => pagamentoMatchesSearch(p, paymentSearch) && pagamentoMatchesSignal(p, paymentSignalFilter)),
+    [historico, paymentSearch, paymentSignalFilter],
+  );
 
   const totalPendente = useMemo(() => pendentes.reduce((s, p) => s + p.valor, 0), [pendentes]);
   const totalPago     = useMemo(
     () => pagamentos.filter(p => p.status === 'pago').reduce((s, p) => s + p.valor, 0),
     [pagamentos]
   );
+  const totalHistorico = useMemo(() => historico.reduce((s, p) => s + p.valor, 0), [historico]);
+  const detalhesPendentes = useMemo(() => pendentes.flatMap(p => p.detalhesChamados), [pendentes]);
+  const estoquePendenteNosLotes = useMemo(
+    () => detalhesPendentes.filter(hasEstoquePendente).length,
+    [detalhesPendentes],
+  );
+  const tecnicosComSaldo = useMemo(() => new Set(pendentes.map(p => p.tecnicoId)).size, [pendentes]);
+  const chamadosPendentes = useMemo(() => pendentes.reduce((s, p) => s + p.chamadoIds.length, 0), [pendentes]);
+  const activePaymentFilters = paymentSearch.trim() || paymentSignalFilter !== 'todos';
+  const activeTabCount = activeTab === 'historico'
+    ? visibleHistorico.length
+    : activeTab === 'dashboard'
+      ? pagamentos.length
+      : visiblePendentes.length;
+
+  const clearPaymentFilters = () => {
+    setPaymentSearch('');
+    setPaymentSignalFilter('todos');
+  };
+
+  const handleTabChange = (value: string) => {
+    const nextTab = normalizePaymentTab(value);
+    const next = new URLSearchParams(searchParams);
+    if (nextTab === 'pendentes') next.delete('tab');
+    else next.set('tab', nextTab);
+    setSearchParams(next);
+  };
 
   const handleMarcarPago = async () => {
     if (!pagandoPagamento) return;
@@ -1192,6 +1377,33 @@ export default function PagamentosPage() {
       toast.error(e instanceof Error ? e.message : 'Erro ao cancelar pagamento.');
     }
   };
+
+  if (!canAccessPagamentos) {
+    return (
+      <div className="space-y-6 animate-page-in">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="h-1 bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
+          <div className="flex items-center gap-3 px-6 py-4">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+              <DollarSign className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">Pagamentos</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Fechamento e repasse aos técnicos de campo
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <EmptyState
+          icon={DollarSign}
+          title="Acesso financeiro restrito"
+          description="Esta área é reservada para financeiro e administradores."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-page-in">
@@ -1246,14 +1458,14 @@ export default function PagamentosPage() {
             <Users className="w-4 h-4" /> Técnicos
           </p>
           <p className="text-2xl font-bold">
-            {new Set(pendentes.map(p => p.tecnicoId)).size}
+            {tecnicosComSaldo}
           </p>
           <p className="text-xs text-muted-foreground mt-1">com saldo pendente</p>
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="pendentes">
+      <Tabs value={activeTab} onValueChange={handleTabChange}>
         <TabsList>
           <TabsTrigger value="pendentes" className="gap-2">
             <Clock className="w-4 h-4" /> Pendentes
@@ -1269,6 +1481,129 @@ export default function PagamentosPage() {
           </TabsTrigger>
         </TabsList>
 
+        <div className="sticky top-2 z-10 mt-3 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold">
+                {activeTab === 'pendentes' && 'Fila de pagamento pendente'}
+                {activeTab === 'historico' && 'Histórico financeiro'}
+                {activeTab === 'dashboard' && 'Análise financeira'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {activeTab === 'pendentes' && 'Revise lotes, confirme comprovantes e bloqueie divergências antes de marcar como pago.'}
+                {activeTab === 'historico' && 'Consulte lotes pagos ou cancelados, comprovantes, chamados incluídos e trilha de auditoria.'}
+                {activeTab === 'dashboard' && 'Acompanhe volume financeiro por período, técnico, adicionais, horas extras, reembolsos e estoque.'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {activeTab === 'pendentes' && (
+                <>
+                  <Badge variant="outline" className="gap-1.5">
+                    <DollarSign className="w-3 h-3" /> {brl(totalPendente)}
+                  </Badge>
+                  <Badge variant="secondary">{pendentes.length} lote(s)</Badge>
+                  <Badge variant="secondary">{chamadosPendentes} chamado(s)</Badge>
+                  <Badge variant="secondary">{tecnicosComSaldo} técnico(s)</Badge>
+                  {estoquePendenteNosLotes > 0 && (
+                    <Badge variant="destructive" className="gap-1.5">
+                      <AlertTriangle className="w-3 h-3" /> {estoquePendenteNosLotes} estoque sem baixa
+                    </Badge>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'historico' && (
+                <>
+                  <Badge variant="outline" className="gap-1.5">
+                    <DollarSign className="w-3 h-3" /> {brl(totalHistorico)}
+                  </Badge>
+                  <Badge variant="secondary">{historico.length} lote(s)</Badge>
+                  <Badge variant="secondary">{pagamentos.filter(p => p.status === 'pago').length} pago(s)</Badge>
+                  <Badge variant="secondary">{pagamentos.filter(p => p.status === 'cancelado').length} cancelado(s)</Badge>
+                </>
+              )}
+
+              {activeTab === 'dashboard' && (
+                <>
+                  <Badge variant="outline">{pagamentos.length} lote(s)</Badge>
+                  <Badge variant="secondary">A pagar {brl(totalPendente)}</Badge>
+                  <Badge variant="secondary">Pago {brl(totalPago)}</Badge>
+                </>
+              )}
+
+              <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={fetchPagamentos} disabled={loading}>
+                <RefreshCcw className="w-3.5 h-3.5" /> Atualizar
+              </Button>
+              {isAdmin && activeTab !== 'historico' && (
+                <Button size="sm" className="h-8 gap-1.5" onClick={() => setGerarDialogOpen(true)}>
+                  <Plus className="w-3.5 h-3.5" /> Gerar
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {activeTab !== 'dashboard' && (
+            <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex flex-1 flex-col gap-2 sm:flex-row">
+                <div className="relative min-w-[220px] flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={paymentSearch}
+                    onChange={e => setPaymentSearch(e.target.value)}
+                    placeholder="Buscar técnico, FSA, loja, serviço ou peça..."
+                    className="h-8 pl-8 text-xs"
+                  />
+                </div>
+                <select
+                  className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring sm:w-44"
+                  value={paymentSignalFilter}
+                  onChange={e => setPaymentSignalFilter(e.target.value as PaymentSignalFilter)}
+                >
+                  <option value="todos">Todos os sinais</option>
+                  <option value="estoque_pendente">Estoque sem baixa</option>
+                  <option value="com_reembolso">Com reembolso</option>
+                  <option value="horas_extras">Horas extras</option>
+                  <option value="adicionais">Adicionais</option>
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Badge variant="secondary">{activeTabCount} visível(is)</Badge>
+                {paymentSearch.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentSearch('')}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                    title="Remover busca"
+                  >
+                    <span className="font-medium text-foreground">Busca:</span>
+                    <span className="max-w-[180px] truncate">{paymentSearch}</span>
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+                {paymentSignalFilter !== 'todos' && (
+                  <button
+                    type="button"
+                    onClick={() => setPaymentSignalFilter('todos')}
+                    className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                    title="Remover sinal"
+                  >
+                    <span className="font-medium text-foreground">Sinal:</span>
+                    <span>{PAYMENT_SIGNAL_LABEL[paymentSignalFilter]}</span>
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+                {activePaymentFilters && (
+                  <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearPaymentFilters}>
+                    Limpar
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {loading ? (
           <div className="mt-4 space-y-3">
             {[1, 2, 3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}
@@ -1282,8 +1617,14 @@ export default function PagamentosPage() {
                   title="Nenhum pagamento pendente"
                   description={isAdmin ? 'Use "Gerar Pagamento" para criar pagamentos a partir dos relatórios arquivados.' : undefined}
                 />
+              ) : visiblePendentes.length === 0 ? (
+                <EmptyState
+                  icon={Search}
+                  title="Nenhum lote pendente encontrado"
+                  description="Ajuste a busca ou remova os sinais aplicados."
+                />
               ) : (
-                pendentes.map(p => (
+                visiblePendentes.map(p => (
                   <PagamentoCard
                     key={p.id}
                     pagamento={p}
@@ -1298,8 +1639,14 @@ export default function PagamentosPage() {
             <TabsContent value="historico" className="mt-4 space-y-3">
               {historico.length === 0 ? (
                 <EmptyState icon={DollarSign} title="Nenhum pagamento no histórico" />
+              ) : visibleHistorico.length === 0 ? (
+                <EmptyState
+                  icon={Search}
+                  title="Nenhum lote no histórico encontrado"
+                  description="Ajuste a busca ou remova os sinais aplicados."
+                />
               ) : (
-                historico.map(p => (
+                visibleHistorico.map(p => (
                   <PagamentoCard
                     key={p.id}
                     pagamento={p}

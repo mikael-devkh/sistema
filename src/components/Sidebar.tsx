@@ -62,6 +62,7 @@ function buildGroups(
 ): NavGroupDef[] {
   const canSeeChamados = role === 'admin' || role === 'operador' || role === 'financeiro';
   const canSeeValidacao = role === 'admin' || role === 'operador' || role === 'financeiro';
+  const canSeePagamentos = role === 'admin' || role === 'financeiro';
   const validacaoTotal = counts.chamadosValidacaoOp + counts.chamadosValidacaoFin;
 
   return [
@@ -89,11 +90,13 @@ function buildGroups(
               badge: validacaoTotal, badgeTone: 'blue' as const,
             }]
           : []),
-        {
-          to: "/pagamentos", icon: DollarSign, label: "Pagamentos",
-          badge: counts.chamadosAprovados + counts.pagamentosPendentes,
-          badgeTone: 'emerald' as const,
-        },
+        ...(canSeePagamentos
+          ? [{
+              to: "/pagamentos", icon: DollarSign, label: "Pagamentos",
+              badge: counts.chamadosAprovados + counts.pagamentosPendentes,
+              badgeTone: 'emerald' as const,
+            }]
+          : []),
         ...(canSeeChamados
           ? [{
               to: "/estoque", icon: Package, label: "Estoque",
@@ -247,7 +250,8 @@ export function Sidebar({ open, collapsed }: SidebarProps) {
 
   const isAdmin = profile?.role === "admin";
   const role    = profile?.role ?? 'tecnico';
-  const pendingCounts = usePendingCounts(!!user);
+  const canSeePagamentos = role === 'admin' || role === 'financeiro';
+  const pendingCounts = usePendingCounts(!!user, { includePayments: canSeePagamentos });
   const groups  = buildGroups(isAdmin, role, pendingCounts);
 
   const handleLogout = async () => {

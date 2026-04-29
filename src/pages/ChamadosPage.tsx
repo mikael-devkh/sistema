@@ -40,6 +40,7 @@ import type { EstoqueItem } from '../types/estoque';
 import { cn } from '../lib/utils';
 import { EmptyState } from '../components/EmptyState';
 import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
+import { useSearchParams } from 'react-router-dom';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -132,6 +133,31 @@ const OPERATIONAL_FILTERS: { value: OperationalFilter; label: string }[] = [
   { value: 'pagamento_ao_pai', label: 'Pagamento ao pai' },
   { value: 'pronto_pagamento', label: 'Pronto p/ pagamento' },
   { value: 'vinculado_pagamento', label: 'Vinculado a pagamento' },
+];
+
+const STATUS_FILTER_VALUES = new Set(STATUS_TABS.map(tab => tab.value));
+const OPERATIONAL_FILTER_VALUES = new Set<OperationalFilter>(OPERATIONAL_FILTERS.map(f => f.value));
+
+function getStatusFilterFromUrl(value: string | null) {
+  return value && STATUS_FILTER_VALUES.has(value) ? value : null;
+}
+
+function getOperationalFilterFromUrl(value: string | null): OperationalFilter | null {
+  return value && OPERATIONAL_FILTER_VALUES.has(value as OperationalFilter)
+    ? value as OperationalFilter
+    : null;
+}
+
+const QUEUE_PRESETS: {
+  label: string;
+  status: string;
+  sinal: OperationalFilter;
+  icon: React.ElementType;
+}[] = [
+  { label: 'Estoque sem baixa', status: 'todos', sinal: 'estoque_pendente', icon: AlertTriangle },
+  { label: 'Com reembolso', status: 'todos', sinal: 'com_reembolso', icon: Package },
+  { label: 'Pronto p/ pagamento', status: 'validado_financeiro', sinal: 'pronto_pagamento', icon: Calculator },
+  { label: 'Rejeitados', status: 'rejeitado', sinal: 'todos', icon: AlertCircle },
 ];
 
 function matchesOperationalFilter(c: Chamado, filter: OperationalFilter) {
@@ -1436,6 +1462,11 @@ function DetalheDialog({
 export default function ChamadosPage() {
   const { user, profile } = useAuth();
   const { permissions } = usePermissions();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initialStatusFilter = getStatusFilterFromUrl(searchParams.get('status'));
+  const initialSignalFilter = getOperationalFilterFromUrl(searchParams.get('sinal'));
+  const initialSearchFilter = searchParams.get('q') ?? '';
 
   const [chamados, setChamados] = useState<Chamado[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1443,13 +1474,13 @@ export default function ChamadosPage() {
   const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
   const [estoqueItens, setEstoqueItens] = useState<EstoqueItem[]>([]);
 
-  const [tabStatus, setTabStatus] = useState(() => sessionStorage.getItem('ch_tab') ?? 'todos');
-  const [search, setSearch] = useState('');
+  const [tabStatus, setTabStatus] = useState(() => initialStatusFilter ?? sessionStorage.getItem('ch_tab') ?? 'todos');
+  const [search, setSearch] = useState(initialSearchFilter);
   const [filterTecnico, setFilterTecnico] = useState(() => sessionStorage.getItem('ch_tec') ?? 'todos');
   const [filterLoja, setFilterLoja] = useState(() => sessionStorage.getItem('ch_loja') ?? '');
   const [filterServico, setFilterServico] = useState(() => sessionStorage.getItem('ch_servico') ?? 'todos');
   const [filterOperacional, setFilterOperacional] = useState<OperationalFilter>(
-    () => (sessionStorage.getItem('ch_sinal') as OperationalFilter | null) ?? 'todos',
+    () => initialSignalFilter ?? (sessionStorage.getItem('ch_sinal') as OperationalFilter | null) ?? 'todos',
   );
   const [filterDe, setFilterDe] = useState(() => sessionStorage.getItem('ch_de') ?? '');
   const [filterAte, setFilterAte] = useState(() => sessionStorage.getItem('ch_ate') ?? '');
@@ -1469,6 +1500,16 @@ export default function ChamadosPage() {
   useEffect(() => { sessionStorage.setItem('ch_sinal', filterOperacional); }, [filterOperacional]);
   useEffect(() => { sessionStorage.setItem('ch_de', filterDe); }, [filterDe]);
   useEffect(() => { sessionStorage.setItem('ch_ate', filterAte); }, [filterAte]);
+
+  useEffect(() => {
+    const status = getStatusFilterFromUrl(searchParams.get('status'));
+    const sinal = getOperationalFilterFromUrl(searchParams.get('sinal'));
+    const q = searchParams.get('q');
+
+    if (status) setTabStatus(status);
+    if (sinal) setFilterOperacional(sinal);
+    if (q !== null) setSearch(q);
+  }, [searchParams]);
 
   const userName = profile?.nome ?? user?.email ?? 'Usuário';
   const userId = user?.uid ?? '';
@@ -1562,6 +1603,27 @@ export default function ChamadosPage() {
     aprovado: chamados.filter(c => c.status === 'validado_financeiro').length,
   }), [chamados]);
 
+  const activeFilterChips = useMemo(() => {
+    const chips: { key: string; label: string; onRemove: () => void }[] = [];
+    if (search) chips.push({ key: 'search', label: `Busca: ${search}`, onRemove: () => setSearch('') });
+    if (filterTecnico !== 'todos') {
+      const tecnicoNome = tecnicos.find(t => t.uid === filterTecnico)?.nome ?? 'Técnico';
+      chips.push({ key: 'tecnico', label: `Técnico: ${tecnicoNome}`, onRemove: () => setFilterTecnico('todos') });
+    }
+    if (filterLoja) chips.push({ key: 'loja', label: `Loja: ${filterLoja}`, onRemove: () => setFilterLoja('') });
+    if (filterServico !== 'todos') {
+      const servicoNome = catalogoServicos.find(s => s.id === filterServico)?.nome ?? 'Serviço';
+      chips.push({ key: 'servico', label: `Serviço: ${servicoNome}`, onRemove: () => setFilterServico('todos') });
+    }
+    if (filterOperacional !== 'todos') {
+      const sinal = OPERATIONAL_FILTERS.find(f => f.value === filterOperacional)?.label ?? 'Sinal';
+      chips.push({ key: 'sinal', label: sinal, onRemove: () => setFilterOperacional('todos') });
+    }
+    if (filterDe) chips.push({ key: 'de', label: `De: ${fmtDateBR(filterDe)}`, onRemove: () => setFilterDe('') });
+    if (filterAte) chips.push({ key: 'ate', label: `Até: ${fmtDateBR(filterAte)}`, onRemove: () => setFilterAte('') });
+    return chips;
+  }, [catalogoServicos, filterAte, filterDe, filterLoja, filterOperacional, filterServico, filterTecnico, search, tecnicos]);
+
   const handleSubmit = async (chamado: Chamado) => {
     setSubmetendoId(chamado.id);
     try {
@@ -1592,6 +1654,23 @@ export default function ChamadosPage() {
     setFilterOperacional('todos');
     setFilterDe('');
     setFilterAte('');
+    setSearchParams({});
+  };
+
+  const applyQueuePreset = (preset: (typeof QUEUE_PRESETS)[number]) => {
+    setSearch('');
+    setFilterTecnico('todos');
+    setFilterLoja('');
+    setFilterServico('todos');
+    setFilterDe('');
+    setFilterAte('');
+    setTabStatus(preset.status);
+    setFilterOperacional(preset.sinal);
+
+    const params = new URLSearchParams();
+    if (preset.status !== 'todos') params.set('status', preset.status);
+    if (preset.sinal !== 'todos') params.set('sinal', preset.sinal);
+    setSearchParams(params);
   };
 
   return (
@@ -1649,6 +1728,28 @@ export default function ChamadosPage() {
             </p>
           </div>
         ))}
+      </div>
+
+      {/* Atalhos de fila */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+        <span className="text-xs font-semibold text-muted-foreground mr-1">Filas rápidas</span>
+        {QUEUE_PRESETS.map(preset => {
+          const Icon = preset.icon;
+          const active = tabStatus === preset.status && filterOperacional === preset.sinal;
+          return (
+            <Button
+              key={preset.label}
+              type="button"
+              variant={active ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 gap-1.5 text-xs"
+              onClick={() => applyQueuePreset(preset)}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {preset.label}
+            </Button>
+          );
+        })}
       </div>
 
       {/* Filtros */}
@@ -1768,6 +1869,51 @@ export default function ChamadosPage() {
           })}
         </TabsList>
 
+        <div className="sticky top-2 z-20 mt-3 rounded-xl border border-border bg-background/95 px-3 py-2 shadow-card backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="inline-flex h-7 min-w-7 items-center justify-center rounded-md bg-primary/10 px-2 text-xs font-bold text-primary">
+                {loading ? '...' : filtered.length}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold leading-none">Chamados na visão atual</p>
+                <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                  {STATUS_TABS.find(tab => tab.value === tabStatus)?.label ?? 'Todos'} · {sortKey === 'data_desc' ? 'mais recentes primeiro' : sortKey === 'data_asc' ? 'mais antigos primeiro' : 'ordenado por status'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+              {activeFilterChips.length === 0 ? (
+                <span className="text-xs text-muted-foreground">Sem filtros adicionais</span>
+              ) : (
+                <>
+                  {activeFilterChips.slice(0, 4).map(chip => (
+                    <button
+                      key={chip.key}
+                      type="button"
+                      onClick={chip.onRemove}
+                      className="inline-flex h-7 max-w-[220px] items-center gap-1 rounded-md border border-border bg-card px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-foreground"
+                      title={`Remover ${chip.label}`}
+                    >
+                      <span className="truncate">{chip.label}</span>
+                      <X className="h-3 w-3 shrink-0" />
+                    </button>
+                  ))}
+                  {activeFilterChips.length > 4 && (
+                    <Badge variant="secondary" className="h-7 rounded-md text-[11px]">
+                      +{activeFilterChips.length - 4}
+                    </Badge>
+                  )}
+                  <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={clearAllFilters}>
+                    Limpar tudo
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
         <TabsContent value={tabStatus} className="mt-4">
           {loading ? (
             <div className="space-y-2">
@@ -1787,9 +1933,6 @@ export default function ChamadosPage() {
             />
           ) : (
             <div className="space-y-2">
-              <p className="text-xs text-muted-foreground text-right pr-1">
-                {filtered.length} chamado(s) exibido(s)
-              </p>
               {filtered.map(c => (
                 <ChamadoCard
                   key={c.id}

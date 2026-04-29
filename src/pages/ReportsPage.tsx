@@ -21,6 +21,7 @@ import {
   type DocumentSnapshot,
 } from "firebase/firestore";
 import { useAuth } from "../context/AuthContext";
+import { usePermissions } from "../hooks/use-permissions";
 import { cn } from "../lib/utils";
 import { listChamados } from "../lib/chamado-firestore";
 import type { Chamado, ChamadoStatus } from "../types/chamado";
@@ -74,10 +75,19 @@ const CHAMADO_STATUS_BADGE: Record<ChamadoStatus, string> = {
 
 const CHAMADO_REJECTION_STATUSES: ChamadoStatus[] = ['rejeitado', 'rejeitado_operacional', 'rejeitado_financeiro'];
 
+const CHAMADO_SIGNAL_LABEL: Record<ChamadoSignalFilter, string> = {
+  todos: 'Todos os sinais',
+  com_peca: 'Com peça/spare',
+  com_reembolso: 'Com reembolso',
+  estoque_pendente: 'Estoque sem baixa',
+  estoque_baixado: 'Estoque baixado',
+};
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
   const { user } = useAuth();
+  const { permissions } = usePermissions();
   const [activeTab, setActiveTab] = useState<'rats' | 'chamados'>('rats');
 
   return (
@@ -113,7 +123,7 @@ export default function ReportsPage() {
         </TabsContent>
 
         <TabsContent value="chamados" className="mt-4">
-          <ChamadosTab />
+          <ChamadosTab canViewFinancialValues={permissions.canViewFinancialValues} />
         </TabsContent>
       </Tabs>
     </div>
@@ -483,7 +493,7 @@ function RatsTab({ userUid }: { userUid?: string }) {
 
 // ─── Tab de Chamados ─────────────────────────────────────────────────────────
 
-function ChamadosTab() {
+function ChamadosTab({ canViewFinancialValues }: { canViewFinancialValues: boolean }) {
   const [loading, setLoading] = useState(true);
   const [chamados, setChamados] = useState<Chamado[]>([]);
   const [selected, setSelected] = useState<Chamado | null>(null);
@@ -539,6 +549,24 @@ function ChamadosTab() {
   }), [filtered]);
 
   const activeFilters = search || statusFilter !== 'todos' || signalFilter !== 'todos' || dateStart || dateEnd;
+  const activeFilterChips: Array<{ label: string; value: string; onClear: () => void }> = [];
+  if (search) activeFilterChips.push({ label: 'Busca', value: search, onClear: () => setSearch('') });
+  if (statusFilter !== 'todos') {
+    activeFilterChips.push({
+      label: 'Status',
+      value: CHAMADO_STATUS_LABEL[statusFilter],
+      onClear: () => setStatusFilter('todos'),
+    });
+  }
+  if (signalFilter !== 'todos') {
+    activeFilterChips.push({
+      label: 'Sinal',
+      value: CHAMADO_SIGNAL_LABEL[signalFilter],
+      onClear: () => setSignalFilter('todos'),
+    });
+  }
+  if (dateStart) activeFilterChips.push({ label: 'De', value: new Date(dateStart + 'T12:00:00').toLocaleDateString('pt-BR'), onClear: () => setDateStart('') });
+  if (dateEnd) activeFilterChips.push({ label: 'Até', value: new Date(dateEnd + 'T12:00:00').toLocaleDateString('pt-BR'), onClear: () => setDateEnd('') });
 
   const clearFilters = () => {
     setSearch(''); setStatusFilter('todos'); setSignalFilter('todos'); setDateStart(''); setDateEnd('');
@@ -546,15 +574,21 @@ function ChamadosTab() {
 
   const handleExportCsv = () => {
     if (!filtered.length) { toast.info('Nenhum chamado para exportar.'); return; }
-    const header = [
+    const baseHeader = [
       'fsa', 'codigoLoja', 'data', 'tecnicoCodigo', 'tecnicoNome',
-      'tecnicoPaiCodigo', 'servico', 'peca', 'custoPeca', 'fornecedorPeca',
+      'tecnicoPaiCodigo', 'servico', 'peca',
+    ];
+    const financialHeader = canViewFinancialValues ? ['custoPeca', 'fornecedorPeca'] : [];
+    const header = [
+      ...baseHeader,
+      ...financialHeader,
       'estoqueItem', 'estoqueQtd', 'estoqueBaixadoEm', 'duracaoMin', 'status',
     ];
     const rows = filtered.map(c => [
       c.fsa, c.codigoLoja, c.dataAtendimento, c.tecnicoCodigo ?? '', c.tecnicoNome,
       c.tecnicoPaiCodigo ?? '', c.catalogoServicoNome ?? '', c.pecaUsada ?? c.estoqueItemNome ?? '',
-      c.custoPeca ?? '', c.fornecedorPeca ?? '', c.estoqueItemNome ?? '', c.estoqueQuantidade ?? '',
+      ...(canViewFinancialValues ? [c.custoPeca ?? '', c.fornecedorPeca ?? ''] : []),
+      c.estoqueItemNome ?? '', c.estoqueQuantidade ?? '',
       c.estoqueBaixadoEm ? new Date(c.estoqueBaixadoEm).toLocaleString('pt-BR') : '',
       c.durationMinutes ?? '', CHAMADO_STATUS_LABEL[c.status],
     ]);
@@ -581,14 +615,29 @@ function ChamadosTab() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs text-muted-foreground mb-1">Total em peças</p>
-          <p className="text-2xl font-bold">R$ {stats.valorPecas.toFixed(2)}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-card p-4">
-          <p className="text-xs text-muted-foreground mb-1">Reembolsos</p>
-          <p className="text-2xl font-bold">R$ {stats.valorReembolso.toFixed(2)}</p>
-        </div>
+        {canViewFinancialValues ? (
+          <>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground mb-1">Total em peças</p>
+              <p className="text-2xl font-bold">R$ {stats.valorPecas.toFixed(2)}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground mb-1">Reembolsos</p>
+              <p className="text-2xl font-bold">R$ {stats.valorReembolso.toFixed(2)}</p>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground mb-1">Chamados com peça</p>
+              <p className="text-2xl font-bold">{filtered.filter(c => c.pecaUsada || c.estoqueItemId).length}</p>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-4">
+              <p className="text-xs text-muted-foreground mb-1">Com reembolso</p>
+              <p className="text-2xl font-bold">{filtered.filter(c => c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0).length}</p>
+            </div>
+          </>
+        )}
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground mb-1">Estoque sem baixa</p>
           <p className={cn('text-2xl font-bold', stats.estoquePendente > 0 && 'text-amber-600 dark:text-amber-400')}>
@@ -598,6 +647,46 @@ function ChamadosTab() {
         <div className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted-foreground mb-1">Minutos acumulados</p>
           <p className="text-2xl font-bold">{stats.minutosTotais} min</p>
+        </div>
+      </div>
+
+      <div className="sticky top-2 z-10 rounded-xl border border-border bg-background/95 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Visão operacional dos chamados</p>
+            <p className="text-xs text-muted-foreground">
+              {filtered.length} de {chamados.length} chamado(s) exibido(s) · {stats.emValidacao} em validação · {stats.estoquePendente} estoque sem baixa
+              {!canViewFinancialValues && ' · valores financeiros ocultos para este perfil'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {activeFilterChips.length === 0 ? (
+              <Badge variant="secondary">Sem filtros adicionais</Badge>
+            ) : (
+              activeFilterChips.map(chip => (
+                <button
+                  key={`${chip.label}-${chip.value}`}
+                  type="button"
+                  onClick={chip.onClear}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  title={`Remover filtro ${chip.label}`}
+                >
+                  <span className="font-medium text-foreground">{chip.label}:</span>
+                  <span className="max-w-[180px] truncate">{chip.value}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              ))
+            )}
+            {activeFilterChips.length > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
+                Limpar tudo
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleExportCsv} disabled={!filtered.length}>
+              <Download className="w-3.5 h-3.5" /> Exportar CSV
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -662,9 +751,6 @@ function ChamadosTab() {
               </button>
             )}
           </div>
-          <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs" onClick={handleExportCsv} disabled={!filtered.length}>
-            <Download className="w-3.5 h-3.5" /> Exportar CSV
-          </Button>
         </div>
       </div>
 
@@ -720,7 +806,7 @@ function ChamadosTab() {
                 )}
                 {c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0 && (
                   <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-700 dark:text-amber-400">
-                    Reembolso R$ {c.custoPeca?.toFixed(2)}
+                    {canViewFinancialValues ? `Reembolso R$ ${c.custoPeca?.toFixed(2)}` : 'Com reembolso'}
                   </Badge>
                 )}
                 {c.estoqueItemId && (
@@ -783,7 +869,7 @@ function ChamadosTab() {
                     <p className="text-[10px] uppercase text-muted-foreground font-semibold">Peça</p>
                     <p className="font-medium mt-1">
                       {selected.pecaUsada ?? selected.estoqueItemNome ?? 'Peça vinculada'}
-                      {selected.custoPeca ? ` · R$ ${selected.custoPeca.toFixed(2)}` : ''}
+                      {canViewFinancialValues && selected.custoPeca ? ` · R$ ${selected.custoPeca.toFixed(2)}` : ''}
                       {selected.fornecedorPeca === 'Tecnico' ? ' · reembolso' : ''}
                     </p>
                     {selected.estoqueItemId && (

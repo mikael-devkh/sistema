@@ -58,6 +58,7 @@ export function calcularDetalhesDeChamados(
       estoqueItemId: c.estoqueItemId,
       estoqueItemNome: c.estoqueItemNome,
       estoqueQuantidade: c.estoqueQuantidade,
+      estoqueBaixadoEm: c.estoqueBaixadoEm,
       valorChamado,
       isAdicional,
       reembolsoPeca,

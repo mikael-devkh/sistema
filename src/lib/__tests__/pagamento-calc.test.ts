@@ -250,4 +250,27 @@ describe('calcularDetalhesDeChamados', () => {
       });
     });
   });
+
+  describe('rastreabilidade de estoque', () => {
+    it('preserva vínculo e baixa de estoque nos detalhes do chamado', () => {
+      const resultado = calcularDetalhesDeChamados(
+        [chamado({
+          pecaUsada: 'Fonte PDV',
+          estoqueItemId: 'item-1',
+          estoqueItemNome: 'Fonte PDV 12V',
+          estoqueQuantidade: 1,
+          estoqueBaixadoEm: 1714500000000,
+        })],
+        new Map(),
+      );
+
+      expect(resultado[0]).toMatchObject({
+        pecaUsada: 'Fonte PDV',
+        estoqueItemId: 'item-1',
+        estoqueItemNome: 'Fonte PDV 12V',
+        estoqueQuantidade: 1,
+        estoqueBaixadoEm: 1714500000000,
+      });
+    });
+  });
 });

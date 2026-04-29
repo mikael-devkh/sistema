@@ -161,12 +161,13 @@ export async function confirmarPagamentos(
           const chamado = data as Pick<Chamado, 'pagamentoDestino' | 'tecnicoPaiId' | 'tecnicoId'>;
           return getPagamentoDestinatarioId(chamado) === preview.tecnicoId &&
             data?.status === 'validado_financeiro' &&
-            data?.pagamentoId == null;
+            data?.pagamentoId == null &&
+            !(data?.estoqueItemId && !data?.estoqueBaixadoEm);
         });
       const eligibleIds = eligibleSnaps.map(snap => snap.id).sort();
 
       if (eligibleIds.length !== requestedIds.length) {
-        throw new Error('Prévia de pagamento desatualizada. Recalcule antes de confirmar.');
+        throw new Error('Prévia de pagamento desatualizada ou com estoque pendente. Recalcule antes de confirmar.');
       }
 
       const detalhes = preview.detalhesChamados.filter(d => eligibleIds.includes(d.serviceReportId));

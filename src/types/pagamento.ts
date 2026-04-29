@@ -26,6 +26,7 @@ export interface PagamentoChamadoDetalhe {
   estoqueItemId?: string;
   estoqueItemNome?: string;
   estoqueQuantidade?: number;
+  estoqueBaixadoEm?: number;
   /** Valor calculado para este chamado (custo técnico, inclui horas extras) */
   valorChamado: number;
   /** Verdadeiro se é chamado adicional no lote da mesma loja */

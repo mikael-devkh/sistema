@@ -15,6 +15,7 @@ import {
   CheckCircle2, XCircle, Eye, ClipboardList, Wrench, Package,
   Link as LinkIcon, Clock, History, AlertTriangle, Layers, RefreshCcw,
   ChevronsRight, Copy, User, Lock, Plus, Trash2, Settings2, Loader2,
+  Search, X,
 } from 'lucide-react';
 import { Input } from '../components/ui/input';
 import { useAuth } from '../context/AuthContext';
@@ -31,6 +32,7 @@ import { cn } from '../lib/utils';
 import { CHAMADO_STATUS_CONFIG } from '../lib/statusConfig';
 import { EmptyState as SharedEmptyState } from '../components/EmptyState';
 import { listCatalogoServicos } from '../lib/catalogo-firestore';
+import { useSearchParams } from 'react-router-dom';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -53,6 +55,25 @@ const MOTIVOS_PRESET_DEFAULT = [
 
 const MOTIVOS_DOC = 'configuracoes/motivosRejeicao';
 
+type ValidacaoSignalFilter =
+  | 'todos'
+  | 'aprovavel'
+  | 'com_pendencia'
+  | 'com_peca'
+  | 'com_reembolso'
+  | 'estoque_pendente'
+  | 'pagamento_pai';
+
+const VALIDACAO_SIGNAL_LABEL: Record<ValidacaoSignalFilter, string> = {
+  todos: 'Todos os sinais',
+  aprovavel: 'Aprovável',
+  com_pendencia: 'Com pendência',
+  com_peca: 'Com peça/spare',
+  com_reembolso: 'Com reembolso',
+  estoque_pendente: 'Estoque sem baixa',
+  pagamento_pai: 'Pagamento ao pai',
+};
+
 /** Horas desde o registro do chamado */
 function horasDesde(registradoEm: number): number {
   return (Date.now() - registradoEm) / 3_600_000;
@@ -73,6 +94,10 @@ function urgenciaSla(c: Chamado): 'critical' | 'warning' | null {
 }
 
 type ValidacaoEtapa = 'operador' | 'financeiro';
+
+function getValidacaoTabFromUrl(value: string | null): ValidacaoEtapa | null {
+  return value === 'operador' || value === 'financeiro' ? value : null;
+}
 
 interface ChecklistResult {
   pendencias: string[];
@@ -650,7 +675,12 @@ function EmptyState({ label }: { label: string }) {
 
 // ─── KpiCard ──────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, color }: { label: string; value: number | string; color: 'blue' | 'purple' }) {
+function KpiCard({ label, value, color, sub }: {
+  label: string;
+  value: number | string;
+  color: 'blue' | 'purple';
+  sub?: string;
+}) {
   const colors = {
     blue:   { bg: 'bg-blue-500/10',   text: 'text-blue-700 dark:text-blue-400',     border: 'border-blue-200 dark:border-blue-800' },
     purple: { bg: 'bg-purple-500/10', text: 'text-purple-700 dark:text-purple-400', border: 'border-purple-200 dark:border-purple-800' },
@@ -660,6 +690,7 @@ function KpiCard({ label, value, color }: { label: string; value: number | strin
     <div className={cn('rounded-xl border p-4 space-y-1', c.bg, c.border)}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className={cn('text-2xl font-bold', c.text)}>{value}</p>
+      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>
   );
 }
@@ -733,12 +764,25 @@ function BatchRejeitarDialog({ chamados, open, onClose, onConfirm, loading, moti
 export default function ValidacaoPage() {
   const { user, profile } = useAuth();
   const { permissions } = usePermissions();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const canValidateOp  = permissions.canValidateOperador;
+  const canValidateFin = permissions.canValidateFinanceiro;
+  const fallbackTab: ValidacaoEtapa = canValidateOp ? 'operador' : 'financeiro';
+  const initialUrlTab = getValidacaoTabFromUrl(searchParams.get('etapa'));
+  const initialTab: ValidacaoEtapa =
+    initialUrlTab === 'financeiro' && canValidateFin ? 'financeiro'
+    : initialUrlTab === 'operador' && canValidateOp ? 'operador'
+    : fallbackTab;
 
   const [submetidos, setSubmetidos] = useState<Chamado[]>([]);
   const [validadosOp, setValidadosOp] = useState<Chamado[]>([]);
   const [rejeitados, setRejeitados] = useState<Chamado[]>([]);
   const [catalogoServicos, setCatalogoServicos] = useState<CatalogoServico[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<ValidacaoEtapa>(initialTab);
+  const [validationSearch, setValidationSearch] = useState('');
+  const [validationSignal, setValidationSignal] = useState<ValidacaoSignalFilter>('todos');
 
   // IDs sendo aprovados individualmente (spinner no botão)
   const [aprovandoIds, setAprovandoIds] = useState<Set<string>>(new Set());
@@ -760,12 +804,27 @@ export default function ValidacaoPage() {
   const [batchRejeitarOpen, setBatchRejeitarOpen] = useState(false);
   const [batchRejeitando, setBatchRejeitando] = useState(false);
 
-  const canValidateOp  = permissions.canValidateOperador;
-  const canValidateFin = permissions.canValidateFinanceiro;
   const catalogoMap = useMemo(
     () => new Map(catalogoServicos.map(s => [s.id, s])),
     [catalogoServicos],
   );
+
+  useEffect(() => {
+    const requestedTab = getValidacaoTabFromUrl(searchParams.get('etapa'));
+    const requestedAllowed =
+      requestedTab === 'financeiro' && canValidateFin ? 'financeiro'
+      : requestedTab === 'operador' && canValidateOp ? 'operador'
+      : null;
+    const currentAllowed =
+      activeTab === 'financeiro' && canValidateFin
+        || activeTab === 'operador' && canValidateOp;
+    const nextTab = requestedAllowed ?? (currentAllowed ? activeTab : fallbackTab);
+
+    if (activeTab !== nextTab) {
+      setActiveTab(nextTab);
+      setSelectedIds(new Set());
+    }
+  }, [activeTab, canValidateFin, canValidateOp, fallbackTab, searchParams]);
 
   // Motivos de rejeição configuráveis — carregados do Firestore com fallback
   const [motivos, setMotivos] = useState<string[]>(MOTIVOS_PRESET_DEFAULT);
@@ -989,8 +1048,6 @@ export default function ValidacaoPage() {
     await loadData();
   }
 
-  const defaultTab = canValidateOp ? 'operador' : 'financeiro';
-
   const motivosBreakdown = useMemo(() => {
     const freq = new Map<string, number>();
     for (const c of rejeitados) {
@@ -1001,6 +1058,94 @@ export default function ValidacaoPage() {
       .sort((a, b) => b[1] - a[1])
       .map(([motivo, count]) => ({ motivo, count, pct: Math.round((count / rejeitados.length) * 100) }));
   }, [rejeitados]);
+
+  const matchesValidationFilters = (c: Chamado, etapa: ValidacaoEtapa) => {
+    const q = validationSearch.trim().toLowerCase();
+    if (q) {
+      const hay = [
+        c.fsa,
+        c.codigoLoja,
+        c.tecnicoNome,
+        c.tecnicoCodigo,
+        c.tecnicoPaiCodigo,
+        c.catalogoServicoNome,
+        c.pecaUsada,
+        c.estoqueItemNome,
+        c.linkPlataforma,
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+
+    if (validationSignal === 'todos') return true;
+    const checklist = buildValidationChecklist(c, etapa, catalogoMap);
+    if (validationSignal === 'aprovavel') return isChecklistSafe(checklist);
+    if (validationSignal === 'com_pendencia') return !isChecklistSafe(checklist);
+    if (validationSignal === 'com_peca') return Boolean(c.pecaUsada || c.estoqueItemId);
+    if (validationSignal === 'com_reembolso') return c.fornecedorPeca === 'Tecnico' && (c.custoPeca ?? 0) > 0;
+    if (validationSignal === 'estoque_pendente') return Boolean(c.estoqueItemId && !c.estoqueBaixadoEm);
+    if (validationSignal === 'pagamento_pai') return c.pagamentoDestino === 'parent';
+    return true;
+  };
+
+  const visibleSubmetidos = useMemo(
+    () => submetidos.filter(c => matchesValidationFilters(c, 'operador')),
+    [catalogoMap, submetidos, validationSearch, validationSignal],
+  );
+
+  const visibleValidadosOp = useMemo(
+    () => validadosOp.filter(c => matchesValidationFilters(c, 'financeiro')),
+    [catalogoMap, validadosOp, validationSearch, validationSignal],
+  );
+
+  const validationSummary = useMemo(() => {
+    const summarize = (lista: Chamado[], etapa: ValidacaoEtapa) => {
+      const aprovaveis = lista.filter(c => isChecklistSafe(buildValidationChecklist(c, etapa, catalogoMap))).length;
+      return {
+        aprovaveis,
+        pendentes: lista.length - aprovaveis,
+      };
+    };
+
+    return {
+      operador: summarize(submetidos, 'operador'),
+      financeiro: summarize(validadosOp, 'financeiro'),
+    };
+  }, [catalogoMap, submetidos, validadosOp]);
+
+  const visibleValidationSummary = useMemo(() => {
+    const summarize = (lista: Chamado[], etapa: ValidacaoEtapa) => {
+      const aprovaveis = lista.filter(c => isChecklistSafe(buildValidationChecklist(c, etapa, catalogoMap))).length;
+      return { aprovaveis, pendentes: lista.length - aprovaveis };
+    };
+    return {
+      operador: summarize(visibleSubmetidos, 'operador'),
+      financeiro: summarize(visibleValidadosOp, 'financeiro'),
+    };
+  }, [catalogoMap, visibleSubmetidos, visibleValidadosOp]);
+
+  const activeQueueInfo = useMemo(() => {
+    const lista = activeTab === 'operador' ? visibleSubmetidos : visibleValidadosOp;
+    const totalLista = activeTab === 'operador' ? submetidos : validadosOp;
+    const summary = activeTab === 'operador' ? visibleValidationSummary.operador : visibleValidationSummary.financeiro;
+    const selectedCount = lista.filter(c => selectedIds.has(c.id)).length;
+    return {
+      label: activeTab === 'operador' ? 'Validação operacional' : 'Validação financeira',
+      description: activeTab === 'operador'
+        ? 'Conferência de dados de atendimento, técnico, loja, serviço e evidências'
+        : 'Conferência de valores, reembolso, destino de pagamento e regras do catálogo',
+      total: lista.length,
+      totalSemFiltro: totalLista.length,
+      selectedCount,
+      ...summary,
+    };
+  }, [activeTab, selectedIds, submetidos, validadosOp, visibleSubmetidos, visibleValidadosOp, visibleValidationSummary]);
+
+  const activeValidationFilters = validationSearch.trim() || validationSignal !== 'todos';
+
+  const clearValidationFilters = () => {
+    setValidationSearch('');
+    setValidationSignal('todos');
+  };
 
   return (
     <div className="space-y-6 animate-page-in">
@@ -1026,8 +1171,18 @@ export default function ValidacaoPage() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-3">
-        <KpiCard label="Ag. validação operador"  value={loading ? '—' : submetidos.length}  color="blue"   />
-        <KpiCard label="Ag. validação financeiro" value={loading ? '—' : validadosOp.length} color="purple" />
+        <KpiCard
+          label="Ag. validação operador"
+          value={loading ? '—' : submetidos.length}
+          color="blue"
+          sub={loading ? undefined : `${validationSummary.operador.aprovaveis} aprovável(is) · ${validationSummary.operador.pendentes} com pendência`}
+        />
+        <KpiCard
+          label="Ag. validação financeiro"
+          value={loading ? '—' : validadosOp.length}
+          color="purple"
+          sub={loading ? undefined : `${validationSummary.financeiro.aprovaveis} aprovável(is) · ${validationSummary.financeiro.pendentes} com pendência`}
+        />
       </div>
 
       {!canValidateOp && !canValidateFin && (
@@ -1038,7 +1193,15 @@ export default function ValidacaoPage() {
       )}
 
       {/* Tabs */}
-      <Tabs defaultValue={defaultTab}>
+      <Tabs
+        value={activeTab}
+        onValueChange={value => {
+          const nextTab = value as ValidacaoEtapa;
+          setActiveTab(nextTab);
+          setSelectedIds(new Set());
+          setSearchParams({ etapa: nextTab }, { replace: true });
+        }}
+      >
         <TabsList>
           {canValidateOp && (
             <TabsTrigger value="operador" className="gap-1.5">
@@ -1062,6 +1225,95 @@ export default function ValidacaoPage() {
           )}
         </TabsList>
 
+        <div className="sticky top-2 z-20 mt-3 rounded-xl border border-border bg-background/95 px-3 py-2 shadow-card backdrop-blur supports-[backdrop-filter]:bg-background/80">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold leading-none">{activeQueueInfo.label}</p>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">{activeQueueInfo.description}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Badge variant="secondary" className="h-7 rounded-md text-[11px]">
+                {loading ? '...' : activeQueueInfo.total} de {loading ? '...' : activeQueueInfo.totalSemFiltro} na fila
+              </Badge>
+              <Badge variant="outline" className="h-7 rounded-md border-green-500/30 text-[11px] text-green-700 dark:text-green-400">
+                {loading ? '...' : activeQueueInfo.aprovaveis} aprovável(is)
+              </Badge>
+              <Badge variant="outline" className={cn(
+                'h-7 rounded-md text-[11px]',
+                activeQueueInfo.pendentes > 0
+                  ? 'border-red-500/30 text-red-700 dark:text-red-400'
+                  : 'border-border text-muted-foreground',
+              )}>
+                {loading ? '...' : activeQueueInfo.pendentes} com pendência
+              </Badge>
+              {activeQueueInfo.selectedCount > 0 && (
+                <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setSelectedIds(new Set())}>
+                  {activeQueueInfo.selectedCount} selecionado(s) <XCircle className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 border-t border-border/60 pt-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-1 flex-col gap-2 sm:flex-row">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={validationSearch}
+                  onChange={e => setValidationSearch(e.target.value)}
+                  placeholder="Buscar FSA, loja, técnico, serviço, peça ou link..."
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus:outline-none focus:ring-1 focus:ring-ring sm:w-48"
+                value={validationSignal}
+                onChange={e => setValidationSignal(e.target.value as ValidacaoSignalFilter)}
+              >
+                <option value="todos">Todos os sinais</option>
+                <option value="aprovavel">Aprovável</option>
+                <option value="com_pendencia">Com pendência</option>
+                <option value="com_peca">Com peça/spare</option>
+                <option value="com_reembolso">Com reembolso</option>
+                <option value="estoque_pendente">Estoque sem baixa</option>
+                <option value="pagamento_pai">Pagamento ao pai</option>
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              {validationSearch.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setValidationSearch('')}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  title="Remover busca"
+                >
+                  <span className="font-medium text-foreground">Busca:</span>
+                  <span className="max-w-[180px] truncate">{validationSearch}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {validationSignal !== 'todos' && (
+                <button
+                  type="button"
+                  onClick={() => setValidationSignal('todos')}
+                  className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted/50 px-2 text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+                  title="Remover sinal"
+                >
+                  <span className="font-medium text-foreground">Sinal:</span>
+                  <span>{VALIDACAO_SIGNAL_LABEL[validationSignal]}</span>
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+              {activeValidationFilters && (
+                <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearValidationFilters}>
+                  Limpar
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+
         {/* ── Tab Operador ── */}
         {canValidateOp && (
           <TabsContent value="operador" className="mt-4 space-y-3">
@@ -1071,11 +1323,13 @@ export default function ValidacaoPage() {
               </div>
             ) : submetidos.length === 0 ? (
               <EmptyState label="Nenhum chamado aguardando validação de operador." />
+            ) : visibleSubmetidos.length === 0 ? (
+              <EmptyState label="Nenhum chamado encontrado com os filtros aplicados." />
             ) : (
               <>
                 {/* Barra de ações em lote (operador) */}
                 {(() => {
-                  const sel = submetidos.filter(c => selectedIds.has(c.id));
+                  const sel = visibleSubmetidos.filter(c => selectedIds.has(c.id));
                   return sel.length > 0 ? (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
                       <span className="text-sm font-medium text-primary">{sel.length} selecionado(s)</span>
@@ -1096,22 +1350,22 @@ export default function ValidacaoPage() {
                   ) : null;
                 })()}
                 {/* Aprovar todos */}
-                {submetidos.length > 1 && (
+                {visibleSubmetidos.length > 1 && (
                   <div className="flex justify-end">
                     <Button
                       size="sm"
                       variant="outline"
                       className="gap-1.5 text-green-700 border-green-500/40 hover:bg-green-500/10"
-                      onClick={() => aprovarTodos(submetidos, 'operador')}
+                      onClick={() => aprovarTodos(visibleSubmetidos, 'operador')}
                       disabled={aprovandoTodos}
                     >
                       <ChevronsRight className="w-3.5 h-3.5" />
-                      {aprovandoTodos ? 'Aprovando…' : `Aprovar todos (${submetidos.length})`}
+                      {aprovandoTodos ? 'Aprovando…' : `Aprovar visíveis (${visibleSubmetidos.length})`}
                     </Button>
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {submetidos.map(c => (
+                  {visibleSubmetidos.map(c => (
                     <ChamadoValidacaoCard
                       key={c.id}
                       chamado={c}
@@ -1128,8 +1382,8 @@ export default function ValidacaoPage() {
                   ))}
                 </div>
                 <BatchRejeitarDialog
-                  chamados={submetidos.filter(c => selectedIds.has(c.id))}
-                  open={batchRejeitarOpen && submetidos.some(c => selectedIds.has(c.id))}
+                  chamados={visibleSubmetidos.filter(c => selectedIds.has(c.id))}
+                  open={batchRejeitarOpen && visibleSubmetidos.some(c => selectedIds.has(c.id))}
                   onClose={() => setBatchRejeitarOpen(false)}
                   onConfirm={confirmarRejeicaoLote}
                   loading={batchRejeitando}
@@ -1149,11 +1403,13 @@ export default function ValidacaoPage() {
               </div>
             ) : validadosOp.length === 0 ? (
               <EmptyState label="Nenhum chamado aguardando validação financeira." />
+            ) : visibleValidadosOp.length === 0 ? (
+              <EmptyState label="Nenhum chamado encontrado com os filtros aplicados." />
             ) : (
               <>
                 {/* Barra de ações em lote (financeiro) */}
                 {(() => {
-                  const sel = validadosOp.filter(c => selectedIds.has(c.id));
+                  const sel = visibleValidadosOp.filter(c => selectedIds.has(c.id));
                   return sel.length > 0 ? (
                     <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
                       <span className="text-sm font-medium text-primary">{sel.length} selecionado(s)</span>
@@ -1173,22 +1429,22 @@ export default function ValidacaoPage() {
                     </div>
                   ) : null;
                 })()}
-                {validadosOp.length > 1 && (
+                {visibleValidadosOp.length > 1 && (
                   <div className="flex justify-end">
                     <Button
                       size="sm"
                       variant="outline"
                       className="gap-1.5 text-green-700 border-green-500/40 hover:bg-green-500/10"
-                      onClick={() => aprovarTodos(validadosOp, 'financeiro')}
+                      onClick={() => aprovarTodos(visibleValidadosOp, 'financeiro')}
                       disabled={aprovandoTodos}
                     >
                       <ChevronsRight className="w-3.5 h-3.5" />
-                      {aprovandoTodos ? 'Aprovando…' : `Aprovar todos (${validadosOp.length})`}
+                      {aprovandoTodos ? 'Aprovando…' : `Aprovar visíveis (${visibleValidadosOp.length})`}
                     </Button>
                   </div>
                 )}
                 <div className="grid gap-3 sm:grid-cols-2">
-                  {validadosOp.map(c => (
+                  {visibleValidadosOp.map(c => (
                     <ChamadoValidacaoCard
                       key={c.id}
                       chamado={c}
@@ -1205,8 +1461,8 @@ export default function ValidacaoPage() {
                   ))}
                 </div>
                 <BatchRejeitarDialog
-                  chamados={validadosOp.filter(c => selectedIds.has(c.id))}
-                  open={batchRejeitarOpen && validadosOp.some(c => selectedIds.has(c.id))}
+                  chamados={visibleValidadosOp.filter(c => selectedIds.has(c.id))}
+                  open={batchRejeitarOpen && visibleValidadosOp.some(c => selectedIds.has(c.id))}
                   onClose={() => setBatchRejeitarOpen(false)}
                   onConfirm={confirmarRejeicaoLote}
                   loading={batchRejeitando}

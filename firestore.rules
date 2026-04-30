@@ -159,6 +159,12 @@ service cloud.firestore {
       allow delete:         if isAdmin();
     }
 
+    match /seasonalStoreHours/{docId} {
+      allow read:           if isAuth();
+      allow create, update: if isAnyStaff();
+      allow delete:         if isAnyStaff();
+    }
+
     match /sharedData/{docId} {
       allow read:  if isAuth();
       allow write: if isAnyStaff();

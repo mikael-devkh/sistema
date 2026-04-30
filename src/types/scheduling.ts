@@ -72,6 +72,20 @@ export interface InternalNote {
   escalonado: boolean;
 }
 
+export interface SeasonalStoreHours {
+  id: string;
+  loja: string;
+  date: string; // yyyy-MM-dd
+  opensAt: string; // HH:mm
+  closesAt: string; // HH:mm
+  closed: boolean;
+  note?: string;
+  importedAt?: Date | null;
+  importedBy?: string;
+  sourceFile?: string;
+  sourceRow?: number;
+}
+
 /** Grouped data returned by useAgendamentoData */
 export interface AgendamentoData {
   pendentes: LojaGroup[];

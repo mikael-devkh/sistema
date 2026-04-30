@@ -7,10 +7,15 @@ import { Badge } from '../ui/badge';
 import {
   ChevronDown, Copy, Check, MapPin,
   AlertTriangle, Monitor, Wrench,
+  CalendarClock,
 } from 'lucide-react';
 import { AgendamentoForm } from './AgendamentoForm';
 import { gerarMensagem } from '../../lib/jiraScheduling';
-import type { LojaGroup, SchedulingIssue } from '../../types/scheduling';
+import {
+  seasonalHoursLabel,
+  summarizeIssueSeasonalHours,
+} from '../../lib/seasonal-hours';
+import type { LojaGroup, SchedulingIssue, SeasonalStoreHours } from '../../types/scheduling';
 
 export interface RelatedGroup {
   label: string;
@@ -29,6 +34,8 @@ interface Props {
   crossTerminal?: boolean;
   /** Issues de outro tipo (terminal ou manutenção) da mesma loja, exibidos na seção expandida */
   relatedGroups?: RelatedGroup[];
+  /** Horários sazonais importados para esta loja */
+  seasonalHours?: SeasonalStoreHours[];
 }
 
 // ─── Issue row ────────────────────────────────────────────────────────────────
@@ -56,8 +63,10 @@ function initials(name?: string | null) {
   return ((parts[0][0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase();
 }
 
-function IssueRow({ issue }: { issue: SchedulingIssue }) {
+function IssueRow({ issue, seasonalHours = [] }: { issue: SchedulingIssue; seasonalHours?: SeasonalStoreHours[] }) {
   const tecnicoNome = issue.tecnico ? issue.tecnico.split('-')[0]?.trim() : null;
+  const seasonalLabel = summarizeIssueSeasonalHours(issue, seasonalHours);
+  const seasonalTitle = seasonalHours.map(seasonalHoursLabel).join('\n');
   let agendaDate: string | null = null;
   let agendaTime: string | null = null;
   if (issue.dataAgenda) {
@@ -94,6 +103,11 @@ function IssueRow({ issue }: { issue: SchedulingIssue }) {
               if (Number.isNaN(d.getTime())) return null;
               try { return <> · atualizado {format(d, 'HH:mm')}</>; } catch { return null; }
             })()}
+          </p>
+        )}
+        {seasonalLabel && (
+          <p className="text-[10px] text-sky-600 dark:text-sky-300 truncate mt-0.5" title={seasonalTitle}>
+            Funcionamento: {seasonalLabel}
           </p>
         )}
       </div>
@@ -135,11 +149,13 @@ export function IssueSection({
   issues,
   isTerminal,
   defaultOpen = true,
+  seasonalHours,
 }: {
   label: string;
   issues: SchedulingIssue[];
   isTerminal?: boolean;
   defaultOpen?: boolean;
+  seasonalHours?: SeasonalStoreHours[];
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -176,7 +192,7 @@ export function IssueSection({
             <span className="text-center">Téc.</span>
           </div>
           <div className="divide-y divide-border/30">
-            {issues.map(issue => <IssueRow key={issue.key} issue={issue} />)}
+            {issues.map(issue => <IssueRow key={issue.key} issue={issue} seasonalHours={seasonalHours} />)}
           </div>
         </div>
       )}
@@ -186,7 +202,7 @@ export function IssueSection({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export function LojaExpander({ group, showForm = false, warningText, onScheduled, actions, crossTerminal, relatedGroups }: Props) {
+export function LojaExpander({ group, showForm = false, warningText, onScheduled, actions, crossTerminal, relatedGroups, seasonalHours = [] }: Props) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -244,6 +260,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
   const totalTerminal = group.issues.length - totalManut;
 
   const toggle = () => setOpen(o => !o);
+  const seasonalSummary = seasonalHours.slice(0, 2).map(seasonalHoursLabel);
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -284,6 +301,18 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
           {group.cidade && (
             <span className="block text-[11px] text-muted-foreground truncate mt-0.5">
               {group.cidade}{group.uf ? ` · ${group.uf}` : ''}
+            </span>
+          )}
+          {seasonalSummary.length > 0 && (
+            <span
+              className="mt-1 inline-flex max-w-full items-center gap-1 rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:text-sky-300"
+              title={seasonalHours.map(seasonalHoursLabel).join('\n')}
+            >
+              <CalendarClock className="h-3 w-3 shrink-0" />
+              <span className="truncate">
+                {seasonalSummary.join(' · ')}
+                {seasonalHours.length > seasonalSummary.length ? ` +${seasonalHours.length - seasonalSummary.length}` : ''}
+              </span>
             </span>
           )}
         </div>
@@ -343,6 +372,16 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
             </div>
           )}
 
+          {seasonalHours.length > 0 && (
+            <div className="flex items-start gap-2.5 p-3 bg-sky-500/10 border border-sky-500/25 rounded-lg text-xs text-sky-700 dark:text-sky-300">
+              <CalendarClock className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <span className="font-semibold">Horário sazonal:</span>{' '}
+                <span>{seasonalHours.map(seasonalHoursLabel).join(' · ')}</span>
+              </div>
+            </div>
+          )}
+
           {/* ── Chamados da loja ─────────────────────────────────────────── */}
           <div className="space-y-3">
             <IssueSection
@@ -350,6 +389,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
               issues={group.issues.filter(i => !i.problema.includes('Projeto Terminal de Consulta') && i.ativo !== '--')}
               isTerminal={false}
               defaultOpen
+              seasonalHours={seasonalHours}
             />
             {/* Issues de terminal que estejam no grupo principal (caso filtro seja "Todos") */}
             {group.issues.some(i => i.problema.includes('Projeto Terminal de Consulta') || i.ativo === '--') && (
@@ -358,6 +398,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
                 issues={group.issues.filter(i => i.problema.includes('Projeto Terminal de Consulta') || i.ativo === '--')}
                 isTerminal
                 defaultOpen
+                seasonalHours={seasonalHours}
               />
             )}
 
@@ -369,6 +410,7 @@ export function LojaExpander({ group, showForm = false, warningText, onScheduled
                 issues={rg.issues}
                 isTerminal={rg.isTerminal}
                 defaultOpen={false}
+                seasonalHours={seasonalHours}
               />
             ))}
           </div>

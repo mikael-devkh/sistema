@@ -6,7 +6,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Checkbox } from '../ui/checkbox';
 import { toast } from 'sonner';
 import { updateTecnico } from '../../lib/jiraScheduling';
-import type { SchedulingIssue, InternalNote } from '../../types/scheduling';
+import {
+  seasonalHoursLabel,
+  summarizeIssueSeasonalHours,
+} from '../../lib/seasonal-hours';
+import type { SchedulingIssue, InternalNote, SeasonalStoreHours } from '../../types/scheduling';
 import { cn } from '../../lib/utils';
 import { db } from '../../firebase';
 import {
@@ -91,9 +95,10 @@ function SortIcon({ active, dir }: { active: boolean; dir?: SortDir }) {
 interface Props {
   issues: SchedulingIssue[];
   onMapFocus?: (loja: string) => void;
+  seasonalHoursByStore?: Map<string, SeasonalStoreHours[]>;
 }
 
-export function PlanilhaInterna({ issues, onMapFocus }: Props) {
+export function PlanilhaInterna({ issues, onMapFocus, seasonalHoursByStore }: Props) {
   // ── Estado ──
   const [notes, setNotes] = useState<Map<string, InternalNote>>(new Map());
   const [notesLoading, setNotesLoading] = useState(true);
@@ -295,17 +300,21 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
   };
 
   const handleExportCsv = () => {
-    const header = 'FSA,Loja,Cidade,UF,Status,SLA,Classificação,Técnico,Data Visita,Observação,Escalonado\n';
+    const header = 'FSA,Loja,Cidade,UF,Status,SLA,Funcionamento Sazonal,Classificação,Técnico,Data Visita,Observação,Escalonado\n';
     const body = rows
-      .map(({ issue, note }) =>
+      .map(({ issue, note }) => {
+        const seasonal = seasonalHoursByStore?.get(issue.loja) ?? [];
+        const seasonalLabel = summarizeIssueSeasonalHours(issue, seasonal);
+        return (
         [
           issue.key, issue.loja, issue.cidade, issue.uf,
-          issue.status, issue.slaBadge,
+          issue.status, issue.slaBadge, seasonalLabel,
           note.classificacao, note.tecnico, note.data, note.obs, note.escalonado,
         ]
           .map(v => `"${String(v ?? '').replace(/"/g, '""')}"`)
-          .join(','),
-      )
+          .join(',')
+        );
+      })
       .join('\n');
 
     const blob = new Blob(['\ufeff' + header + body], { type: 'text/csv;charset=utf-8' });
@@ -551,7 +560,7 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
         ) : (
         <table
           className="border-collapse"
-          style={{ minWidth: onMapFocus ? '1064px' : '1020px', width: '100%' }}
+          style={{ minWidth: onMapFocus ? '1184px' : '1140px', width: '100%' }}
         >
           <thead className="sticky top-0 z-10 group">
             <tr>
@@ -575,6 +584,12 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
               <ColHeader colKey="uf"             className="w-[50px]" align="center">UF</ColHeader>
               <ColHeader colKey="status"         className="w-[130px]">Status Jira</ColHeader>
               <ColHeader colKey="slaBadge"       className="w-[90px]"  align="center">SLA</ColHeader>
+              <th
+                className="border-r border-b px-2 py-[7px] text-left text-[11px] font-bold text-gray-600 dark:text-gray-300 uppercase tracking-wide whitespace-nowrap select-none w-[120px]"
+                style={{ borderColor: '#c6c7c8', background: '#e9eaeb' }}
+              >
+                Func.
+              </th>
               <ColHeader colKey="classificacao"  className="w-[170px]">Classificação</ColHeader>
               <ColHeader colKey="tecnico"        className="w-[130px]">Técnico</ColHeader>
               <ColHeader colKey="data"           className="w-[115px]">Data Visita</ColHeader>
@@ -597,7 +612,7 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
             {rows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={onMapFocus ? 13 : 12}
+                  colSpan={onMapFocus ? 14 : 13}
                   className="py-16 text-center border-b"
                   style={{ borderColor: '#e2e3e4' }}
                 >
@@ -618,13 +633,16 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
             ) : (
               <>
                 {paddingTop > 0 && (
-                  <tr><td colSpan={onMapFocus ? 13 : 12} style={{ height: paddingTop }} /></tr>
+                  <tr><td colSpan={onMapFocus ? 14 : 13} style={{ height: paddingTop }} /></tr>
                 )}
                 {virtualItems.map(vItem => {
                 const { issue, note } = rows[vItem.index];
                 const idx = vItem.index;
                 const isEdited = edited.has(issue.key);
                 const classMeta = getClassMeta(note.classificacao);
+                const seasonal = seasonalHoursByStore?.get(issue.loja) ?? [];
+                const seasonalLabel = summarizeIssueSeasonalHours(issue, seasonal);
+                const seasonalTitle = seasonal.map(seasonalHoursLabel).join('\n');
                 const CELL = 'border-r border-b px-2 py-0.5 text-[11px] align-middle';
                 const CELL_COLOR = 'border-[#e2e3e4] dark:border-gray-700/70';
 
@@ -708,6 +726,24 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
                       </span>
                     </td>
 
+                    <td className={cn(CELL, CELL_COLOR, 'w-[120px]')}>
+                      {seasonalLabel ? (
+                        <span
+                          className={cn(
+                            'inline-flex max-w-[112px] truncate rounded-sm border px-1.5 py-[2px] text-[10px] font-semibold',
+                            seasonalLabel.includes('fechado')
+                              ? 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700'
+                              : 'bg-sky-100 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-300 dark:border-sky-700',
+                          )}
+                          title={seasonalTitle}
+                        >
+                          {seasonalLabel}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400 dark:text-gray-600">—</span>
+                      )}
+                    </td>
+
                     <td className={cn(CELL, CELL_COLOR, 'w-[170px] p-0')}>
                       <select
                         value={note.classificacao}
@@ -767,7 +803,7 @@ export function PlanilhaInterna({ issues, onMapFocus }: Props) {
                 );
               })}
                 {paddingBottom > 0 && (
-                  <tr><td colSpan={onMapFocus ? 13 : 12} style={{ height: paddingBottom }} /></tr>
+                  <tr><td colSpan={onMapFocus ? 14 : 13} style={{ height: paddingBottom }} /></tr>
                 )}
               </>
             )}

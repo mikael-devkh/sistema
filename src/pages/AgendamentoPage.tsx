@@ -29,11 +29,13 @@ import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
 import { TecCampoSheet } from '../components/scheduling/TecCampoSheet';
+import { SeasonalHoursPanel } from '../components/scheduling/SeasonalHoursPanel';
 const MapaAgendamento = lazy(() =>
   import('../components/scheduling/MapaAgendamento').then(m => ({ default: m.MapaAgendamento }))
 );
 
-import type { LojaGroup, SchedulingIssue } from '../types/scheduling';
+import { useSeasonalHours } from '../hooks/use-seasonal-hours';
+import type { LojaGroup, SchedulingIssue, SeasonalStoreHours } from '../types/scheduling';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 
@@ -587,6 +589,7 @@ function PendentesTab({
   sort,
   allIssuesByLoja,
   onMapFocus,
+  seasonalHoursByStore,
 }: {
   groups: LojaGroup[];
   agendadoLojas: Set<string>;
@@ -599,6 +602,7 @@ function PendentesTab({
   sort: SortOption;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
+  seasonalHoursByStore: Map<string, SeasonalStoreHours[]>;
 }) {
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = sortGroups(byUf, sort);
@@ -623,6 +627,7 @@ function PendentesTab({
         onScheduled={onScheduled}
         relatedGroups={relatedGroups}
         crossTerminal={hasTerminal}
+        seasonalHours={seasonalHoursByStore.get(g.loja) ?? []}
         actions={
           <>
             <button
@@ -663,6 +668,7 @@ function AgendadosTab({
   onSuccess,
   allIssuesByLoja,
   onMapFocus,
+  seasonalHoursByStore,
 }: {
   agendados: Map<string, LojaGroup[]>;
   filterMode: FilterMode;
@@ -672,6 +678,7 @@ function AgendadosTab({
   onSuccess?: () => void;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
+  seasonalHoursByStore: Map<string, SeasonalStoreHours[]>;
 }) {
   const [tecCampoGroup, setTecCampoGroup] = useState<LojaGroup | null>(null);
   const [tecCampoOpen, setTecCampoOpen] = useState(false);
@@ -735,6 +742,7 @@ function AgendadosTab({
               crossTerminal={hasTerminal}
               actions={actions}
               relatedGroups={relatedGroups}
+              seasonalHours={seasonalHoursByStore.get(g.loja) ?? []}
             />
           );
         };
@@ -786,6 +794,7 @@ function TecCampoTab({
   sort,
   allIssuesByLoja,
   onMapFocus,
+  seasonalHoursByStore,
 }: {
   groups: LojaGroup[];
   filterMode: FilterMode;
@@ -794,6 +803,7 @@ function TecCampoTab({
   sort: SortOption;
   allIssuesByLoja: Map<string, SchedulingIssue[]>;
   onMapFocus: (loja: string) => void;
+  seasonalHoursByStore: Map<string, SeasonalStoreHours[]>;
 }) {
   const byUf = ufFilter ? groups.filter(g => g.uf === ufFilter) : groups;
   const filtered = sortGroups(byUf, sort);
@@ -809,6 +819,7 @@ function TecCampoTab({
         group={g}
         relatedGroups={relatedGroups}
         crossTerminal={hasTerminal}
+        seasonalHours={seasonalHoursByStore.get(g.loja) ?? []}
         actions={
           <button
             className="w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground border border-border/50 transition-colors flex items-center justify-center shrink-0"
@@ -939,6 +950,7 @@ function ChamadosTab({
   onTransition,
   onScheduled,
   onMapFocus,
+  seasonalHoursByStore,
 }: {
   kpi: { agendamento: number; agendado: number; tecCampo: number };
   pendentes: LojaGroup[];
@@ -951,6 +963,7 @@ function ChamadosTab({
   onTransition: (loja: string) => void;
   onScheduled: () => void;
   onMapFocus: (loja: string) => void;
+  seasonalHoursByStore: Map<string, SeasonalStoreHours[]>;
 }) {
   const [highlightsOpen, setHighlightsOpen] = useState(false);
   const [subTab, setSubTab] = useState('pendentes');
@@ -1142,15 +1155,16 @@ function ChamadosTab({
             sort={sortPendentes}
             allIssuesByLoja={allIssuesByLoja}
             onMapFocus={onMapFocus}
+            seasonalHoursByStore={seasonalHoursByStore}
           />
         </TabsContent>
 
         <TabsContent value="agendados" className="mt-3">
-          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortAgendados} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
+          <AgendadosTab agendados={agendados} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortAgendados} onSuccess={onScheduled} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} seasonalHoursByStore={seasonalHoursByStore} />
         </TabsContent>
 
         <TabsContent value="tec-campo" className="mt-3">
-          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortTecCampo} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} />
+          <TecCampoTab groups={tecCampo} filterMode={filterMode} terminalLojas={terminalLojas} ufFilter={ufFilter} sort={sortTecCampo} allIssuesByLoja={allIssuesByLoja} onMapFocus={onMapFocus} seasonalHoursByStore={seasonalHoursByStore} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1161,6 +1175,7 @@ function ChamadosTab({
 
 export default function AgendamentoPage() {
   const { data, isLoading, isError, error, refresh, isFromCache, cacheAgeMinutes, isFetching } = useAgendamentoData();
+  const { byStore: seasonalHoursByStore } = useSeasonalHours();
   const [transitionLoja, setTransitionLoja] = useState<string | null>(null);
   const [transitionOpen, setTransitionOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('chamados');
@@ -1301,6 +1316,7 @@ export default function AgendamentoPage() {
             proxAgenda={proxAgendaDate}
             tecnicosCampo={tecnicosCampo}
           />
+          <SeasonalHoursPanel className="mt-4" />
         </div>
       </div>
 
@@ -1362,6 +1378,7 @@ export default function AgendamentoPage() {
             onTransition={openTransition}
             onScheduled={refresh}
             onMapFocus={onMapFocus}
+            seasonalHoursByStore={seasonalHoursByStore}
           />
         </TabsContent>
 
@@ -1412,7 +1429,7 @@ export default function AgendamentoPage() {
 
         {/* ── Planilha ── */}
         <TabsContent value="planilha" className="mt-4">
-          <PlanilhaInterna issues={allIssues} onMapFocus={onMapFocus} />
+          <PlanilhaInterna issues={allIssues} onMapFocus={onMapFocus} seasonalHoursByStore={seasonalHoursByStore} />
         </TabsContent>
 
         {/* ── Mapa ── */}

@@ -19,7 +19,7 @@ interface Props {
   issues: SchedulingIssue[];
 }
 
-type FilterMode = 'all' | 'closed' | 'open' | 'withCalls';
+type FilterMode = 'all' | 'closed' | 'open' | 'multiCalls';
 
 function formatDateTime(value: Date | string | null | undefined) {
   if (!value) return '-';
@@ -86,10 +86,11 @@ export function SazonalidadeTab({ issues }: Props) {
         item,
         issues: issueIndex.get(normalizeStoreCode(item.loja)) ?? [],
       }))
+      .filter(row => row.issues.length > 0)
       .filter(row => {
         if (filterMode === 'closed' && !row.item.closed) return false;
         if (filterMode === 'open' && row.item.closed) return false;
-        if (filterMode === 'withCalls' && row.issues.length === 0) return false;
+        if (filterMode === 'multiCalls' && row.issues.length < 2) return false;
         if (!q) return true;
         return (
           row.item.loja.toLowerCase().includes(q) ||
@@ -102,20 +103,25 @@ export function SazonalidadeTab({ issues }: Props) {
         );
       })
       .sort((a, b) => {
+        if (a.issues.length !== b.issues.length) return b.issues.length - a.issues.length;
         if (a.item.closed !== b.item.closed) return a.item.closed ? -1 : 1;
         return a.item.loja.localeCompare(b.item.loja, 'pt-BR', { numeric: true });
       });
   }, [dayItems, filterMode, issueIndex, query]);
 
   const stats = useMemo(() => {
-    const closedStores = dayItems.filter(item => item.closed).length;
-    const openStores = dayItems.length - closedStores;
-    const storesWithCalls = dayItems.filter(item => (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length > 0).length;
-    const callsOnClosed = dayItems
-      .filter(item => item.closed)
-      .reduce((sum, item) => sum + (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length, 0);
-    const totalCalls = dayItems.reduce((sum, item) => sum + (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length, 0);
-    return { closedStores, openStores, storesWithCalls, callsOnClosed, totalCalls };
+    const matchedItems = dayItems
+      .map(item => ({ item, issues: issueIndex.get(normalizeStoreCode(item.loja)) ?? [] }))
+      .filter(row => row.issues.length > 0);
+    const closedStores = matchedItems.filter(row => row.item.closed).length;
+    const openStores = matchedItems.length - closedStores;
+    const multiCallStores = matchedItems.filter(row => row.issues.length >= 2).length;
+    const callsOnClosed = matchedItems
+      .filter(row => row.item.closed)
+      .reduce((sum, row) => sum + row.issues.length, 0);
+    const totalCalls = matchedItems.reduce((sum, row) => sum + row.issues.length, 0);
+    const storesInSheet = dayItems.length;
+    return { closedStores, openStores, multiCallStores, callsOnClosed, totalCalls, storesInSheet, matchedStores: matchedItems.length };
   }, [dayItems, issueIndex]);
 
   const handleFile = async (file?: File) => {
@@ -204,10 +210,10 @@ export function SazonalidadeTab({ issues }: Props) {
   };
 
   const filters: { value: FilterMode; label: string; count: number }[] = [
-    { value: 'all', label: 'Todas', count: dayItems.length },
+    { value: 'all', label: 'Com chamados', count: stats.matchedStores },
     { value: 'closed', label: 'Fechadas', count: stats.closedStores },
     { value: 'open', label: 'Abertas', count: stats.openStores },
-    { value: 'withCalls', label: 'Com chamados', count: stats.storesWithCalls },
+    { value: 'multiCalls', label: '2+ chamados', count: stats.multiCallStores },
   ];
 
   return (
@@ -274,10 +280,10 @@ export function SazonalidadeTab({ issues }: Props) {
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
-          { label: 'Lojas na planilha', value: dayItems.length, hint: formatSeasonalDate(selectedDate) },
-          { label: 'Fechadas', value: stats.closedStores, hint: pct(stats.closedStores, dayItems.length), tone: 'text-red-500' },
-          { label: 'Abertas', value: stats.openStores, hint: pct(stats.openStores, dayItems.length), tone: 'text-emerald-500' },
-          { label: 'Lojas com chamados', value: stats.storesWithCalls, hint: pct(stats.storesWithCalls, dayItems.length), tone: 'text-sky-500' },
+          { label: 'Lojas com chamados', value: stats.matchedStores, hint: `${stats.storesInSheet} na planilha`, tone: 'text-sky-500' },
+          { label: 'Fechadas com chamados', value: stats.closedStores, hint: pct(stats.closedStores, stats.matchedStores), tone: 'text-red-500' },
+          { label: 'Abertas com chamados', value: stats.openStores, hint: pct(stats.openStores, stats.matchedStores), tone: 'text-emerald-500' },
+          { label: 'Lojas com 2+ chamados', value: stats.multiCallStores, hint: pct(stats.multiCallStores, stats.matchedStores), tone: 'text-violet-400' },
           { label: 'Chamados em fechadas', value: stats.callsOnClosed, hint: `${stats.totalCalls} chamado(s) cruzados`, tone: 'text-amber-500' },
         ].map(card => (
           <div key={card.label} className="rounded-xl border border-border/60 bg-card p-4">
@@ -343,13 +349,19 @@ export function SazonalidadeTab({ issues }: Props) {
               {rows.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-3 py-12 text-center text-sm text-muted-foreground">
-                    Nenhum registro para os filtros atuais.
+                    Nenhuma loja da planilha possui chamado ativo nos filtros atuais.
                   </td>
                 </tr>
               ) : rows.flatMap(row => {
                 const issueRows = row.issues.length ? row.issues : [null];
                 return issueRows.map((issue, index) => (
-                  <tr key={`${row.item.id}-${issue?.key ?? 'sem-chamado'}-${index}`} className="hover:bg-secondary/30">
+                  <tr
+                    key={`${row.item.id}-${issue?.key ?? 'sem-chamado'}-${index}`}
+                    className={cn(
+                      'hover:bg-secondary/30',
+                      row.issues.length >= 2 && index === 0 && 'bg-violet-500/5',
+                    )}
+                  >
                     <td className="px-3 py-2 font-semibold tabular-nums">{index === 0 ? row.item.loja : ''}</td>
                     <td className="px-3 py-2">
                       {index === 0 && (
@@ -365,7 +377,20 @@ export function SazonalidadeTab({ issues }: Props) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-3 py-2 text-center tabular-nums">{index === 0 ? row.issues.length : ''}</td>
+                    <td className="px-3 py-2 text-center tabular-nums">
+                      {index === 0 && (
+                        <span
+                          className={cn(
+                            'inline-flex min-w-6 justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                            row.issues.length >= 2
+                              ? 'bg-violet-500/15 text-violet-300'
+                              : 'bg-secondary text-muted-foreground',
+                          )}
+                        >
+                          {row.issues.length}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 font-mono text-primary">{issue?.key ?? '-'}</td>
                     <td className="px-3 py-2 tabular-nums">{issue ? formatDateTime(issue.created) : '-'}</td>
                     <td className="px-3 py-2">{issue?.status ?? '-'}</td>

@@ -19,7 +19,7 @@ interface Props {
   issues: SchedulingIssue[];
 }
 
-type FilterMode = 'all' | 'closed' | 'open' | 'multiCalls' | 'criticalSla';
+type FilterMode = 'all' | 'closed' | 'open' | 'openMultiCalls' | 'closedMultiCalls' | 'multiCalls' | 'criticalSla';
 type SortMode = 'risk' | 'calls' | 'oldest' | 'loja';
 
 interface StoreImpactRow {
@@ -126,6 +126,8 @@ export function SazonalidadeTab({ issues }: Props) {
       .filter(row => {
         if (filterMode === 'closed' && !row.item.closed) return false;
         if (filterMode === 'open' && row.item.closed) return false;
+        if (filterMode === 'openMultiCalls' && (row.item.closed || row.issues.length < 2)) return false;
+        if (filterMode === 'closedMultiCalls' && (!row.item.closed || row.issues.length < 2)) return false;
         if (filterMode === 'multiCalls' && row.issues.length < 2) return false;
         if (filterMode === 'criticalSla' && row.criticalSla === 0) return false;
         if (!q) return true;
@@ -156,13 +158,30 @@ export function SazonalidadeTab({ issues }: Props) {
     const closedStores = allRows.filter(row => row.item.closed).length;
     const openStores = allRows.length - closedStores;
     const multiCallStores = allRows.filter(row => row.issues.length >= 2).length;
+    const openMultiCallStores = allRows.filter(row => !row.item.closed && row.issues.length >= 2).length;
+    const closedMultiCallStores = allRows.filter(row => row.item.closed && row.issues.length >= 2).length;
     const criticalSlaStores = allRows.filter(row => row.criticalSla > 0).length;
+    const callsOnOpenMultiCallStores = allRows
+      .filter(row => !row.item.closed && row.issues.length >= 2)
+      .reduce((sum, row) => sum + row.issues.length, 0);
     const callsOnClosed = allRows
       .filter(row => row.item.closed)
       .reduce((sum, row) => sum + row.issues.length, 0);
     const totalCalls = allRows.reduce((sum, row) => sum + row.issues.length, 0);
     const storesInSheet = dayItems.length;
-    return { closedStores, openStores, multiCallStores, criticalSlaStores, callsOnClosed, totalCalls, storesInSheet, matchedStores: allRows.length };
+    return {
+      closedStores,
+      openStores,
+      multiCallStores,
+      openMultiCallStores,
+      closedMultiCallStores,
+      criticalSlaStores,
+      callsOnOpenMultiCallStores,
+      callsOnClosed,
+      totalCalls,
+      storesInSheet,
+      matchedStores: allRows.length,
+    };
   }, [allRows, dayItems.length]);
 
   const handleFile = async (file?: File) => {
@@ -263,8 +282,10 @@ export function SazonalidadeTab({ issues }: Props) {
 
   const filters: { value: FilterMode; label: string; count: number }[] = [
     { value: 'all', label: 'Com chamados', count: stats.matchedStores },
-    { value: 'closed', label: 'Fechadas', count: stats.closedStores },
     { value: 'open', label: 'Abertas', count: stats.openStores },
+    { value: 'openMultiCalls', label: 'Abertas 2+', count: stats.openMultiCallStores },
+    { value: 'closed', label: 'Fechadas', count: stats.closedStores },
+    { value: 'closedMultiCalls', label: 'Fechadas 2+', count: stats.closedMultiCallStores },
     { value: 'multiCalls', label: '2+ chamados', count: stats.multiCallStores },
     { value: 'criticalSla', label: 'SLA crítico', count: stats.criticalSlaStores },
   ];
@@ -331,12 +352,13 @@ export function SazonalidadeTab({ issues }: Props) {
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
         {[
           { label: 'Lojas com chamados', value: stats.matchedStores, hint: `${stats.storesInSheet} na planilha`, tone: 'text-sky-500' },
-          { label: 'Fechadas com chamados', value: stats.closedStores, hint: pct(stats.closedStores, stats.matchedStores), tone: 'text-red-500' },
           { label: 'Abertas com chamados', value: stats.openStores, hint: pct(stats.openStores, stats.matchedStores), tone: 'text-emerald-500' },
-          { label: 'Lojas com 2+ chamados', value: stats.multiCallStores, hint: pct(stats.multiCallStores, stats.matchedStores), tone: 'text-violet-400' },
+          { label: 'Abertas com 2+ chamados', value: stats.openMultiCallStores, hint: `${stats.callsOnOpenMultiCallStores} chamado(s)`, tone: 'text-violet-400' },
+          { label: 'Fechadas com chamados', value: stats.closedStores, hint: pct(stats.closedStores, stats.matchedStores), tone: 'text-red-500' },
+          { label: 'Fechadas com 2+ chamados', value: stats.closedMultiCallStores, hint: pct(stats.closedMultiCallStores, stats.matchedStores), tone: 'text-red-400' },
           { label: 'Chamados em fechadas', value: stats.callsOnClosed, hint: `${stats.totalCalls} chamado(s) cruzados`, tone: 'text-amber-500' },
         ].map(card => (
           <div key={card.label} className="rounded-xl border border-border/60 bg-card p-4">
@@ -351,6 +373,13 @@ export function SazonalidadeTab({ issues }: Props) {
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           <AlertTriangle className="w-4 h-4 shrink-0" />
           {stats.callsOnClosed} chamado(s) ativo(s) estão em lojas marcadas como fechadas para {formatSeasonalDate(selectedDate)}.
+        </div>
+      )}
+
+      {stats.openMultiCallStores > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          {stats.openMultiCallStores} loja(s) que estarão abertas concentram 2+ chamados, somando {stats.callsOnOpenMultiCallStores} chamado(s).
         </div>
       )}
 

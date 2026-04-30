@@ -308,6 +308,20 @@ export function parseSeasonalHoursMatrix(
   return { entries, skipped };
 }
 
+function mergeParseResults(results: SeasonalHoursParseResult[]): SeasonalHoursParseResult {
+  const byId = new Map<string, SeasonalStoreHours>();
+  let skipped = 0;
+
+  for (const result of results) {
+    skipped += result.skipped;
+    for (const entry of result.entries) {
+      byId.set(entry.id, entry);
+    }
+  }
+
+  return { entries: [...byId.values()], skipped };
+}
+
 export async function parseSeasonalHoursFile(file: File, fallbackDate?: string): Promise<SeasonalHoursParseResult> {
   const XLSX = await import('xlsx');
   const buffer = await file.arrayBuffer();
@@ -315,8 +329,12 @@ export async function parseSeasonalHoursFile(file: File, fallbackDate?: string):
   const sheetName = workbook.SheetNames[0];
   if (!sheetName) return { entries: [], skipped: 0 };
   const sheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
-  const matrixResult = parseSeasonalHoursMatrix(matrix, fallbackDate);
+  const matrixRaw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+  const matrixFormatted = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false });
+  const matrixResult = mergeParseResults([
+    parseSeasonalHoursMatrix(matrixRaw, fallbackDate),
+    parseSeasonalHoursMatrix(matrixFormatted, fallbackDate),
+  ]);
   if (matrixResult.entries.length > 0) return matrixResult;
 
   const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });

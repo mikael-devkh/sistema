@@ -1,0 +1,338 @@
+import { useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CalendarClock, Download, Loader2, Search, Trash2, Upload } from 'lucide-react';
+import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Badge } from '../ui/badge';
+import { useSeasonalHours } from '../../hooks/use-seasonal-hours';
+import {
+  formatSeasonalDate,
+  normalizeStoreCode,
+  parseSeasonalHoursFile,
+  seasonalHoursLabel,
+} from '../../lib/seasonal-hours';
+import { cn } from '../../lib/utils';
+import type { SchedulingIssue, SeasonalStoreHours } from '../../types/scheduling';
+
+interface Props {
+  issues: SchedulingIssue[];
+}
+
+type FilterMode = 'all' | 'closed' | 'open' | 'withCalls';
+
+function formatDateTime(value: Date | string | null | undefined) {
+  if (!value) return '-';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  try { return format(date, 'dd/MM/yyyy HH:mm'); } catch { return '-'; }
+}
+
+function buildIssueIndex(issues: SchedulingIssue[]) {
+  const map = new Map<string, SchedulingIssue[]>();
+  for (const issue of issues) {
+    const key = normalizeStoreCode(issue.loja);
+    const list = map.get(key) ?? [];
+    list.push(issue);
+    map.set(key, list);
+  }
+  return map;
+}
+
+function pct(part: number, total: number) {
+  if (!total) return '0%';
+  return `${Math.round((part / total) * 100)}%`;
+}
+
+function statusLabel(item: SeasonalStoreHours) {
+  if (item.closed) return 'Fechada';
+  if (item.opensAt && item.closesAt) return `${item.opensAt}-${item.closesAt}`;
+  return 'Aberta';
+}
+
+export function SazonalidadeTab({ issues }: Props) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10));
+  const [importing, setImporting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const [filterMode, setFilterMode] = useState<FilterMode>('all');
+  const [query, setQuery] = useState('');
+  const { items, dates, saveMany, removeDate, isLoading } = useSeasonalHours();
+
+  const issueIndex = useMemo(() => buildIssueIndex(issues), [issues]);
+  const dayItems = useMemo(
+    () => items.filter(item => item.date === selectedDate),
+    [items, selectedDate],
+  );
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return dayItems
+      .map(item => ({
+        item,
+        issues: issueIndex.get(normalizeStoreCode(item.loja)) ?? [],
+      }))
+      .filter(row => {
+        if (filterMode === 'closed' && !row.item.closed) return false;
+        if (filterMode === 'open' && row.item.closed) return false;
+        if (filterMode === 'withCalls' && row.issues.length === 0) return false;
+        if (!q) return true;
+        return (
+          row.item.loja.toLowerCase().includes(q) ||
+          row.issues.some(issue =>
+            issue.key.toLowerCase().includes(q) ||
+            issue.cidade.toLowerCase().includes(q) ||
+            issue.uf.toLowerCase().includes(q) ||
+            issue.problema.toLowerCase().includes(q)
+          )
+        );
+      })
+      .sort((a, b) => {
+        if (a.item.closed !== b.item.closed) return a.item.closed ? -1 : 1;
+        return a.item.loja.localeCompare(b.item.loja, 'pt-BR', { numeric: true });
+      });
+  }, [dayItems, filterMode, issueIndex, query]);
+
+  const stats = useMemo(() => {
+    const closedStores = dayItems.filter(item => item.closed).length;
+    const openStores = dayItems.length - closedStores;
+    const storesWithCalls = dayItems.filter(item => (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length > 0).length;
+    const callsOnClosed = dayItems
+      .filter(item => item.closed)
+      .reduce((sum, item) => sum + (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length, 0);
+    const totalCalls = dayItems.reduce((sum, item) => sum + (issueIndex.get(normalizeStoreCode(item.loja)) ?? []).length, 0);
+    return { closedStores, openStores, storesWithCalls, callsOnClosed, totalCalls };
+  }, [dayItems, issueIndex]);
+
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const result = await parseSeasonalHoursFile(file, selectedDate);
+      if (!result.entries.length) {
+        toast.error('Nenhum horário válido encontrado na planilha.');
+        return;
+      }
+      await saveMany(result.entries, file.name);
+      const firstDate = result.entries[0]?.date;
+      if (firstDate) setSelectedDate(firstDate);
+      toast.success(`${result.entries.length} registro(s) de sazonalidade importado(s).`);
+      if (result.skipped > 0) toast.warning(`${result.skipped} linha(s) ignorada(s).`);
+    } catch (e: unknown) {
+      toast.error('Erro ao importar planilha: ' + ((e as Error)?.message ?? 'falha desconhecida'));
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const handleRemoveDate = async () => {
+    if (!selectedDate || !dayItems.length) return;
+    setRemoving(true);
+    try {
+      const removed = await removeDate(selectedDate);
+      toast.success(`${removed} registro(s) removido(s) de ${formatSeasonalDate(selectedDate)}.`);
+    } catch (e: unknown) {
+      toast.error('Erro ao remover data: ' + ((e as Error)?.message ?? 'falha desconhecida'));
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  const handleExportCsv = () => {
+    const header = 'Loja,Funcionamento,Chamados,FSAs,Data Abertura,Status,Cidade,UF,Problema\n';
+    const body = rows.flatMap(row => {
+      if (!row.issues.length) {
+        return [[row.item.loja, statusLabel(row.item), 0, '', '', '', '', '', '']];
+      }
+      return row.issues.map(issue => [
+        row.item.loja,
+        statusLabel(row.item),
+        row.issues.length,
+        issue.key,
+        formatDateTime(issue.created),
+        issue.status,
+        issue.cidade,
+        issue.uf,
+        issue.problema,
+      ]);
+    }).map(cols => cols.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+
+    const blob = new Blob(['\ufeff' + header + body], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `sazonalidade_${selectedDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const filters: { value: FilterMode; label: string; count: number }[] = [
+    { value: 'all', label: 'Todas', count: dayItems.length },
+    { value: 'closed', label: 'Fechadas', count: stats.closedStores },
+    { value: 'open', label: 'Abertas', count: stats.openStores },
+    { value: 'withCalls', label: 'Com chamados', count: stats.storesWithCalls },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-border/60 bg-card/70 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 min-w-0 mr-auto">
+            <CalendarClock className="w-4 h-4 text-primary shrink-0" />
+            <div>
+              <h2 className="text-sm font-semibold leading-none">Sazonalidade</h2>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {isLoading ? 'Carregando registros...' : `${items.length} registro(s) em ${dates.length} data(s)`}
+              </p>
+            </div>
+          </div>
+
+          <Input
+            type="date"
+            value={selectedDate}
+            onChange={e => setSelectedDate(e.target.value)}
+            className="h-9 w-[155px] text-xs bg-background"
+          />
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,.ods"
+            className="hidden"
+            onChange={e => handleFile(e.target.files?.[0])}
+          />
+
+          <Button size="sm" variant="outline" className="h-9 gap-1.5" onClick={() => fileRef.current?.click()} disabled={importing}>
+            {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            Importar
+          </Button>
+
+          <Button size="sm" variant="ghost" className="h-9 gap-1.5" onClick={handleExportCsv} disabled={!rows.length}>
+            <Download className="w-3.5 h-3.5" />
+            CSV
+          </Button>
+
+          {dayItems.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-9 gap-1.5 text-destructive hover:text-destructive"
+              onClick={handleRemoveDate}
+              disabled={removing}
+            >
+              {removing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              Remover data
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {[
+          { label: 'Lojas na planilha', value: dayItems.length, hint: formatSeasonalDate(selectedDate) },
+          { label: 'Fechadas', value: stats.closedStores, hint: pct(stats.closedStores, dayItems.length), tone: 'text-red-500' },
+          { label: 'Abertas', value: stats.openStores, hint: pct(stats.openStores, dayItems.length), tone: 'text-emerald-500' },
+          { label: 'Lojas com chamados', value: stats.storesWithCalls, hint: pct(stats.storesWithCalls, dayItems.length), tone: 'text-sky-500' },
+          { label: 'Chamados em fechadas', value: stats.callsOnClosed, hint: `${stats.totalCalls} chamado(s) cruzados`, tone: 'text-amber-500' },
+        ].map(card => (
+          <div key={card.label} className="rounded-xl border border-border/60 bg-card p-4">
+            <p className="text-[11px] text-muted-foreground">{card.label}</p>
+            <p className={cn('text-2xl font-bold mt-1 tabular-nums', card.tone)}>{card.value}</p>
+            <p className="text-[10px] text-muted-foreground mt-1">{card.hint}</p>
+          </div>
+        ))}
+      </div>
+
+      {stats.callsOnClosed > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          Existem chamados ativos em lojas marcadas como fechadas para {formatSeasonalDate(selectedDate)}.
+        </div>
+      )}
+
+      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-border/60 bg-muted/20">
+          <div className="flex items-center gap-1">
+            {filters.map(filter => (
+              <button
+                key={filter.value}
+                onClick={() => setFilterMode(filter.value)}
+                className={cn(
+                  'h-7 rounded-md px-2.5 text-[11px] font-medium transition-colors',
+                  filterMode === filter.value
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary/60',
+                )}
+              >
+                {filter.label} <span className="tabular-nums opacity-70">{filter.count}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative ml-auto">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Buscar loja, FSA, cidade..."
+              className="h-8 w-64 pl-7 text-xs bg-background"
+            />
+          </div>
+        </div>
+
+        <div className="overflow-auto max-h-[62vh]">
+          <table className="w-full min-w-[980px] text-xs">
+            <thead className="sticky top-0 z-10 bg-muted/60 backdrop-blur">
+              <tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
+                <th className="px-3 py-2 border-b border-border/60">Loja</th>
+                <th className="px-3 py-2 border-b border-border/60">Funcionamento</th>
+                <th className="px-3 py-2 border-b border-border/60 text-center">Chamados</th>
+                <th className="px-3 py-2 border-b border-border/60">FSA</th>
+                <th className="px-3 py-2 border-b border-border/60">Data abertura</th>
+                <th className="px-3 py-2 border-b border-border/60">Status</th>
+                <th className="px-3 py-2 border-b border-border/60">Cidade/UF</th>
+                <th className="px-3 py-2 border-b border-border/60">Problema</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/40">
+              {rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-3 py-12 text-center text-sm text-muted-foreground">
+                    Nenhum registro para os filtros atuais.
+                  </td>
+                </tr>
+              ) : rows.flatMap(row => {
+                const issueRows = row.issues.length ? row.issues : [null];
+                return issueRows.map((issue, index) => (
+                  <tr key={`${row.item.id}-${issue?.key ?? 'sem-chamado'}-${index}`} className="hover:bg-secondary/30">
+                    <td className="px-3 py-2 font-semibold tabular-nums">{index === 0 ? row.item.loja : ''}</td>
+                    <td className="px-3 py-2">
+                      {index === 0 && (
+                        <Badge
+                          className={cn(
+                            'text-[10px]',
+                            row.item.closed
+                              ? 'bg-red-500/15 text-red-400 border-red-500/30'
+                              : 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                          )}
+                        >
+                          {seasonalHoursLabel(row.item)}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-center tabular-nums">{index === 0 ? row.issues.length : ''}</td>
+                    <td className="px-3 py-2 font-mono text-primary">{issue?.key ?? '-'}</td>
+                    <td className="px-3 py-2 tabular-nums">{issue ? formatDateTime(issue.created) : '-'}</td>
+                    <td className="px-3 py-2">{issue?.status ?? '-'}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{issue ? `${issue.cidade || '-'}${issue.uf ? `/${issue.uf}` : ''}` : '-'}</td>
+                    <td className="px-3 py-2 max-w-[360px] truncate" title={issue?.problema ?? ''}>{issue?.problema ?? 'Sem chamado ativo cruzado'}</td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -29,7 +29,7 @@ import { ReqTracker } from '../components/scheduling/ReqTracker';
 import { GerenteTab } from '../components/scheduling/GerenteTab';
 import { PlanilhaInterna } from '../components/scheduling/PlanilhaInterna';
 import { TecCampoSheet } from '../components/scheduling/TecCampoSheet';
-import { SeasonalHoursPanel } from '../components/scheduling/SeasonalHoursPanel';
+import { SazonalidadeTab } from '../components/scheduling/SazonalidadeTab';
 const MapaAgendamento = lazy(() =>
   import('../components/scheduling/MapaAgendamento').then(m => ({ default: m.MapaAgendamento }))
 );
@@ -1316,7 +1316,6 @@ export default function AgendamentoPage() {
             proxAgenda={proxAgendaDate}
             tecnicosCampo={tecnicosCampo}
           />
-          <SeasonalHoursPanel className="mt-4" />
         </div>
       </div>
 
@@ -1332,6 +1331,7 @@ export default function AgendamentoPage() {
             { value: 'overview', label: 'Visão geral' },
             { value: 'reqs',     label: 'REQs' },
             { value: 'gerente',  label: 'Gerente' },
+            { value: 'sazonalidade', label: 'Sazonalidade' },
             { value: 'planilha', label: 'Planilha' },
             { value: 'mapa',     label: 'Mapa' },
           ].map(t => (
@@ -1425,6 +1425,11 @@ export default function AgendamentoPage() {
         {/* ── Gerente ── */}
         <TabsContent value="gerente" className="mt-4">
           <GerenteTab allLojaGroups={allLojaGroups} />
+        </TabsContent>
+
+        {/* ── Sazonalidade ── */}
+        <TabsContent value="sazonalidade" className="mt-4">
+          <SazonalidadeTab issues={allIssues} />
         </TabsContent>
 
         {/* ── Planilha ── */}

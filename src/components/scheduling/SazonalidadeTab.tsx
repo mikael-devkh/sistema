@@ -57,12 +57,26 @@ export function SazonalidadeTab({ issues }: Props) {
   const [removing, setRemoving] = useState(false);
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
   const [query, setQuery] = useState('');
+  const [localItems, setLocalItems] = useState<SeasonalStoreHours[]>([]);
+  const [localWarning, setLocalWarning] = useState<string | null>(null);
   const { items, dates, saveMany, removeDate, isLoading } = useSeasonalHours();
+
+  const allItems = useMemo(() => {
+    const byId = new Map<string, SeasonalStoreHours>();
+    for (const item of items) byId.set(item.id, item);
+    for (const item of localItems) byId.set(item.id, item);
+    return [...byId.values()].sort((a, b) => a.date.localeCompare(b.date) || a.loja.localeCompare(b.loja, 'pt-BR', { numeric: true }));
+  }, [items, localItems]);
+
+  const allDates = useMemo(
+    () => [...new Set(allItems.map(item => item.date))].sort(),
+    [allItems],
+  );
 
   const issueIndex = useMemo(() => buildIssueIndex(issues), [issues]);
   const dayItems = useMemo(
-    () => items.filter(item => item.date === selectedDate),
-    [items, selectedDate],
+    () => allItems.filter(item => item.date === selectedDate),
+    [allItems, selectedDate],
   );
 
   const rows = useMemo(() => {
@@ -107,16 +121,32 @@ export function SazonalidadeTab({ issues }: Props) {
   const handleFile = async (file?: File) => {
     if (!file) return;
     setImporting(true);
+    setLocalWarning(null);
     try {
       const result = await parseSeasonalHoursFile(file, selectedDate);
       if (!result.entries.length) {
         toast.error('Nenhum horário válido encontrado na planilha.');
         return;
       }
-      await saveMany(result.entries, file.name);
+      const entries = result.entries.map(entry => ({ ...entry, sourceFile: file.name }));
       const firstDate = result.entries[0]?.date;
       if (firstDate) setSelectedDate(firstDate);
-      toast.success(`${result.entries.length} registro(s) de sazonalidade importado(s).`);
+      setLocalItems(prev => {
+        const byId = new Map(prev.map(item => [item.id, item] as const));
+        for (const entry of entries) byId.set(entry.id, entry);
+        return [...byId.values()];
+      });
+
+      try {
+        await saveMany(entries, file.name);
+        setLocalItems(prev => prev.filter(item => !entries.some(entry => entry.id === item.id)));
+        toast.success(`${entries.length} registro(s) de sazonalidade importado(s).`);
+      } catch (saveError: unknown) {
+        const message = (saveError as Error)?.message ?? 'falha desconhecida';
+        setLocalWarning('A planilha foi carregada para análise nesta sessão, mas ainda não foi salva no Firestore. Publique as regras atualizadas para persistir.');
+        toast.warning(`Planilha analisada, mas não salva: ${message}`);
+      }
+
       if (result.skipped > 0) toast.warning(`${result.skipped} linha(s) ignorada(s).`);
     } catch (e: unknown) {
       toast.error('Erro ao importar planilha: ' + ((e as Error)?.message ?? 'falha desconhecida'));
@@ -130,8 +160,15 @@ export function SazonalidadeTab({ issues }: Props) {
     if (!selectedDate || !dayItems.length) return;
     setRemoving(true);
     try {
-      const removed = await removeDate(selectedDate);
-      toast.success(`${removed} registro(s) removido(s) de ${formatSeasonalDate(selectedDate)}.`);
+      const localRemoved = localItems.filter(item => item.date === selectedDate).length;
+      setLocalItems(prev => prev.filter(item => item.date !== selectedDate));
+      let removed = 0;
+      try {
+        removed = await removeDate(selectedDate);
+      } catch {
+        setLocalWarning('Registros locais removidos. O Firestore ainda bloqueia alterações persistentes nesta coleção.');
+      }
+      toast.success(`${removed + localRemoved} registro(s) removido(s) de ${formatSeasonalDate(selectedDate)}.`);
     } catch (e: unknown) {
       toast.error('Erro ao remover data: ' + ((e as Error)?.message ?? 'falha desconhecida'));
     } finally {
@@ -182,7 +219,8 @@ export function SazonalidadeTab({ issues }: Props) {
             <div>
               <h2 className="text-sm font-semibold leading-none">Sazonalidade</h2>
               <p className="text-[11px] text-muted-foreground mt-1">
-                {isLoading ? 'Carregando registros...' : `${items.length} registro(s) em ${dates.length} data(s)`}
+                {isLoading ? 'Carregando registros...' : `${allItems.length} registro(s) em ${allDates.length} data(s)`}
+                {localItems.length > 0 && <span className="text-amber-500"> · {localItems.length} local(is)</span>}
               </p>
             </div>
           </div>
@@ -226,6 +264,13 @@ export function SazonalidadeTab({ issues }: Props) {
           )}
         </div>
       </div>
+
+      {localWarning && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>{localWarning}</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[

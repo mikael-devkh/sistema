@@ -9,13 +9,14 @@ import {
   RefreshCw, Zap, MapPin, Hash,
   Clock, CalendarCheck, Wrench, AlertTriangle,
   ChevronDown, Monitor, WifiOff,
-  Search, ExternalLink, X, Copy, Check,
+  Search, ExternalLink, X, Copy, Check, Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { searchChamadosByFsa } from '../lib/chamado-firestore';
 import type { Chamado } from '../types/chamado';
 import { Collapsible, CollapsibleContent } from '../components/ui/collapsible';
 import { gerarMensagem } from '../lib/jiraScheduling';
+import { exportAgendamentoExcel } from '../lib/agendamento-excel';
 
 import { useAgendamentoData, useRouteGroups } from '../hooks/use-agendamento';
 import { KpiCards } from '../components/scheduling/KpiCards';
@@ -1255,6 +1256,15 @@ export default function AgendamentoPage() {
 
   const sincronizado = format(now, 'HH:mm');
 
+  const handleExportExcel = async () => {
+    try {
+      await exportAgendamentoExcel(allIssues, allLojaGroups);
+      toast.success('Planilha Excel gerada com resumo, lojas 2+ e todos os chamados.');
+    } catch (e: unknown) {
+      toast.error('Erro ao gerar Excel: ' + ((e as Error)?.message ?? 'falha desconhecida'));
+    }
+  };
+
   return (
     <div className="space-y-5 pb-10 animate-page-in">
 
@@ -1300,6 +1310,16 @@ export default function AgendamentoPage() {
               </p>
             </div>
             <div className="flex gap-2 shrink-0">
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={handleExportExcel}
+                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                title="Baixar estudo em Excel"
+                aria-label="Baixar estudo em Excel"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </Button>
               <Button size="sm" variant="outline" onClick={refresh} disabled={isFetching} className="gap-1.5">
                 <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? 'animate-spin' : ''}`} />
                 {isFetching ? 'Atualizando…' : 'Atualizar'}

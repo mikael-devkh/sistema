@@ -26,6 +26,21 @@ const isChunkLoadError = (err: unknown): boolean => {
   );
 };
 
+const isDomMutationError = (err: unknown): boolean => {
+  if (!err) return false;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  const name = err instanceof DOMException ? err.name.toLowerCase() : '';
+
+  return (
+    name === 'notfounderror' ||
+    msg.includes("failed to execute 'insertbefore'") ||
+    msg.includes('falha ao executar \'insertbefore\'') ||
+    msg.includes('the node before which the new node is to be inserted is not a child') ||
+    msg.includes('o nó anterior ao qual o novo nó deve ser inserido não é filho') ||
+    msg.includes("failed to execute 'removechild'") && msg.includes('not a child')
+  );
+};
+
 const reloadOnce = async (reason: string) => {
   if (sessionStorage.getItem(RELOAD_FLAG)) {
     console.error('[chunk-reload] já recarregou nesta sessão, abortando para evitar loop:', reason);
@@ -50,14 +65,14 @@ const reloadOnce = async (reason: string) => {
 window.addEventListener('vite:preloadError', () => reloadOnce('vite:preloadError'));
 
 window.addEventListener('unhandledrejection', e => {
-  if (isChunkLoadError(e.reason)) {
+  if (isChunkLoadError(e.reason) || isDomMutationError(e.reason)) {
     e.preventDefault();
     reloadOnce('unhandledrejection');
   }
 });
 
 window.addEventListener('error', e => {
-  if (isChunkLoadError(e.error ?? e.message)) {
+  if (isChunkLoadError(e.error ?? e.message) || isDomMutationError(e.error ?? e.message)) {
     e.preventDefault();
     reloadOnce('window.error');
   }
